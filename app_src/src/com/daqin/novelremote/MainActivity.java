@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
@@ -32,17 +33,24 @@ import javax.net.ssl.X509TrustManager;
 
 public class MainActivity extends Activity {
 
-    public static final int CURRENT_VERSION_CODE = 2;
-    public static final String CURRENT_VERSION_NAME = "1.1.0";
     public static final String HOME_URL = "https://124.220.54.64/novel/";
     public static final String CHECK_UPDATE_URL = "https://124.220.54.64/novel/api/version";
 
     private WebView webView;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
+    private int myVersionCode = 4;
+    private String myVersionName = "1.3.0";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // 读取动态包版本信息
+        try {
+            PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            myVersionCode = pInfo.versionCode;
+            myVersionName = pInfo.versionName;
+        } catch (Exception ignored) {}
 
         // 信任证书
         trustAllCertificates();
@@ -56,8 +64,12 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
-        settings.setSupportZoom(true);
+        settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
+
+        // 注入专属 App 标识到 UserAgent，使前端自动识别 App 环境，隐藏下载按钮并应用原生沉浸样式
+        String defaultUA = settings.getUserAgentString();
+        settings.setUserAgentString(defaultUA + " NovelRemoteHubApp/" + myVersionName);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -102,16 +114,17 @@ public class MainActivity extends Activity {
                         reader.close();
 
                         String jsonStr = sb.toString();
-                        final int remoteVersionCode = extractInt(jsonStr, "versionCode", CURRENT_VERSION_CODE);
-                        final String remoteVersionName = extractString(jsonStr, "versionName", CURRENT_VERSION_NAME);
-                        final String downloadUrl = extractString(jsonStr, "apkUrl", HOME_URL + "download/DaqinNovelHub.apk");
+                        final int remoteVersionCode = extractInt(jsonStr, "versionCode", myVersionCode);
+                        final String remoteVersionName = extractString(jsonStr, "versionName", myVersionName);
+                        final String downloadUrl = extractString(jsonStr, "apkUrl", HOME_URL + "download/NovelRemoteHub.apk");
                         final String changelog = extractString(jsonStr, "changelog", "有最新版本可用");
 
-                        if (remoteVersionCode > CURRENT_VERSION_CODE) {
+                        // 只有服务端版本严格大于当前安装的本地版本时才提示更新
+                        if (remoteVersionCode > myVersionCode) {
                             mainHandler.post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    showUpdateDialog(remoteVersionName, changelog, downloadUrl);
+                                    showUpdateDialog(remoteVersionName, myVersionName, changelog, downloadUrl);
                                 }
                             });
                         }
@@ -137,10 +150,10 @@ public class MainActivity extends Activity {
         return defVal;
     }
 
-    private void showUpdateDialog(String versionName, String changelog, final String downloadUrl) {
+    private void showUpdateDialog(String remoteVersion, String localVersion, String changelog, final String downloadUrl) {
         new AlertDialog.Builder(this)
-                .setTitle("🚀 发现新版本 (v" + versionName + ")")
-                .setMessage("当前版本: v" + CURRENT_VERSION_NAME + "\n最新版本: v" + versionName + "\n\n更新说明：\n" + changelog)
+                .setTitle("🚀 发现新版本 (v" + remoteVersion + ")")
+                .setMessage("当前版本: v" + localVersion + "\n最新版本: v" + remoteVersion + "\n\n更新说明：\n" + changelog)
                 .setPositiveButton("立即下载更新", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {

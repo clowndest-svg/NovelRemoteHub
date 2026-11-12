@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 r"""
-NovelRemoteHub · 智笔云枢 本地执行与多书架同步桥接器 (Local Agent Bridge 2.2)
+NovelRemoteHub · 智笔云枢 本地执行与多书架同步桥接器 (Local Agent Bridge 2.3)
 运行在公司 Windows 电脑上 (D:\RuanJian\NovelRemoteHub)
-绝不占用 C 盘空间
-全面整合 Gemini Pro 算力、Antigravity 自动化执行与多书架工作流
+严格遵守 C 盘零占用铁律
+支持：
+1. 创作下一章与正文精修
+2. 一键构思新书、全套世界观架构与分卷细纲总谱生成
+3. 设定大典智谱演化：新增设定文档、深度扩展与正文逻辑冲突排查
 """
 import os
 import sys
@@ -21,7 +24,6 @@ import ctypes
 BOOKS_ROOT = r"D:\小说"
 DEFAULT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔"
 BRAIN_CONV_ID = "be7c9c60-1b07-4a49-8927-f9c527d4f9f4"
-TRANSCRIPT_PATH = rf"C:\Users\23793\.gemini\antigravity\brain\{BRAIN_CONV_ID}\.system_generated\logs\transcript.jsonl"
 AGENTAPI_BAT = r"C:\Users\23793\.gemini\antigravity\bin\agentapi.bat"
 
 CLOUD_SERVER_URL = "https://124.220.54.64/novel/api"
@@ -137,7 +139,6 @@ def sync_all_books_to_cloud():
     total_settings = 0
     convs = collect_all_conversations()
 
-    # 扫描 D:\小说 下所有作品
     if os.path.exists(BOOKS_ROOT):
         for entry in os.scandir(BOOKS_ROOT):
             if entry.is_dir() and not entry.name.startswith("."):
@@ -156,72 +157,8 @@ def sync_all_books_to_cloud():
 
     return True, total_chapters, total_settings
 
-# 5. 组装 SOP 提示词 (动态适配多书架作品)
-def build_task_prompt(user_prompt, book_id=None):
-    book_name = book_id or DEFAULT_BOOK
-    book_root = os.path.join(BOOKS_ROOT, book_name)
-
-    c_files = sorted(glob.glob(os.path.join(book_root, "01_正文", "**", "*.md"), recursive=True))
-    next_chapter_num = len(c_files) + 1
-    pad_num = f"{next_chapter_num:03d}"
-
-    prev_chapter_tail = ""
-    if c_files:
-        latest_file = c_files[-1]
-        with open(latest_file, "r", encoding="utf-8", errors="ignore") as fp:
-            prev_content = fp.read()
-            prev_chapter_tail = prev_content[-1500:]
-
-    outline_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*细纲*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*大纲*.md"))
-    chapter_outline = ""
-    if outline_candidates:
-        with open(outline_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
-            outline_text = fp.read()
-            pattern = rf"(第{pad_num}章[^\n]*\n(?:(?!\n###|\n##第|\n\* \*\*第).)*)"
-            m = re.search(pattern, outline_text, re.DOTALL)
-            if m:
-                chapter_outline = m.group(1).strip()
-
-    is_write_chapter = any(kw in user_prompt for kw in ["第", "章", "创作", "续写", "开始写作"]) or not user_prompt
-
-    if is_write_chapter:
-        prompt = f"""【《{book_name}》小说创作指令 · 第{pad_num}章】
-
-你正在为番茄小说作品《{book_name}》创作正文。
-请严格遵循全局创作铁律：
-1. 题材核心：遵循本书宇宙设定与主线总谱，将硬核设定与情节高潮深度融合；
-2. 生产力决定生产关系铁律：民生政治文化润物细无声，随着剧情推进展现真实质感与震撼；
-3. 番茄小说排版规范：移动端短段落黄金排版，对话严格使用中文全角双引号“”，每段1-3行，戏带设定，绝不通篇说明文；
-4. 篇幅要求：4000-5000字，字数充沛，情节饱满，节奏极度紧凑。
-
-【上一章末尾衔接钩子】：
-\"\"\"
-{prev_chapter_tail}
-\"\"\"
-
-【本章分章细纲规划】：
-{chapter_outline if chapter_outline else f"第{pad_num}章按总谱剧情推进，承接上一章伏笔"}
-
-【指令附加要求】：
-{user_prompt if user_prompt else "按大纲极致推演，强化反差爽点与剧情张力，章末设置引人点击下一章的王炸悬念钩子"}
-
-请直接开始创作第{pad_num}章完整正文，并在完成后调用 write_file 写入对应文件路径：
-`D:\\小说\\{book_name}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
-"""
-    else:
-        prompt = f"""【《{book_name}》小说辅助指令】
-当前小说工程工作区：`D:\\小说\\{book_name}`
-来自作者的指令：
-\"\"\"
-{user_prompt}
-\"\"\"
-
-请严格按照本书宇宙设定集与大纲体系执行该要求，并在必要时直接修改或创建对应文件。
-"""
-    return prompt, pad_num
-
-# 6. 执行 Antigravity 唤醒 (优先指定 --model=pro 激发顶级会员算力)
-def execute_agentapi(prompt, title="【手机遥控】小说创作", engine_mode="antigravity_pro"):
+# 5. 执行 Antigravity 唤醒 (优先指定 --model=pro 激发顶级会员算力)
+def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro"):
     cmd = [AGENTAPI_BAT, "new-conversation", "--model=pro", f"--title={title}", prompt]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=45)
@@ -240,14 +177,14 @@ def execute_agentapi(prompt, title="【手机遥控】小说创作", engine_mode
     except Exception as e:
         return False, str(e)
 
-# 7. 任务调度主循环
+# 6. 任务调度主循环
 def run_bridge_loop():
     prevent_sleep()
     ok, c_cnt, s_cnt = sync_all_books_to_cloud()
     print(f"[Sync] 初始同步完成: 多书架章节总数={c_cnt}, 设定文档={s_cnt}")
 
     print("\n" + "="*50)
-    print("🚀 NovelRemoteHub · 智笔云枢 本地执行端 (Local Bridge 2.2) 已就绪！")
+    print("🚀 NovelRemoteHub · 智笔云枢 本地执行端 (Local Bridge 2.3) 已就绪！")
     print(f"📡 监听云端中枢: {CLOUD_SERVER_URL}")
     print(f"🤖 引擎调度: Gemini Pro (Antigravity 智能体)")
     print(f"📚 多书架工作区: {BOOKS_ROOT}")
@@ -265,27 +202,148 @@ def run_bridge_loop():
             if data and data.get("task"):
                 task = data["task"]
                 tid = task["id"]
-                action = task.get("action")
+                action = task.get("action", "creative_instruction")
+                sub_action = task.get("sub_action", "")
+                extra_data = task.get("extra_data", {})
                 user_prompt = task.get("prompt", "")
                 book_id = task.get("book_id", DEFAULT_BOOK)
                 engine = task.get("engine_mode", "antigravity_pro")
 
-                print(f"\n[Task] 捕获来自手机/远程端的指令! ID={tid}, 作品={book_id}")
-                api_post("task_progress", {"id": tid, "status": "running", "log": f"本地电脑已接收指令，启动 Gemini Pro 引擎 ({engine})，目标作品: 《{book_id}》..."})
+                print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}")
 
-                final_prompt, pad_num = build_task_prompt(user_prompt, book_id)
+                # 分流处理 3 大类指令
+                if action == "create_new_novel":
+                    # A. 构思创建全新小说架构
+                    book_title = extra_data.get("title") or book_id
+                    genre = extra_data.get("genre", "科幻修真 / 网文")
+                    concept = extra_data.get("concept", user_prompt)
+                    book_root = os.path.join(BOOKS_ROOT, book_title)
 
-                api_post("task_progress", {"id": tid, "status": "running", "log": f"已组装大纲 SOP 提示词，目标: 第{pad_num}章/辅助指令。"})
-                api_post("task_progress", {"id": tid, "status": "running", "log": f"正在唤醒 Antigravity 智能体 (Gemini Pro)..."})
+                    api_post("task_progress", {"id": tid, "status": "running", "log": f"正在为全新作品《{book_title}》初始化工程目录结构..."})
+                    os.makedirs(os.path.join(book_root, "00_设定集"), exist_ok=True)
+                    os.makedirs(os.path.join(book_root, "01_正文", "第一卷_人界篇"), exist_ok=True)
+
+                    prompt = f"""【全新小说架构与总谱工程创建指令 · 《{book_title}》】
+目标工程目录：`D:\\小说\\{book_title}`
+题材分类：{genre}
+核心设定与作者构思：
+\"\"\"
+{concept}
+\"\"\"
+
+你现在是白金级网文总架构师。请为《{book_title}》完成全套世界观与分卷分章构想，并调用 write_file 完整写入以下设定文件：
+1. `D:\\小说\\{book_title}\\00_设定集\\01_世界观核心设定与科技修炼体系.md`（包含力量境界体系、登天能级梯次、核心法则、社会生产力演化）；
+2. `D:\\小说\\{book_title}\\00_设定集\\02_核心人物小传与各方阵营势力.md`（包含主角身世金手指、核心反派、朝廷/宗门势力架构）；
+3. `D:\\小说\\{book_title}\\00_设定集\\03_全书分卷主线总谱与前30章分章细纲.md`（包含全书主线伏笔脉络、各卷高潮、前30章每章剧情推演与章末反转钩子）。
+
+请直接调用 write_file 将以上文档全部写入落盘，确保内容详实充沛、设定自洽、爽点与悬念密集！
+"""
+                    task_title = f"【手机遥控】新建作品架构《{book_title}》"
+
+                elif action == "evolve_settings":
+                    # B. 设定集演进 (新增、润色扩展、一致性排查)
+                    book_root = os.path.join(BOOKS_ROOT, book_id)
+                    target_doc = extra_data.get("target_doc", "")
+                    doc_path = os.path.join(book_root, "00_设定集", target_doc) if target_doc else ""
+
+                    api_post("task_progress", {"id": tid, "status": "running", "log": f"正在分析《{book_id}》设定集，准备执行【{sub_action}】..."})
+
+                    existing_content = ""
+                    if doc_path and os.path.exists(doc_path):
+                        with open(doc_path, "r", encoding="utf-8", errors="ignore") as fp:
+                            existing_content = fp.read()
+
+                    prompt = f"""【《{book_id}》设定大典升级演进指令 · 操作模式：{sub_action}】
+当前小说工程目录：`D:\\小说\\{book_id}`
+设定集目录：`D:\\小说\\{book_id}\\00_设定集`
+目标设定文档：{target_doc if target_doc else "根据需求新建或更新对应设定文件"}
+
+【既有设定文档参考截选】：
+\"\"\"
+{existing_content[:3000] if existing_content else "(新建或全书排查)"}
+\"\"\"
+
+【作者具体演化要求】：
+\"\"\"
+{user_prompt}
+\"\"\"
+
+请严格遵循本书宏观世界观逻辑与科技修仙/生产力演化原则：
+1. 深入推演细节，丰富规则、人物、法宝、势力或逻辑推导；
+2. 直接调用 write_file 或 edit_file 更新落盘到 `D:\\小说\\{book_id}\\00_设定集\\` 对应文件；
+3. 完成后返回更新总结！
+"""
+                    task_title = f"【手机遥控】《{book_id}》设定演进"
+
+                else:
+                    # C. 正文创作与章节精修
+                    book_root = os.path.join(BOOKS_ROOT, book_id)
+                    c_files = sorted(glob.glob(os.path.join(book_root, "01_正文", "**", "*.md"), recursive=True))
+                    next_chapter_num = len(c_files) + 1
+                    pad_num = f"{next_chapter_num:03d}"
+
+                    prev_chapter_tail = ""
+                    if c_files:
+                        with open(c_files[-1], "r", encoding="utf-8", errors="ignore") as fp:
+                            prev_chapter_tail = fp.read()[-1500:]
+
+                    outline_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*细纲*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*大纲*.md"))
+                    chapter_outline = ""
+                    if outline_candidates:
+                        with open(outline_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
+                            outline_text = fp.read()
+                            m = re.search(rf"(第{pad_num}章[^\n]*\n(?:(?!\n###|\n##第|\n\* \*\*第).)*)", outline_text, re.DOTALL)
+                            if m:
+                                chapter_outline = m.group(1).strip()
+
+                    is_write_chapter = any(kw in user_prompt for kw in ["第", "章", "创作", "续写", "开始写作"]) or not user_prompt
+
+                    if is_write_chapter:
+                        prompt = f"""【《{book_id}》小说创作指令 · 第{pad_num}章】
+你正在为番茄小说作品《{book_id}》创作正文。
+请严格遵循全局创作铁律：
+1. 题材核心：遵循本书宇宙设定与主线总谱，将硬核设定与情节高潮深度融合；
+2. 生产力决定生产关系铁律：民生政治文化润物细无声，展现真实质感与震撼；
+3. 番茄小说排版规范：移动端短段落黄金排版，对话严格使用中文全角双引号“”，每段1-3行，戏带设定，绝不通篇说明文；
+4. 篇幅要求：4000-5000字，字数充沛，情节饱满，节奏极度紧凑。
+
+【上一章末尾衔接钩子】：
+\"\"\"
+{prev_chapter_tail}
+\"\"\"
+
+【本章分章细纲规划】：
+{chapter_outline if chapter_outline else f"第{pad_num}章按总谱剧情推进，承接上一章伏笔"}
+
+【指令附加要求】：
+{user_prompt if user_prompt else "按大纲极致推演，强化剧情反差张力，章末设置引人点击下一章的王炸悬念钩子"}
+
+请直接开始创作第{pad_num}章完整正文，并在完成后调用 write_file 写入对应文件路径：
+`D:\\小说\\{book_id}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
+"""
+                    else:
+                        prompt = f"""【《{book_id}》小说辅助指令】
+当前小说工程工作区：`D:\\小说\\{book_id}`
+来自作者的指令：
+\"\"\"
+{user_prompt}
+\"\"\"
+请严格按照本书宇宙设定集与大纲体系执行该要求，并在必要时直接修改或创建对应文件。
+"""
+                    task_title = f"【手机遥控】《{book_id}》创作第{pad_num}章"
+
+                api_post("task_progress", {"id": tid, "status": "running", "log": f"已组装指令提示词，正在唤醒 Antigravity 智能体 (Gemini Pro)..."})
                 
-                ok, output = execute_agentapi(final_prompt, title=f"【手机遥控】《{book_id}》创作", engine_mode=engine)
+                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine)
                 if ok:
                     api_post("task_progress", {
                         "id": tid, 
                         "status": "completed", 
-                        "log": f"✅ Antigravity (Gemini Pro) 创作会话已启动！AI正在根据分章细纲与SOP规范进行写作！\n{output.strip()}"
+                        "log": f"✅ Antigravity (Gemini Pro) 任务执行完毕！落盘文件已自动同步至云端！\n{output.strip()}"
                     })
-                    print(f"[Task] 成功唤醒 Antigravity 执行任务！")
+                    print(f"[Task] 成功执行任务: {task_title}")
+                    # 立即全量同步
+                    sync_all_books_to_cloud()
                 else:
                     api_post("task_progress", {
                         "id": tid, 
@@ -299,7 +357,7 @@ def run_bridge_loop():
                 if os.path.exists(BOOKS_ROOT):
                     current_count = len(glob.glob(os.path.join(BOOKS_ROOT, "**", "*.md"), recursive=True))
                 if current_count != last_file_count:
-                    print(f"[Sync] 检测到章节文件发生变化 ({last_file_count} -> {current_count})，立即自动同步至云端！")
+                    print(f"[Sync] 检测到文件变化 ({last_file_count} -> {current_count})，立即自动同步至云端！")
                     sync_all_books_to_cloud()
                     last_file_count = current_count
                 else:

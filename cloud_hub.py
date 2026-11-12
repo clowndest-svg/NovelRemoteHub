@@ -46,10 +46,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 3,
-    "versionName": "1.2.0",
+    "versionCode": 4,
+    "versionName": "1.3.0",
     "apkUrl": "https://124.220.54.64/novel/download/NovelRemoteHub.apk",
-    "changelog": "1. 【品牌升级】重命名为「智笔云枢 · NovelRemoteHub」，支持多书架与未来多小说创作！\n2. 【视觉革命】章节卷宗目录界面全面重构，新增卡片视图、实时检索与数据概览！\n3. 【体验优化】顶部 Logo 升级为纯矢量防闪烁徽标，状态栏与下载按钮横向对齐！\n4. 【番茄质检】一键清洗、敏感词扫描、全本 ZIP 批量导出！",
+    "changelog": "1. 【全新功能】支持一键建立全新小说架构、分章构思与全套设定集生成！\n2. 【全新功能】「智谱工坊」上线：支持新增、润色扩展已有设定集并进行全书逻辑排查！\n3. 【UI重构】深度适配原生 App 体验，优化手机端排版，杜绝标题截断与底部悬浮遮挡！\n4. 【修复】动态读取本地版本，彻底修复误报更新问题。",
     "forceUpdate": False
 }
 
@@ -406,14 +406,18 @@ class HubHandler(BaseHTTPRequestHandler):
             prompt = body.get("prompt", "")
             book_id = body.get("book_id", "给政哥讲量子力学，他竟肉身硬抗二向箔")
             engine_mode = body.get("engine_mode", "antigravity_pro")
+            sub_action = body.get("sub_action", "")
+            extra_data = body.get("extra_data", {})
 
             tid = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
             task = {
                 "id": tid,
                 "action": action,
+                "sub_action": sub_action,
                 "prompt": prompt,
                 "book_id": book_id,
                 "engine_mode": engine_mode,
+                "extra_data": extra_data,
                 "status": "pending",
                 "progress_log": [f"[{time.strftime('%H:%M:%S')}] 任务已建立，等待公司电脑接收..."],
                 "created_at": time.time(),

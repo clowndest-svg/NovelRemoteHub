@@ -3,35 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>NovelRemoteHub · 智笔云枢 | 多书架 AI 协同创作与番茄自动化发布中枢</title>
-    <!-- Marked.js 极速渲染 -->
+    <title>NovelRemoteHub · 智笔云枢</title>
+    <!-- Marked.js 极速轻量渲染器 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
-            --bg-base: #06080d;
+            --bg-base: #070a10;
             --bg-primary: #0d121c;
             --bg-secondary: #131b29;
-            --bg-card: #182234;
-            --bg-card-hover: #1f2c42;
+            --bg-card: #172233;
+            --bg-card-hover: #1e2c42;
             --text-main: #f1f5f9;
             --text-sub: #94a3b8;
             --text-dim: #64748b;
             --accent: #e2b740; /* 仙秦玄金 */
             --accent-hover: #fcd34d;
             --accent-glow: rgba(226, 183, 64, 0.25);
-            --border: #243044;
-            --border-highlight: rgba(226, 183, 64, 0.45);
-            --reader-bg: #0b1018;
+            --border: #222f42;
+            --border-highlight: rgba(226, 183, 64, 0.4);
+            --reader-bg: #0a0f17;
             --reader-text: #e2e8f0;
             --reader-font-size: 19px;
             --reader-line-height: 1.88;
-            --bottom-nav-height: 64px;
+            --bottom-nav-height: 66px;
             --radius-sm: 8px;
             --radius-md: 14px;
             --radius-lg: 20px;
             --cyan: #38bdf8;
             --green: #22c55e;
             --tomato: #ef4444;
+            --purple: #a855f7;
         }
 
         /* 皮肤：羊皮纸 */
@@ -86,77 +87,73 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* 隐藏原生滚动条，更具原生 App 质感 */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+        * {
+            scrollbar-width: none;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
             background: var(--bg-base);
             color: var(--text-main);
             min-height: 100vh;
-            padding-bottom: calc(var(--bottom-nav-height) + 20px);
+            /* 保证底部内容完全高出悬浮导航栏，杜绝遮挡 */
+            padding-bottom: calc(var(--bottom-nav-height) + 50px);
             overflow-x: hidden;
             display: flex;
             flex-direction: column;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
-        /* 顶部导航条 (防闪烁 + 左右对齐) */
+        /* 顶部原生 App 状态栏 */
         header {
             position: sticky;
             top: 0;
             z-index: 100;
-            background: rgba(13, 18, 28, 0.92);
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
+            background: rgba(13, 18, 28, 0.94);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border-bottom: 1px solid var(--border);
-            padding: 10px 16px;
+            padding: 10px 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 10px;
+            gap: 8px;
         }
 
         .brand-box {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             cursor: pointer;
-            text-decoration: none;
             flex-shrink: 0;
         }
 
-        /* 纯矢量内联 SVG Logo (零闪烁 · 毫秒渲染) */
         .brand-logo-svg {
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
-            box-shadow: 0 0 14px var(--accent-glow);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            box-shadow: 0 0 12px var(--accent-glow);
             flex-shrink: 0;
-        }
-
-        .brand-info {
-            display: flex;
-            flex-direction: column;
         }
 
         .brand-title {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 800;
             color: var(--accent);
-            letter-spacing: 0.5px;
-            line-height: 1.2;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
         }
 
-        .brand-sub {
-            font-size: 11px;
-            color: var(--text-sub);
-            letter-spacing: 0.5px;
-            font-weight: 500;
-        }
-
-        /* 右上角按钮横向优雅排列 (针对图一用户反馈专项重构) */
+        /* 右上角原生动作区 (紧凑、零截断) */
         .header-actions {
             display: flex;
-            flex-direction: row;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             flex-shrink: 0;
         }
 
@@ -167,10 +164,10 @@
             background: rgba(34, 197, 94, 0.12);
             border: 1px solid rgba(34, 197, 94, 0.35);
             color: #4ade80;
-            font-size: 12px;
-            font-weight: 600;
-            padding: 5px 10px;
-            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 14px;
             white-space: nowrap;
         }
 
@@ -181,11 +178,11 @@
         }
 
         .pulse-dot {
-            width: 7px;
-            height: 7px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
             background: #22c55e;
-            box-shadow: 0 0 8px #22c55e;
+            box-shadow: 0 0 6px #22c55e;
             animation: pulse-ring 2s infinite;
         }
 
@@ -201,70 +198,84 @@
             100% { transform: scale(0.95); opacity: 0.8; }
         }
 
-        .btn-apk-top {
+        /* 网页端显示的紧凑下载按钮 (App 内自动隐藏) */
+        .btn-apk-pill {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
+            gap: 4px;
             background: linear-gradient(135deg, #10b981, #059669);
             color: #ffffff;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
-            padding: 6px 12px;
-            border-radius: 20px;
+            padding: 4px 8px;
+            border-radius: 14px;
             text-decoration: none;
-            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
             white-space: nowrap;
-            transition: all 0.2s;
         }
 
-        .btn-apk-top:hover {
-            filter: brightness(1.1);
-            transform: translateY(-1px);
-        }
-
-        /* 多书架切换条 */
+        /* 多书架导航条 (自适应防折断) */
         .shelf-strip {
             background: var(--bg-primary);
             border-bottom: 1px solid var(--border);
-            padding: 8px 16px;
+            padding: 8px 12px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 10px;
-            overflow-x: auto;
+            gap: 8px;
         }
 
-        .active-book-pill {
+        .active-book-wrapper {
             display: flex;
             align-items: center;
             gap: 6px;
             background: var(--bg-card);
             border: 1px solid var(--border-highlight);
             color: var(--accent);
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 13px;
+            padding: 5px 10px;
+            border-radius: 16px;
+            font-size: 12px;
             font-weight: 700;
             cursor: pointer;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .active-book-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
             white-space: nowrap;
+            flex: 1;
         }
 
-        .active-book-pill:hover {
-            background: var(--bg-card-hover);
+        .btn-new-book-quick {
+            background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(168, 85, 247, 0.08));
+            border: 1px solid var(--purple);
+            color: #d8b4fe;
+            padding: 5px 9px;
+            border-radius: 14px;
+            font-size: 11px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
-        /* 主体内容容器 */
+        /* 主体布局 */
         main {
             flex: 1;
             max-width: 960px;
             width: 100%;
             margin: 0 auto;
-            padding: 14px 16px;
+            padding: 12px 14px;
+            margin-bottom: 30px;
         }
 
         .panel {
             display: none;
-            animation: fadeIn 0.25s ease;
+            animation: fadeIn 0.2s ease;
         }
 
         .panel.active {
@@ -272,77 +283,76 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(4px); }
+            from { opacity: 0; transform: translateY(3px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* 顶部大卡片：唤醒操控 Antigravity */
-        .hero-action-card {
-            background: linear-gradient(135deg, rgba(226, 183, 64, 0.12), rgba(24, 34, 52, 0.95));
-            border: 1px solid var(--accent);
+        /* App 风格概览卡片 */
+        .app-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            padding: 14px 16px;
-            margin-bottom: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 4px 20px var(--accent-glow);
-            cursor: pointer;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
         }
 
-        .hero-action-card:active {
-            transform: scale(0.98);
+        .app-card.highlight {
+            border-color: var(--border-highlight);
+            background: linear-gradient(135deg, rgba(226, 183, 64, 0.08), rgba(23, 34, 51, 0.95));
         }
 
-        /* 章节目录全新设计 (针对图二用户反馈彻底重构) */
+        /* 章节目录看板 */
         .catalog-hero-box {
             background: linear-gradient(135deg, #131c2d, #1a253c);
             border: 1px solid var(--border-highlight);
             border-radius: var(--radius-md);
-            padding: 16px;
-            margin-bottom: 16px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
         }
 
         .catalog-book-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
+            margin-bottom: 10px;
             gap: 8px;
         }
 
         .catalog-book-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 800;
             color: var(--accent);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
         }
 
         .catalog-stats-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-            background: rgba(9, 13, 20, 0.6);
+            gap: 6px;
+            background: rgba(9, 13, 20, 0.55);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            padding: 10px 12px;
-            margin-bottom: 12px;
+            padding: 8px;
+            margin-bottom: 10px;
         }
 
         .stat-item {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             text-align: center;
         }
 
         .stat-val {
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 800;
             color: var(--text-main);
         }
@@ -351,38 +361,31 @@
         .stat-val.green { color: var(--green); }
 
         .stat-lbl {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-dim);
-            margin-top: 2px;
+            margin-top: 1px;
         }
 
         .catalog-action-row {
             display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
+            gap: 6px;
         }
 
         .btn-catalog-quick {
             flex: 1;
-            min-width: 140px;
             background: var(--bg-card);
             border: 1px solid var(--border);
             color: var(--text-main);
-            padding: 8px 12px;
+            padding: 7px 6px;
             border-radius: var(--radius-sm);
-            font-size: 13px;
-            font-weight: 600;
+            font-size: 12px;
+            font-weight: 700;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
+            gap: 4px;
             cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-catalog-quick:hover {
-            border-color: var(--accent);
-            color: var(--accent);
+            white-space: nowrap;
         }
 
         .btn-catalog-quick.highlight {
@@ -391,20 +394,17 @@
             color: var(--accent);
         }
 
-        /* 搜索与筛选工具栏 */
+        /* 搜索栏 */
         .catalog-toolbar {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            margin-bottom: 14px;
-            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
         }
 
         .search-box {
             position: relative;
             flex: 1;
-            min-width: 200px;
         }
 
         .search-input {
@@ -412,11 +412,10 @@
             background: var(--bg-card);
             border: 1px solid var(--border);
             color: var(--text-main);
-            padding: 9px 12px 9px 34px;
+            padding: 8px 10px 8px 30px;
             border-radius: var(--radius-sm);
-            font-size: 13px;
+            font-size: 12px;
             outline: none;
-            transition: border-color 0.2s;
         }
 
         .search-input:focus {
@@ -425,117 +424,94 @@
 
         .search-icon {
             position: absolute;
-            left: 10px;
+            left: 9px;
             top: 50%;
             transform: translateY(-50%);
             color: var(--text-dim);
-            pointer-events: none;
+            font-size: 12px;
         }
 
         .sort-toggle-btn {
             background: var(--bg-card);
             border: 1px solid var(--border);
             color: var(--text-sub);
-            padding: 9px 14px;
+            padding: 8px 10px;
             border-radius: var(--radius-sm);
-            font-size: 13px;
-            font-weight: 600;
+            font-size: 12px;
+            font-weight: 700;
             cursor: pointer;
             white-space: nowrap;
         }
 
-        .sort-toggle-btn:hover {
-            color: var(--text-main);
-            border-color: var(--accent);
-        }
-
-        /* 章节卡片列表容器 */
+        /* 章节卡片列表 (增加底部外边距，彻底解决底部悬浮遮挡) */
         .chapter-cards-list {
             display: flex;
             flex-direction: column;
             gap: 8px;
+            margin-bottom: 40px;
         }
 
-        /* 优雅的章节卡片组件 */
         .chapter-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            padding: 12px 14px;
+            padding: 11px 12px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            gap: 10px;
             cursor: pointer;
         }
 
-        .chapter-card:hover {
-            background: var(--bg-card-hover);
-            border-color: var(--border-highlight);
-            transform: translateX(2px);
-        }
-
         .chapter-card.active {
-            background: rgba(226, 183, 64, 0.12);
+            background: rgba(226, 183, 64, 0.1);
             border-color: var(--accent);
         }
 
         .chapter-card-left {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             flex: 1;
             min-width: 0;
         }
 
         .chapter-index-pill {
-            background: linear-gradient(135deg, #1e293b, #0f172a);
+            background: #111722;
             border: 1px solid var(--border);
             color: var(--accent);
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 800;
-            padding: 4px 8px;
-            border-radius: 6px;
+            padding: 3px 6px;
+            border-radius: 5px;
             white-space: nowrap;
-            letter-spacing: 0.5px;
-        }
-
-        .chapter-card.active .chapter-index-pill {
-            background: var(--accent);
-            color: #06080d;
         }
 
         .chapter-card-content {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 3px;
             flex: 1;
             min-width: 0;
         }
 
         .chapter-card-title {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             color: var(--text-main);
-            white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .chapter-card-meta {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 11px;
+            gap: 6px;
+            font-size: 10px;
             color: var(--text-dim);
-            flex-wrap: wrap;
-        }
-
-        .meta-tag {
-            display: inline-flex;
-            align-items: center;
-            gap: 3px;
+            overflow: hidden;
+            white-space: nowrap;
         }
 
         .meta-tag.chars { color: var(--cyan); font-weight: 600; }
@@ -544,7 +520,7 @@
         .chapter-card-actions {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
             flex-shrink: 0;
         }
 
@@ -552,23 +528,16 @@
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             color: var(--text-sub);
-            padding: 5px 9px;
+            padding: 4px 8px;
             border-radius: 6px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.15s;
         }
 
-        .btn-card-action:hover {
-            color: #fff;
-            background: var(--accent);
-            border-color: var(--accent);
-        }
-
-        .btn-card-action.tomato:hover {
-            background: var(--tomato);
-            border-color: var(--tomato);
+        .btn-card-action.tomato {
+            color: #fca5a5;
+            border-color: rgba(239, 68, 68, 0.3);
         }
 
         /* 阅读器 */
@@ -579,57 +548,54 @@
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            padding: 8px 12px;
-            margin-bottom: 14px;
-            flex-wrap: wrap;
-            gap: 8px;
+            padding: 8px 10px;
+            margin-bottom: 12px;
+            gap: 6px;
         }
 
         .tool-group {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
         }
 
         .tool-btn {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             color: var(--text-main);
-            padding: 6px 12px;
+            padding: 5px 10px;
             border-radius: var(--radius-sm);
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             cursor: pointer;
-        }
-
-        .tool-btn:active {
-            transform: scale(0.96);
         }
 
         .reader-container {
             background: var(--reader-bg);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 24px 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            padding: 20px 16px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            user-select: text;
+            -webkit-user-select: text;
         }
 
         .chapter-title-hero {
-            font-size: 24px;
+            font-size: 20px;
             font-weight: 900;
             color: var(--accent);
             line-height: 1.4;
             text-align: center;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .chapter-meta-tag {
             text-align: center;
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-dim);
-            margin-bottom: 24px;
-            padding-bottom: 14px;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
             border-bottom: 1px dashed var(--border);
         }
 
@@ -646,10 +612,10 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 30px;
-            padding-top: 18px;
+            margin-top: 24px;
+            padding-top: 14px;
             border-top: 1px solid var(--border);
-            gap: 12px;
+            gap: 8px;
         }
 
         .page-btn {
@@ -657,17 +623,12 @@
             background: var(--bg-card);
             border: 1px solid var(--border);
             color: var(--text-main);
-            padding: 12px;
-            border-radius: var(--radius-md);
-            font-size: 14px;
+            padding: 10px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
             font-weight: 700;
             cursor: pointer;
             text-align: center;
-        }
-
-        .page-btn:hover {
-            border-color: var(--accent);
-            color: var(--accent);
         }
 
         /* 操控 Antigravity 控制面板 */
@@ -675,25 +636,24 @@
             background: var(--bg-card);
             border: 1px solid var(--border-highlight);
             border-radius: var(--radius-lg);
-            padding: 20px;
-            margin-bottom: 16px;
-            box-shadow: 0 4px 24px var(--accent-glow);
+            padding: 16px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 20px var(--accent-glow);
         }
 
         .engine-switch-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin: 14px 0;
+            gap: 8px;
+            margin: 10px 0;
         }
 
         .engine-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 12px;
+            border-radius: var(--radius-sm);
+            padding: 10px;
             cursor: pointer;
-            transition: all 0.2s;
         }
 
         .engine-card.active {
@@ -702,34 +662,32 @@
         }
 
         .engine-title {
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 800;
             color: var(--accent);
-            margin-bottom: 4px;
+            margin-bottom: 2px;
         }
 
         .engine-desc {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-sub);
-            line-height: 1.4;
+            line-height: 1.3;
         }
 
         .prompt-textarea {
             width: 100%;
-            height: 110px;
+            height: 100px;
             background: var(--bg-primary);
             border: 1px solid var(--border);
-            border-radius: var(--radius-md);
+            border-radius: var(--radius-sm);
             color: var(--text-main);
-            font-size: 14px;
-            padding: 12px;
+            font-size: 13px;
+            padding: 10px;
             outline: none;
             resize: vertical;
-            margin-bottom: 12px;
-        }
-
-        .prompt-textarea:focus {
-            border-color: var(--accent);
+            margin-bottom: 10px;
+            user-select: text;
+            -webkit-user-select: text;
         }
 
         .btn-launch-big {
@@ -737,87 +695,84 @@
             background: linear-gradient(135deg, var(--accent), #b48c28);
             border: none;
             color: #06080d;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 800;
-            padding: 13px;
-            border-radius: var(--radius-md);
+            padding: 12px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             box-shadow: 0 4px 16px var(--accent-glow);
-            transition: all 0.2s;
-        }
-
-        .btn-launch-big:hover {
-            filter: brightness(1.1);
         }
 
         .quick-chips-row {
             display: flex;
-            gap: 6px;
+            gap: 5px;
             flex-wrap: wrap;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
         }
 
         .chip {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             color: var(--text-sub);
-            font-size: 12px;
-            padding: 5px 10px;
-            border-radius: 16px;
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 12px;
             cursor: pointer;
         }
 
-        .chip:hover {
+        .chip:hover, .chip.active {
             border-color: var(--accent);
             color: var(--accent);
         }
 
-        /* 终端视窗 */
+        .chip.purple {
+            border-color: rgba(168, 85, 247, 0.4);
+            color: #d8b4fe;
+        }
+
+        /* 终端 */
         .term-container {
             background: #03060a;
             border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 12px;
-            margin-top: 14px;
-            font-family: "Cascadia Code", Consolas, monospace;
-            font-size: 12px;
+            border-radius: var(--radius-sm);
+            padding: 10px;
+            margin-top: 12px;
+            font-family: monospace;
+            font-size: 11px;
             color: #38bdf8;
-            max-height: 240px;
+            max-height: 200px;
             overflow-y: auto;
             white-space: pre-wrap;
+            user-select: text;
+            -webkit-user-select: text;
         }
 
-        /* 番茄发布工作流 */
-        .copy-box-pure {
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
+        /* 设定大典 & 智谱工坊 */
+        .settings-studio-box {
+            background: var(--bg-card);
+            border: 1px solid var(--purple);
             border-radius: var(--radius-md);
             padding: 14px;
-            font-size: 14px;
-            line-height: 1.8;
-            color: var(--text-main);
-            max-height: 280px;
-            overflow-y: auto;
-            margin-bottom: 14px;
-            white-space: pre-wrap;
+            margin-top: 14px;
+            box-shadow: 0 4px 20px rgba(168, 85, 247, 0.15);
         }
 
-        /* 底部固定导航栏 (Native Mobile App 样式) */
+        /* 底部原生悬浮 Dock 导航栏 */
         .dock-bar {
             position: fixed;
             bottom: 0;
             left: 0;
             right: 0;
             height: var(--bottom-nav-height);
-            background: rgba(13, 18, 28, 0.95);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            background: rgba(13, 18, 28, 0.96);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-top: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-around;
             z-index: 100;
-            padding-bottom: env(safe-area-inset-bottom);
+            padding-bottom: env(safe-area-inset-bottom, 0px);
         }
 
         .dock-btn {
@@ -826,11 +781,10 @@
             align-items: center;
             justify-content: center;
             color: var(--text-dim);
-            font-size: 11px;
+            font-size: 10px;
             cursor: pointer;
             flex: 1;
             height: 100%;
-            transition: color 0.15s;
         }
 
         .dock-btn.active {
@@ -839,35 +793,35 @@
         }
 
         .dock-btn .d-icon {
-            font-size: 20px;
+            font-size: 18px;
             margin-bottom: 2px;
         }
 
         .dock-btn.hero {
             position: relative;
-            top: -10px;
+            top: -12px;
         }
 
         .dock-btn.hero .hero-circle {
-            width: 52px;
-            height: 52px;
+            width: 48px;
+            height: 48px;
             border-radius: 50%;
             background: linear-gradient(135deg, var(--accent), #9a741a);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 26px;
+            font-size: 22px;
             box-shadow: 0 4px 16px var(--accent-glow);
             color: #06080d;
         }
 
-        /* 弹窗通用样式 */
+        /* Modal 抽屉 */
         .modal-overlay {
             display: none;
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.75);
-            backdrop-filter: blur(6px);
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
             z-index: 200;
             align-items: center;
             justify-content: center;
@@ -881,26 +835,26 @@
         .modal-box {
             background: var(--bg-card);
             border: 1px solid var(--border-highlight);
-            border-radius: var(--radius-lg);
+            border-radius: var(--radius-md);
             width: 100%;
-            max-width: 480px;
+            max-width: 460px;
             max-height: 85vh;
             overflow-y: auto;
-            padding: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+            padding: 18px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
         }
 
         .modal-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
             border-bottom: 1px solid var(--border);
         }
 
         .modal-title {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 800;
             color: var(--accent);
         }
@@ -913,97 +867,81 @@
             cursor: pointer;
         }
 
-        @media (max-width: 640px) {
-            .catalog-stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            .engine-switch-grid {
-                grid-template-columns: 1fr;
-            }
-            header {
-                padding: 8px 12px;
-            }
-            .brand-title {
-                font-size: 15px;
-            }
-            .brand-sub {
-                display: none;
-            }
+        .input-group {
+            margin-bottom: 12px;
+        }
+
+        .input-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-sub);
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .input-text {
+            width: 100%;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-main);
+            font-size: 13px;
+            padding: 8px 10px;
+            outline: none;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .input-text:focus {
+            border-color: var(--accent);
         }
     </style>
 </head>
 <body>
 
-    <!-- 顶部导航 (防闪烁矢量 Logo + 横向排列按钮) -->
+    <!-- 顶部原生 App 状态栏 -->
     <header>
         <div class="brand-box" onclick="switchTab('catalog')">
-            <!-- 纯内联矢量 SVG Logo (星轨羽笔 · 零闪烁) -->
+            <!-- 纯矢量内联 SVG Logo (零闪烁 · 原生渲染) -->
             <svg class="brand-logo-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect width="100" height="100" rx="20" fill="#0d1424"/>
                 <circle cx="50" cy="50" r="40" stroke="#e2b740" stroke-width="2.5" opacity="0.8"/>
                 <circle cx="50" cy="50" r="32" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6"/>
-                <!-- 羽笔与灵枢折纸 -->
                 <path d="M50 20 L66 45 L50 78 L34 45 Z" fill="#182338" stroke="#e2b740" stroke-width="2"/>
                 <line x1="50" y1="20" x2="50" y2="60" stroke="#fcd34d" stroke-width="2"/>
                 <circle cx="50" cy="45" r="4" fill="#38bdf8"/>
                 <path d="M26 65 Q50 78 74 65" stroke="#e2b740" stroke-width="2" fill="none"/>
             </svg>
-            <div class="brand-info">
-                <span class="brand-title">NovelRemoteHub</span>
-                <span class="brand-sub">智笔云枢 · 多书架协同</span>
-            </div>
+            <span class="brand-title">NovelRemoteHub</span>
         </div>
 
-        <!-- 右上角按钮横向优雅排列 (横着排列 · 不再折叠) -->
         <div class="header-actions">
             <div id="pc-status" class="status-pill offline">
                 <span class="pulse-dot"></span>
                 <span id="status-text">检测中</span>
             </div>
-            <a href="/novel/download/NovelRemoteHub.apk" class="btn-apk-top" download>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                <span>App下载</span>
+            <!-- 网页端展示下载按钮，App 内自动隐藏 -->
+            <a id="btn-apk-header" href="/novel/download/NovelRemoteHub.apk" class="btn-apk-pill" download>
+                <span>📥 App</span>
             </a>
         </div>
     </header>
 
-    <!-- 多书架作品切换条 -->
+    <!-- 多书架作品切换条 (防溢出) -->
     <div class="shelf-strip">
-        <div class="active-book-pill" onclick="openBookDrawer()">
-            <span>📚 当前作品:</span>
-            <span id="current-book-label" style="text-decoration: underline;">《给政哥讲量子力学，他竟肉身硬抗二向箔》</span>
-            <span>▾</span>
+        <div class="active-book-wrapper" onclick="openBookDrawer()">
+            <span>📚</span>
+            <span id="current-book-label" class="active-book-name">《给政哥讲量子力学，他竟肉身硬抗二向箔》</span>
+            <span style="font-size:10px;">▼</span>
         </div>
-        <div style="font-size:12px; color:var(--text-sub); display:flex; align-items:center; gap:6px;">
-            <span>连载中</span>
-            <span style="color:var(--border);">|</span>
-            <span id="shelf-count-tag" style="color:var(--accent);">共 1 部作品</span>
-        </div>
+        <button class="btn-new-book-quick" onclick="openNewBookModal()">
+            <span>➕ 构思新书</span>
+        </button>
     </div>
 
     <main>
         <!-- 1. 阅读器面板 -->
         <section id="panel-reader" class="panel">
-            <!-- 顶部快捷横幅：直达 Antigravity 操控台 -->
-            <div class="hero-action-card" onclick="switchTab('antigravity')">
-                <div>
-                    <div style="font-size:14px; font-weight:800; color:var(--accent); display:flex; align-items:center; gap:6px;">
-                        <span>🤖 电脑 Antigravity 随时待命</span>
-                    </div>
-                    <div style="font-size:12px; color:var(--text-sub); margin-top:3px;">
-                        点击此处下达创作指令 / 一键续写新章节 ➔
-                    </div>
-                </div>
-                <div style="font-size:12px; font-weight:700; color:var(--accent); background:rgba(226,183,64,0.15); padding:6px 12px; border-radius:20px;">
-                    立即指挥
-                </div>
-            </div>
-
-            <!-- 阅读器工具栏 -->
             <div class="reader-toolbar">
                 <div class="tool-group">
                     <button class="tool-btn" onclick="toggleTheme('dark')">🌙 玄黑</button>
@@ -1018,7 +956,6 @@
                 </div>
             </div>
 
-            <!-- 正文盒子 -->
             <div class="reader-container">
                 <h1 id="chapter-title" class="chapter-title-hero">加载中...</h1>
                 <div id="chapter-meta" class="chapter-meta-tag">字数统计中...</div>
@@ -1032,26 +969,24 @@
             </div>
         </section>
 
-        <!-- 2. 【核心重构】章节卷宗目录面板 (针对图二彻底优化) -->
+        <!-- 2. 章节卷宗目录面板 (底部空间充裕，绝无遮挡) -->
         <section id="panel-catalog" class="panel active">
-            <!-- 头部概览卡片 -->
             <div class="catalog-hero-box">
                 <div class="catalog-book-header">
                     <div class="catalog-book-title">
                         <span>📖</span>
                         <span id="catalog-hero-title">给政哥讲量子力学，他竟肉身硬抗二向箔</span>
                     </div>
-                    <button class="tool-btn" onclick="loadChapters()">🔄 刷新目录</button>
+                    <button class="tool-btn" onclick="loadChapters()">🔄 刷新</button>
                 </div>
 
-                <!-- 核心数据看板 -->
                 <div class="catalog-stats-grid">
                     <div class="stat-item">
                         <div class="stat-val gold" id="stat-chapters-count">11</div>
                         <div class="stat-lbl">已创章节</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-val" id="stat-words-count">5.3万</div>
+                        <div class="stat-val" id="stat-words-count">5.2万</div>
                         <div class="stat-lbl">全书字数</div>
                     </div>
                     <div class="stat-item">
@@ -1064,13 +999,12 @@
                     </div>
                 </div>
 
-                <!-- 快捷功能行 -->
                 <div class="catalog-action-row">
                     <button class="btn-catalog-quick highlight" onclick="jumpToLatestChapter()">
                         <span>🚀 直达最新章节</span>
                     </button>
                     <button class="btn-catalog-quick" onclick="exportTomatoZip()">
-                        <span>📦 导出全本番茄ZIP</span>
+                        <span>📦 导出番茄ZIP</span>
                     </button>
                     <button class="btn-catalog-quick" onclick="switchTab('antigravity'); fillActionPrompt('next')">
                         <span>➕ 续写下一章</span>
@@ -1078,7 +1012,6 @@
                 </div>
             </div>
 
-            <!-- 搜索与筛选工具栏 -->
             <div class="catalog-toolbar">
                 <div class="search-box">
                     <span class="search-icon">🔍</span>
@@ -1089,91 +1022,105 @@
 
             <!-- 章节卡片列表 -->
             <div id="chapters-cards-container" class="chapter-cards-list">
-                <div style="padding:30px; text-align:center; color:var(--text-sub);">正在加载章节卡片...</div>
+                <div style="padding:20px; text-align:center; color:var(--text-sub);">正在加载章节...</div>
             </div>
         </section>
 
-        <!-- 3. 操控本电脑 Antigravity / Gemini Pro 中枢 -->
+        <!-- 3. 操控 Antigravity / Gemini Pro 中枢 -->
         <section id="panel-antigravity" class="panel">
             <div class="control-hub-panel">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                    <div style="font-size:16px; font-weight:800; color:var(--accent);">🎮 远程唤醒办公室 Antigravity</div>
-                    <span style="font-size:11px; background:rgba(56,189,248,0.15); color:var(--cyan); padding:4px 8px; border-radius:10px;">Pro会员算力</span>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="font-size:15px; font-weight:800; color:var(--accent);">🎮 远程唤醒办公室 Antigravity</div>
+                    <span style="font-size:10px; background:rgba(56,189,248,0.15); color:var(--cyan); padding:3px 6px; border-radius:10px;">Pro会员深度算力</span>
                 </div>
 
-                <div style="font-size:12px; color:var(--text-sub); line-height:1.5; margin-bottom:12px;">
-                    当前指挥作品：<strong id="ai-target-book" style="color:var(--accent);">《给政哥讲量子力学，他竟肉身硬抗二向箔》</strong><br>
-                    下发指令后，办公室电脑将自动检索大纲设定集，执行创作并把正文写盘同步至手机！
+                <div style="font-size:11px; color:var(--text-sub); line-height:1.4; margin-bottom:10px;">
+                    指挥目标：<strong id="ai-target-book" style="color:var(--accent);">《给政哥讲量子力学，他竟肉身硬抗二向箔》</strong><br>
+                    电脑将根据大纲细纲与前章钩子，全自动创作、写盘落盘并秒级同步！
                 </div>
 
-                <!-- 双引擎切换 -->
+                <!-- 双引擎选择 -->
                 <div class="engine-switch-grid">
                     <div id="eng-antigravity" class="engine-card active" onclick="selectEngine('antigravity_pro')">
                         <div class="engine-title">🌟 Antigravity 智能体</div>
-                        <div class="engine-desc">官方桌面代理，自动检索大纲与写盘，IDE永久留痕。</div>
+                        <div class="engine-desc">官方桌面代理，自动检索大纲/写盘，IDE永久留痕。</div>
                     </div>
                     <div id="eng-gemini" class="engine-card" onclick="selectEngine('gemini_pro_direct')">
                         <div class="engine-title">⚡ Gemini Pro 极速流</div>
-                        <div class="engine-desc">通过电脑 TUN 虚拟网卡节点直连，毫秒级打字机回显。</div>
+                        <div class="engine-desc">通过电脑 TUN 网卡直连 Google API，毫秒打字机回显。</div>
                     </div>
                 </div>
 
-                <!-- 快捷指令预设 -->
+                <!-- 快捷指令 -->
                 <div class="quick-chips-row">
                     <div class="chip" onclick="fillActionPrompt('next')">➕ 续写下一章 (分章大纲+悬念)</div>
                     <div class="chip" onclick="fillActionPrompt('polish')">✨ 精修润色最新章</div>
-                    <div class="chip" onclick="fillActionPrompt('check')">🔍 设定集一致性质检</div>
+                    <div class="chip" onclick="fillActionPrompt('check')">🔍 设定集与正文一致性质检</div>
+                    <div class="chip purple" onclick="openNewBookModal()">🚀 构思新小说架构</div>
                 </div>
 
-                <textarea id="prompt-box" class="prompt-textarea" placeholder="在此输入给 Antigravity 的具体创作/润色指令..."></textarea>
+                <textarea id="prompt-box" class="prompt-textarea" placeholder="在此输入具体创作指令..."></textarea>
 
                 <button id="dispatch-btn" class="btn-launch-big" onclick="launchTask()">
                     🔥 唤醒电脑端 Antigravity 立即执行
                 </button>
 
-                <!-- 实时终端回显视窗 -->
                 <div id="term-container" class="term-container" style="display:none;">
                     <div id="task-terminal">等待任务指令...</div>
                 </div>
             </div>
-
-            <!-- 历史对话记录抽屉 -->
-            <div class="catalog-hero-box" style="margin-top:14px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <div style="font-size:14px; font-weight:800; color:var(--accent);">📜 Antigravity 会话回溯</div>
-                    <button class="tool-btn" onclick="loadConversations()">🔄 刷新</button>
-                </div>
-                <div id="conversations-timeline" style="max-height:260px; overflow-y:auto;">
-                    <div style="padding:20px; text-align:center; color:var(--text-sub);">点击刷新载入历史会话</div>
-                </div>
-            </div>
         </section>
 
-        <!-- 4. 设定大典面板 -->
+        <!-- 4. 设定大典 & 智谱工坊 (支持新增、润色扩展与冲突排查) -->
         <section id="panel-settings" class="panel">
             <div class="catalog-hero-box">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <div class="catalog-book-title">
                         <span>🏛️</span>
-                        <span>世界观 · 登天境 · 分章细纲总谱</span>
+                        <span>世界观 · 战力体系 · 分章细纲</span>
                     </div>
                     <button class="tool-btn" onclick="loadSettings()">🔄 刷新</button>
                 </div>
-                <div id="settings-tabs" style="display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; padding-bottom:6px;">
-                    <!-- 设定标签 -->
+                <!-- 设定标签切换 -->
+                <div id="settings-tabs" style="display:flex; gap:6px; overflow-x:auto; margin-bottom:10px; padding-bottom:4px;">
+                    <!-- 动态生成 -->
                 </div>
-                <div class="reader-container" style="padding:16px;">
-                    <div id="setting-content" class="chapter-body-text">
-                        请在上方选择查看的世界观或细纲卷宗。
+                <div class="reader-container" style="padding:14px; margin-bottom:14px; max-height:360px; overflow-y:auto;">
+                    <div id="setting-content" class="chapter-body-text" style="font-size:14px; line-height:1.7;">
+                        请选择上方设定文档阅读。
                     </div>
                 </div>
+            </div>
+
+            <!-- 智谱工坊：设定文案演进控制器 -->
+            <div class="settings-studio-box">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div style="font-size:14px; font-weight:800; color:#d8b4fe;">✨ 智谱工坊 · 设定演化与质检</div>
+                    <span style="font-size:10px; color:var(--text-dim);">直接更新 D:\小说 设定集</span>
+                </div>
+                <div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">
+                    选择模式后输入指令，Antigravity 将自动扩充细节并更新写入设定文档！
+                </div>
+
+                <div class="quick-chips-row">
+                    <div id="chip-mode-add" class="chip purple active" onclick="setSettingMode('add')">➕ 新增设定文档</div>
+                    <div id="chip-mode-expand" class="chip purple" onclick="setSettingMode('expand')">✨ 深度润色扩展当前设定</div>
+                    <div id="chip-mode-audit" class="chip purple" onclick="setSettingMode('audit')">🔍 全书设定与正文冲突排查</div>
+                </div>
+
+                <input type="text" id="setting-target-input" class="input-text" style="margin-bottom:8px;" placeholder="目标文档名 (如: 04_大秦歼星舰队编制与反物质灵石规范.md)">
+                <textarea id="setting-prompt-box" class="prompt-textarea" style="height:80px;" placeholder="输入设定演化要求，例如：扩展太上量子混元造化经第13-18重登天境细节，融合超弦理论与高维拓扑展开..."></textarea>
+
+                <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="launchSettingEvolution()">
+                    ⚡ 唤醒 Antigravity 执行设定演进
+                </button>
             </div>
         </section>
 
         <!-- 5. 番茄发布工作流面板 -->
         <section id="panel-tomato" class="panel">
             <div class="catalog-hero-box">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <div class="catalog-book-title">
                         <span>🍅</span>
                         <span>番茄小说自动化发布工作流</span>
@@ -1181,15 +1128,15 @@
                     <button class="tool-btn" onclick="exportTomatoZip()">📦 导出全本ZIP</button>
                 </div>
 
-                <div style="font-size:12px; color:var(--text-sub); margin-bottom:12px;">
-                    选择章节自动完成：① 去除Markdown标签 ② 首行缩进两全角字符 ③ 标点全角规范化 ④ 敏感词预检
+                <div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">
+                    自动执行：① 去除Markdown标签 ② 首行缩进两全角字符 ③ 标点全角规范化 ④ 敏感词预检
                 </div>
 
-                <div id="tomato-audit-card" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:12px; display:none;">
-                    <div id="tomato-audit-msg" style="font-size:13px; font-weight:700; color:#f87171;"></div>
+                <div id="tomato-audit-card" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:var(--radius-sm); padding:8px 12px; margin-bottom:10px; display:none;">
+                    <div id="tomato-audit-msg" style="font-size:12px; font-weight:700; color:#f87171;"></div>
                 </div>
 
-                <div id="tomato-preview-box" class="copy-box-pure">请在目录中点击「番茄格式」选择章节进行清洗转换...</div>
+                <div id="tomato-preview-box" class="reader-container" style="padding:12px; font-size:14px; line-height:1.8; max-height:260px; overflow-y:auto; margin-bottom:12px; white-space:pre-wrap;">请在目录中点击「番茄」选择章节清洗转换...</div>
 
                 <button class="btn-launch-big" style="background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff;" onclick="copyTomatoContent()">
                     <span>📋 一键复制番茄纯净正文 (可直接粘贴发布)</span>
@@ -1198,7 +1145,7 @@
         </section>
     </main>
 
-    <!-- 底部固定导航栏 (Native Mobile App 样式) -->
+    <!-- 底部原生悬浮 Dock 导航栏 -->
     <nav class="dock-bar">
         <div id="dock-catalog" class="dock-btn active" onclick="switchTab('catalog')">
             <div class="d-icon">📑</div>
@@ -1211,7 +1158,7 @@
         <!-- 正中央高亮按钮：操控 Antigravity -->
         <div class="dock-btn hero" onclick="switchTab('antigravity')">
             <div class="hero-circle">🎮</div>
-            <span style="margin-top:2px; font-weight:800; color:var(--accent);">操控AI</span>
+            <span style="margin-top:1px; font-weight:800; color:var(--accent);">操控AI</span>
         </div>
         <div id="dock-settings" class="dock-btn" onclick="switchTab('settings')">
             <div class="d-icon">🏛️</div>
@@ -1230,12 +1177,42 @@
                 <div class="modal-title">📚 作品书架管理</div>
                 <button class="close-btn" onclick="closeBookDrawer()">&times;</button>
             </div>
-            <div id="books-list-container" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;">
-                <!-- 动态书架列表 -->
+            <div id="books-list-container" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+            <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #6b21a8); color:#fff; font-size:13px; padding:10px;" onclick="closeBookDrawer(); openNewBookModal();">
+                ➕ 构思并新建一部新小说
+            </button>
+        </div>
+    </div>
+
+    <!-- 🚀 新书架构向导 Modal (核心新功能) -->
+    <div id="new-book-modal" class="modal-overlay" onclick="closeNewBookModal(event)">
+        <div class="modal-box" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title">🚀 Antigravity 新书架构工坊</div>
+                <button class="close-btn" onclick="closeNewBookModal()">&times;</button>
             </div>
-            <div style="font-size:12px; color:var(--text-dim); text-align:center;">
-                系统自动扫描公司电脑 D:\小说 目录下的全部作品
+            <div style="font-size:12px; color:var(--text-sub); margin-bottom:12px; line-height:1.4;">
+                输入新书构想，Antigravity 将自动在公司电脑建立工程、构思分卷大纲、生成全套世界观与设定集文档！
             </div>
+
+            <div class="input-group">
+                <label class="input-label">📖 新小说书名</label>
+                <input type="text" id="new-book-title" class="input-text" placeholder="例如：《大明火器修仙：我给永乐造歼星舰》">
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">🏷️ 题材与流派</label>
+                <input type="text" id="new-book-genre" class="input-text" placeholder="例如：历史科幻 / 赛博仙侠 / 宇宙工业修仙">
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">💡 核心脑洞与金手指构想</label>
+                <textarea id="new-book-concept" class="prompt-textarea" style="height:90px;" placeholder="简要描述核心爽点，例如：永乐大帝肉身登临南天门，郑和下西洋发现了曲率引擎灵石跃迁星图，满朝文武开歼星舰征伐诸天..."></textarea>
+            </div>
+
+            <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="submitNewNovelArchitecture()">
+                🔥 唤醒 Antigravity 自动生成全套架构与设定集
+            </button>
         </div>
     </div>
 
@@ -1250,10 +1227,16 @@
         let CURRENT_ENGINE = "antigravity_pro";
         let ACTIVE_TASK_ID = null;
         let TASK_POLL_TIMER = null;
-        let SORT_DESC = true; // 默认最新章节在最上面
+        let SORT_DESC = true;
+        let SETTING_MODE = "add";
+        let CURRENT_SETTING_DOC = "";
 
-        // 初始化
         window.addEventListener("DOMContentLoaded", () => {
+            // 原生 App 环境检测：若在 Android App 内部则自动隐藏下载按钮
+            if (navigator.userAgent.includes("NovelRemoteHubApp")) {
+                const apkBtn = document.getElementById("btn-apk-header");
+                if (apkBtn) apkBtn.style.display = "none";
+            }
             initApp();
         });
 
@@ -1262,7 +1245,6 @@
             setInterval(checkStatus, 10000);
             await loadBooks();
             await loadChapters();
-            checkAppUpdate();
         }
 
         async function fetchAPI(url, opts = {}) {
@@ -1293,12 +1275,10 @@
                 }
                 return await res.json();
             } catch (e) {
-                console.error("API Error:", e);
                 return { error: e.message };
             }
         }
 
-        // 检查电脑在线状态
         async function checkStatus() {
             try {
                 const res = await fetch(`${API}/status`);
@@ -1319,18 +1299,7 @@
             }
         }
 
-        // 检查客户端 APK 更新
-        async function checkAppUpdate() {
-            try {
-                const res = await fetch(`${API}/version`);
-                const data = await res.json();
-                if (data && data.versionName) {
-                    console.log("云端最新 App 版本:", data.versionName);
-                }
-            } catch (e) {}
-        }
-
-        // 加载书架作品
+        // 加载书架
         async function loadBooks() {
             const data = await fetchAPI(`${API}/books`);
             if (data && data.books) {
@@ -1338,7 +1307,6 @@
                 if (BOOKS.length > 0 && !CURRENT_BOOK) {
                     CURRENT_BOOK = BOOKS[0].id;
                 }
-                document.getElementById("shelf-count-tag").innerText = `共 ${BOOKS.length} 部作品`;
                 updateBookLabels();
             }
         }
@@ -1355,12 +1323,12 @@
         function openBookDrawer() {
             const container = document.getElementById("books-list-container");
             container.innerHTML = BOOKS.map(b => `
-                <div style="background:var(--bg-secondary); border:1px solid ${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--border)'}; border-radius:var(--radius-sm); padding:12px; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectBook('${b.id}')">
-                    <div>
-                        <div style="font-size:14px; font-weight:800; color:${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--text-main)'};">📖 《${b.title}》</div>
-                        <div style="font-size:11px; color:var(--text-dim); margin-top:3px;">共 ${b.chapter_count || 0} 章 · 设定卷宗 ${b.settings_count || 0} 篇</div>
+                <div style="background:var(--bg-secondary); border:1px solid ${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--border)'}; border-radius:var(--radius-sm); padding:10px; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectBook('${b.id}')">
+                    <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">
+                        <div style="font-size:13px; font-weight:800; color:${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--text-main)'}; overflow:hidden; text-overflow:ellipsis;">📖 《${b.title}》</div>
+                        <div style="font-size:10px; color:var(--text-dim); margin-top:2px;">共 ${b.chapter_count || 0} 章 · 设定卷宗 ${b.settings_count || 0} 篇</div>
                     </div>
-                    <span style="color:var(--accent);">${b.id === CURRENT_BOOK ? '● 当前' : '➔ 切换'}</span>
+                    <span style="color:var(--accent); font-size:11px; white-space:nowrap; margin-left:8px;">${b.id === CURRENT_BOOK ? '● 当前' : '➔ 切换'}</span>
                 </div>
             `).join("");
             document.getElementById("book-modal").classList.add("show");
@@ -1377,7 +1345,121 @@
             await loadChapters();
         }
 
-        // 加载章节卷宗
+        // 新书架构向导 Modal
+        function openNewBookModal() {
+            document.getElementById("new-book-modal").classList.add("show");
+        }
+
+        function closeNewBookModal(e) {
+            document.getElementById("new-book-modal").classList.remove("show");
+        }
+
+        async function submitNewNovelArchitecture() {
+            const title = document.getElementById("new-book-title").value.trim();
+            const genre = document.getElementById("new-book-genre").value.trim();
+            const concept = document.getElementById("new-book-concept").value.trim();
+
+            if (!title) return alert("请输入新小说书名！");
+            if (!concept) return alert("请输入核心设定或脑洞！");
+
+            closeNewBookModal();
+            switchTab('antigravity');
+
+            document.getElementById("term-container").style.display = "block";
+            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发新小说架构指令《${title}》...\n正在唤醒办公室电脑 Antigravity (Gemini Pro)...`;
+
+            try {
+                const res = await fetchAPI(`${API}/dispatch_task`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        action: "create_new_novel",
+                        book_id: title,
+                        prompt: concept,
+                        engine_mode: CURRENT_ENGINE,
+                        extra_data: {
+                            title: title,
+                            genre: genre,
+                            concept: concept
+                        }
+                    })
+                });
+
+                if (res.ok) {
+                    ACTIVE_TASK_ID = res.task.id;
+                    startPolling(async () => {
+                        await loadBooks();
+                        await selectBook(title);
+                        alert(`🎉 恭喜！全新作品《${title}》架构与设定集已生成落盘！`);
+                    });
+                } else {
+                    alert("指令下发失败: " + res.error);
+                }
+            } catch (e) {
+                alert("网络请求失败");
+            }
+        }
+
+        // 设定大典智谱演化
+        function setSettingMode(mode) {
+            SETTING_MODE = mode;
+            document.getElementById("chip-mode-add").classList.toggle("active", mode === 'add');
+            document.getElementById("chip-mode-expand").classList.toggle("active", mode === 'expand');
+            document.getElementById("chip-mode-audit").classList.toggle("active", mode === 'audit');
+
+            const pbox = document.getElementById("setting-prompt-box");
+            const tinput = document.getElementById("setting-target-input");
+
+            if (mode === 'add') {
+                tinput.value = "04_新设定文档.md";
+                pbox.value = "请新增一个关于反派核心组织/新法宝体系的详尽设定，包含背景起源、能力评级与关键人物。";
+            } else if (mode === 'expand') {
+                tinput.value = CURRENT_SETTING_DOC || "01_世界观核心设定与科技修炼体系.md";
+                pbox.value = "请深入扩充该设定中的核心法则细节，强化硬核物理理论与科修境界的严密推导，增强质感。";
+            } else if (mode === 'audit') {
+                tinput.value = "全书设定与正文排查";
+                pbox.value = "请全面对比本书前全部章节与设定集，排查是否存在战力数值崩溃、人物性格断层、时间线混乱或逻辑冲突，并输出整改方案！";
+            }
+        }
+
+        async function launchSettingEvolution() {
+            const prompt = document.getElementById("setting-prompt-box").value.trim();
+            const targetDoc = document.getElementById("setting-target-input").value.trim();
+            if (!prompt) return alert("请输入设定演化需求！");
+
+            switchTab('antigravity');
+            document.getElementById("term-container").style.display = "block";
+            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发设定集升级演化指令...\n目标文档: ${targetDoc}\n模式: ${SETTING_MODE}`;
+
+            try {
+                const res = await fetchAPI(`${API}/dispatch_task`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        action: "evolve_settings",
+                        book_id: CURRENT_BOOK,
+                        sub_action: SETTING_MODE,
+                        prompt: prompt,
+                        engine_mode: CURRENT_ENGINE,
+                        extra_data: {
+                            target_doc: targetDoc
+                        }
+                    })
+                });
+
+                if (res.ok) {
+                    ACTIVE_TASK_ID = res.task.id;
+                    startPolling(async () => {
+                        await loadSettings();
+                        alert("🎉 设定大典升级演化完成！新设定已同步！");
+                    });
+                } else {
+                    alert("指令下发失败: " + res.error);
+                }
+            } catch (e) {
+                alert("网络请求失败");
+            }
+        }
+
+        // 加载章节
         async function loadChapters() {
             try {
                 const data = await fetchAPI(`${API}/chapters?book=${encodeURIComponent(CURRENT_BOOK)}`);
@@ -1385,7 +1467,6 @@
                     CHAPTERS = data.chapters;
                     FILTERED_CHAPTERS = [...CHAPTERS];
                     
-                    // 计算字数总和
                     let totalWords = 0;
                     CHAPTERS.forEach(c => totalWords += (c.char_count || 0));
                     
@@ -1400,9 +1481,7 @@
                         openChapter(CHAPTERS.length - 1, false);
                     }
                 }
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) {}
         }
 
         function updateNextLabel() {
@@ -1414,18 +1493,15 @@
             }
         }
 
-        // 渲染重构后的章节卡片 (告别丑陋文本列表)
         function renderCatalogCards() {
             const container = document.getElementById("chapters-cards-container");
             if (!container) return;
 
             let displayList = [...FILTERED_CHAPTERS];
-            if (SORT_DESC) {
-                displayList.reverse();
-            }
+            if (SORT_DESC) displayList.reverse();
 
             if (displayList.length === 0) {
-                container.innerHTML = `<div style="padding:40px; text-align:center; color:var(--text-sub);">未找到匹配的章节卷宗</div>`;
+                container.innerHTML = `<div style="padding:30px; text-align:center; color:var(--text-sub);">暂无章节卷宗</div>`;
                 return;
             }
 
@@ -1445,7 +1521,7 @@
                                 <div class="chapter-card-meta">
                                     <span class="meta-tag chars">📏 ${c.char_count} 字</span>
                                     <span class="meta-tag">🕒 ${dateStr}</span>
-                                    <span class="meta-tag status">✓ 番茄规范达标</span>
+                                    <span class="meta-tag status">✓ 番茄达标</span>
                                 </div>
                             </div>
                         </div>
@@ -1458,7 +1534,6 @@
             }).join("");
         }
 
-        // 搜索章节
         function filterChapters() {
             const query = document.getElementById("catalog-search").value.trim().toLowerCase();
             if (!query) {
@@ -1472,7 +1547,6 @@
             renderCatalogCards();
         }
 
-        // 切换排序方式
         function toggleSort() {
             SORT_DESC = !SORT_DESC;
             const btn = document.getElementById("sort-btn");
@@ -1480,22 +1554,16 @@
             renderCatalogCards();
         }
 
-        // 直达最新章节
         function jumpToLatestChapter() {
-            if (CHAPTERS.length > 0) {
-                openChapter(CHAPTERS.length - 1);
-            }
+            if (CHAPTERS.length > 0) openChapter(CHAPTERS.length - 1);
         }
 
-        // 打开章节阅读
         async function openChapter(index, doSwitch = true) {
             if (index < 0 || index >= CHAPTERS.length) return;
             CURRENT_INDEX = index;
             const c = CHAPTERS[index];
 
-            if (doSwitch) {
-                switchTab('reader');
-            }
+            if (doSwitch) switchTab('reader');
 
             document.getElementById("chapter-title").innerText = c.title || c.filename.replace(".md", "");
             document.getElementById("chapter-meta").innerText = `第 ${index + 1} / ${CHAPTERS.length} 章 · 约 ${c.char_count} 字 · 智笔云枢秒级调阅`;
@@ -1526,7 +1594,6 @@
             if (CURRENT_INDEX < CHAPTERS.length - 1) openChapter(CURRENT_INDEX + 1);
         }
 
-        // 切换面板选项卡
         function switchTab(tabId) {
             document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
             const targetPanel = document.getElementById(`panel-${tabId}`);
@@ -1537,36 +1604,27 @@
             if (activeDock) activeDock.classList.add("active");
 
             if (tabId === 'settings') loadSettings();
-            if (tabId === 'antigravity') loadConversations();
-            if (tabId === 'tomato' && CHAPTERS.length > 0) {
-                openTomatoAudit(CURRENT_INDEX);
-            }
+            if (tabId === 'tomato' && CHAPTERS.length > 0) openTomatoAudit(CURRENT_INDEX);
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
-        // 阅读器字体调整
         let CURRENT_FONT_SIZE = 19;
         function changeFontSize(delta) {
             CURRENT_FONT_SIZE = Math.max(14, Math.min(32, CURRENT_FONT_SIZE + delta));
             document.documentElement.style.setProperty("--reader-font-size", `${CURRENT_FONT_SIZE}px`);
         }
 
-        // 阅读器主题切换
         function toggleTheme(themeName) {
             document.body.className = "";
-            if (themeName !== 'dark') {
-                document.body.classList.add(`theme-${themeName}`);
-            }
+            if (themeName !== 'dark') document.body.classList.add(`theme-${themeName}`);
         }
 
-        // 选择引擎
         function selectEngine(mode) {
             CURRENT_ENGINE = mode;
             document.getElementById("eng-antigravity").classList.toggle("active", mode === 'antigravity_pro');
             document.getElementById("eng-gemini").classList.toggle("active", mode === 'gemini_pro_direct');
         }
 
-        // 填充快捷创作指令
         function fillActionPrompt(type) {
             const box = document.getElementById("prompt-box");
             const nextNum = CHAPTERS.length + 1;
@@ -1580,7 +1638,6 @@
             }
         }
 
-        // 下发 Antigravity 执行任务
         async function launchTask() {
             const prompt = document.getElementById("prompt-box").value.trim();
             if (!prompt) return alert("请输入创作指令要求！");
@@ -1604,7 +1661,10 @@
                     ACTIVE_TASK_ID = res.task.id;
                     document.getElementById("term-container").style.display = "block";
                     document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在通知公司电脑端 Antigravity (Gemini Pro)...`;
-                    startPolling();
+                    startPolling(async () => {
+                        await loadChapters();
+                        alert("🎉 Antigravity 创作完成！新章节已同步，快去阅读吧！");
+                    });
                 } else {
                     alert("指令下发失败: " + res.error);
                 }
@@ -1616,7 +1676,7 @@
             }
         }
 
-        function startPolling() {
+        function startPolling(onSuccess) {
             if (TASK_POLL_TIMER) clearInterval(TASK_POLL_TIMER);
             TASK_POLL_TIMER = setInterval(async () => {
                 if (!ACTIVE_TASK_ID) return;
@@ -1628,18 +1688,17 @@
 
                     if (data.status === "completed") {
                         clearInterval(TASK_POLL_TIMER);
-                        term.innerText += `\n\n🎉 Antigravity 执行完毕！正文已在电脑落盘并同步至云端！`;
-                        await loadChapters();
-                        alert("🎉 Antigravity 创作完成！新章节已同步，快去阅读吧！");
+                        term.innerText += `\n\n🎉 任务执行完毕！落盘文件已同步！`;
+                        if (onSuccess) await onSuccess();
                     } else if (data.status === "failed") {
                         clearInterval(TASK_POLL_TIMER);
-                        term.innerText += `\n\n❌ 任务执行中断，请检查公司电脑执行端`;
+                        term.innerText += `\n\n❌ 任务中断，请检查公司电脑执行端`;
                     }
                 } catch (e) {}
             }, 2500);
         }
 
-        // 番茄发布工作流
+        // 番茄发布
         async function openTomatoAudit(index) {
             if (index < 0 || index >= CHAPTERS.length) return;
             openTomatoAuditByFile(CHAPTERS[index].filename);
@@ -1674,7 +1733,7 @@
         function copyTomatoContent() {
             if (!window.currentTomatoText) return alert("请先选择章节！");
             navigator.clipboard.writeText(window.currentTomatoText).then(() => {
-                alert("📋 番茄标准纯净正文已成功复制到剪贴板！可直接粘贴至番茄作家助手后台发布！");
+                alert("📋 番茄标准纯净正文已成功复制！可直接粘贴至番茄作家助手后台发布！");
             }).catch(() => {
                 alert("复制失败，请手动全选复制！");
             });
@@ -1684,7 +1743,7 @@
             window.location.href = `${API}/export_tomato_zip?book=${encodeURIComponent(CURRENT_BOOK)}`;
         }
 
-        // 加载设定大典
+        // 设定大典
         async function loadSettings() {
             const tabs = document.getElementById("settings-tabs");
             const res = await fetchAPI(`${API}/settings?book=${encodeURIComponent(CURRENT_BOOK)}`);
@@ -1695,11 +1754,17 @@
                 viewSetting(res.settings[0].filename, tabs.children[0]);
             } else {
                 tabs.innerHTML = "";
-                document.getElementById("setting-content").innerText = "该作品暂无设定集文档";
+                document.getElementById("setting-content").innerText = "该作品暂无设定集文档，可在下方「智谱工坊」中一键新增！";
             }
         }
 
         async function viewSetting(filename, btnEl) {
+            CURRENT_SETTING_DOC = filename;
+            const tinput = document.getElementById("setting-target-input");
+            if (tinput && (!tinput.value || tinput.value.endsWith(".md"))) {
+                tinput.value = filename;
+            }
+
             if (btnEl) {
                 Array.from(btnEl.parentElement.children).forEach(c => c.style.borderColor = 'var(--border)');
                 btnEl.style.borderColor = 'var(--accent)';
@@ -1708,26 +1773,6 @@
             if (res && res.content) {
                 document.getElementById("setting-content").innerHTML = marked.parse(res.content);
             }
-        }
-
-        // 加载历史会话
-        async function loadConversations() {
-            const tl = document.getElementById("conversations-timeline");
-            try {
-                const res = await fetchAPI(`${API}/conversations`);
-                const list = res.conversations || [];
-                if (list.length === 0) {
-                    tl.innerHTML = `<div style="padding:20px; text-align:center; color:var(--text-sub);">暂无历史会话记录</div>`;
-                    return;
-                }
-                tl.innerHTML = list.map(item => `
-                    <div style="margin-bottom:10px; font-size:12px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:10px;">
-                        <div style="color:var(--text-dim); margin-bottom:4px;">${item.time || ''} · ${item.role==='user'?'手机指令':'Antigravity'}</div>
-                        ${item.thinking ? `<div style="color:var(--accent); margin-bottom:4px;">🧠 思考: ${item.thinking}</div>` : ''}
-                        <div style="color:var(--text-main); white-space:pre-wrap;">${item.text || ''}</div>
-                    </div>
-                `).join("");
-            } catch (e) {}
         }
     </script>
 </body>
