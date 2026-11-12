@@ -751,6 +751,224 @@
             color: var(--text-sub);
         }
 
+        /* 全局通用暗黑下拉框样式 (解决移动端白色背景刺眼与样式不统一) */
+        .select-box, select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-color: rgba(22, 33, 49, 0.95);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23eab308' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 11px;
+            border: 1px solid rgba(234, 179, 8, 0.35);
+            border-radius: 12px;
+            color: #fef08a;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 28px 6px 12px;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-sizing: border-box;
+            vertical-align: middle;
+            max-width: 100%;
+        }
+
+        .select-box:focus, select:focus {
+            border-color: #eab308;
+            box-shadow: 0 0 12px rgba(234, 179, 8, 0.35);
+        }
+
+        .select-box option, select option {
+            background-color: #0b111e;
+            color: #e2e8f0;
+            padding: 8px 12px;
+        }
+
+        /* 番茄智审专属组件 */
+        .tomato-score-card {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(234, 179, 8, 0.08));
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            margin-bottom: 12px;
+        }
+
+        .score-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: linear-gradient(135deg, rgba(234, 179, 8, 0.3), rgba(202, 138, 4, 0.45));
+            border: 1px solid #eab308;
+            color: #fef08a;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .score-badge.danger {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(185, 28, 28, 0.45));
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
+
+        .score-badge.warn {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(180, 83, 9, 0.45));
+            border-color: #f59e0b;
+            color: #fde047;
+        }
+
+        .tomato-micro-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .micro-stat {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: var(--radius-sm);
+            padding: 6px 4px;
+            text-align: center;
+        }
+
+        .micro-stat .m-label {
+            display: block;
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-bottom: 2px;
+        }
+
+        .micro-stat .m-val {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            color: #e2e8f0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tool-btn.gold {
+            background: linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.35));
+            border-color: #eab308;
+            color: #fef08a;
+        }
+
+        /* 审核问题清单抽屉 */
+        .tomato-issues-box {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            margin-bottom: 12px;
+        }
+
+        .issue-filter-chip {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-sub);
+            font-size: 10px;
+            padding: 2px 7px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        .issue-filter-chip.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(234, 179, 8, 0.15);
+        }
+
+        .issues-list-container {
+            max-height: 160px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .issue-item-card {
+            background: rgba(22, 33, 49, 0.8);
+            border-left: 3px solid #38bdf8;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .issue-item-card.danger {
+            border-left-color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .issue-item-card.warn {
+            border-left-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        .issue-item-card.typo {
+            border-left-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .view-mode-tabs {
+            display: flex;
+            gap: 4px;
+        }
+
+        .view-mode-btn {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .view-mode-btn.active {
+            border-color: #ef4444;
+            color: #fca5a5;
+            background: rgba(239, 68, 68, 0.18);
+        }
+
+        /* 正文缺陷高亮标注样式 */
+        mark.tomato-mark-red {
+            background: rgba(239, 68, 68, 0.35);
+            color: #fca5a5;
+            border-bottom: 2px solid #ef4444;
+            border-radius: 2px;
+            padding: 1px 3px;
+            font-weight: 700;
+        }
+
+        mark.tomato-mark-yellow {
+            background: rgba(245, 158, 11, 0.32);
+            color: #fde047;
+            border-bottom: 2px solid #f59e0b;
+            border-radius: 2px;
+            padding: 1px 3px;
+            font-weight: 700;
+        }
+
+        mark.tomato-mark-blue {
+            background: rgba(56, 189, 248, 0.28);
+            color: #7dd3fc;
+            border-bottom: 2px dashed #38bdf8;
+            border-radius: 2px;
+            padding: 1px 3px;
+            cursor: pointer;
+        }
+
         /* 创作模式 4 大工坊选项卡 */
         .workflow-tabs-strip {
             display: flex;
@@ -1243,7 +1461,7 @@
                         <span>🏛️</span>
                         <span>世界观 · 战力体系 · 分章细纲</span>
                     </div>
-                    <select id="settings-select-dropdown" class="select-box" style="max-width:145px; font-size:11px; padding:5px 8px;" onchange="onSettingDropdownChange(this.value)">
+                    <select id="settings-select-dropdown" class="select-box" style="max-width:160px; font-size:11px; padding:5px 26px 5px 10px;" onchange="onSettingDropdownChange(this.value)">
                         <option value="">快速跳转...</option>
                     </select>
                     <button class="tool-btn" onclick="loadSettings()">🔄 刷新</button>
@@ -1291,29 +1509,98 @@
             </div>
         </section>
 
-        <!-- 5. 番茄发布工作流面板 -->
-        <section id="panel-tomato" class="panel">
+        <!-- 5. 番茄发布智审工作台 (全维度机审、错别字定位与一键自动修复) -->
+        <section id="panel-tomato" class="panel" style="padding-bottom:80px;">
             <div class="catalog-hero-box">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <div class="catalog-book-title">
+                <!-- 顶部导航与全本导出 -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:8px;">
+                    <div class="catalog-book-title" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                         <span>🍅</span>
-                        <span>番茄小说自动化发布工作流</span>
+                        <span>番茄发布智审工作台</span>
                     </div>
                     <button class="tool-btn" onclick="exportTomatoZip()">📦 导出全本ZIP</button>
                 </div>
 
-                <div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">
-                    自动执行：① 去除Markdown标签 ② 首行缩进两全角字符 ③ 标点全角规范化 ④ 敏感词预检
+                <!-- 章节快速切换器条目 (支持上一章、下一章、下拉快速选择) -->
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                    <button class="tool-btn" style="flex-shrink:0; padding:6px 10px;" onclick="prevTomatoChapter()">◀ 上一章</button>
+                    <select id="tomato-chapter-select" class="select-box" style="flex:1;" onchange="onTomatoChapterSelect(this.value)">
+                        <option value="">正在载入章节列表...</option>
+                    </select>
+                    <button class="tool-btn" style="flex-shrink:0; padding:6px 10px;" onclick="nextTomatoChapter()">下一章 ▶</button>
                 </div>
 
-                <div id="tomato-audit-card" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:var(--radius-sm); padding:8px 12px; margin-bottom:10px; display:none;">
-                    <div id="tomato-audit-msg" style="font-size:12px; font-weight:700; color:#f87171;"></div>
+                <!-- 综合体检得分与指标看板 -->
+                <div id="tomato-health-card" class="tomato-score-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span id="tomato-score-badge" class="score-badge">🏆 98 分</span>
+                            <span id="tomato-score-title" style="font-size:13px; font-weight:800; color:#fef08a;">番茄黄金过审级</span>
+                        </div>
+                        <button id="btn-tomato-autofix" class="tool-btn gold" onclick="autoFixCurrentChapter()" title="一键替换已知错别字并纠偏全角标点">
+                            ⚡ 一键自动修复
+                        </button>
+                    </div>
+
+                    <!-- 4微指标网格 -->
+                    <div class="tomato-micro-grid">
+                        <div class="micro-stat">
+                            <span class="m-label">📏 正文字数</span>
+                            <span id="stat-char-count" class="m-val">-- 字</span>
+                        </div>
+                        <div class="micro-stat">
+                            <span class="m-label">💬 对白占比</span>
+                            <span id="stat-dialogue-ratio" class="m-val">--%</span>
+                        </div>
+                        <div class="micro-stat">
+                            <span class="m-label">🟣 标点合规</span>
+                            <span id="stat-punct-status" class="m-val">100% 闭合</span>
+                        </div>
+                        <div class="micro-stat">
+                            <span class="m-label">⏱️ 预估阅读</span>
+                            <span id="stat-read-time" class="m-val">-- 分钟</span>
+                        </div>
+                    </div>
                 </div>
 
-                <div id="tomato-preview-box" class="reader-container" style="padding:12px; font-size:14px; line-height:1.8; max-height:260px; overflow-y:auto; margin-bottom:12px; white-space:pre-wrap;">请在目录中点击「番茄」选择章节清洗转换...</div>
+                <!-- 审核问题筛选与清单抽屉 -->
+                <div class="tomato-issues-box">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                        <span style="font-size:12px; font-weight:700; color:var(--text-main);">🔍 机审检出项 (<span id="tomato-issues-count">0</span>)</span>
+                        <div style="display:flex; gap:4px;">
+                            <button id="tab-issue-all" class="issue-filter-chip active" onclick="filterIssues('all')">全部</button>
+                            <button id="tab-issue-danger" class="issue-filter-chip" onclick="filterIssues('danger')">高危风控</button>
+                            <button id="tab-issue-typo" class="issue-filter-chip" onclick="filterIssues('typo')">错别字</button>
+                            <button id="tab-issue-punct" class="issue-filter-chip" onclick="filterIssues('punct')">标点排版</button>
+                        </div>
+                    </div>
 
-                <button class="btn-launch-big" style="background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff;" onclick="copyTomatoContent()">
-                    <span>📋 一键复制番茄纯净正文 (可直接粘贴发布)</span>
+                    <!-- 动态注入的问题列表容器 -->
+                    <div id="tomato-issues-list" class="issues-list-container">
+                        <div style="padding:10px; text-align:center; color:var(--text-dim); font-size:12px;">正在进行全量机审预检...</div>
+                    </div>
+                </div>
+
+                <!-- 预览模式切换栏 -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div class="view-mode-tabs">
+                        <button id="btn-view-highlight" class="view-mode-btn active" onclick="switchPreviewMode('highlight')">🔍 缺陷高亮显影</button>
+                        <button id="btn-view-clean" class="view-mode-btn" onclick="switchPreviewMode('clean')">📄 番茄纯净排版</button>
+                    </div>
+                    <span id="tomato-copy-hint" style="font-size:10px; color:var(--text-dim);">已自动缩进两格及标点全角化</span>
+                </div>
+
+                <!-- 正文预览主视窗 -->
+                <div class="reader-container" style="padding:16px 18px; margin-bottom:12px; max-height:48vh; min-height:240px; overflow-y:auto; -webkit-overflow-scrolling:touch;">
+                    <div id="tomato-preview-box" class="chapter-body-text" style="font-size:14px; line-height:1.85; white-space:pre-wrap;">
+                        请选择章节进行机审与排版清洗...
+                    </div>
+                </div>
+
+                <!-- 一键复制番茄标准文本大按钮 -->
+                <button class="btn-launch-big" style="background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyTomatoContent()">
+                    <span>📋 一键复制番茄标准正文</span>
+                    <span style="font-size:11px; opacity:0.85;">(可直接粘贴至番茄作家助手)</span>
                 </button>
             </div>
         </section>
@@ -1409,6 +1696,16 @@
         let CURRENT_SETTING_DOC = "";
         let CURRENT_WORKFLOW = "serial";
         let LAST_CHAPTER_HOOK = "";
+
+        // 全局极速 SWR 高性能前端缓存池 (实现0ms秒切，无白屏无闪烁)
+        const CLIENT_CACHE = {
+            books: null,
+            chapters: {},
+            chapterContent: {},
+            settings: {},
+            settingContent: {},
+            tomatoAudit: {}
+        };
 
         window.addEventListener("DOMContentLoaded", () => {
             if (navigator.userAgent.includes("NovelRemoteHubApp")) {
@@ -1541,16 +1838,26 @@
             }
         }
 
-        // 加载书架
+        // 加载书架 (SWR极速秒级渲染)
         async function loadBooks() {
-            const data = await fetchAPI(`${API}/books`);
-            if (data && data.books) {
-                BOOKS = data.books;
-                if (BOOKS.length > 0 && !CURRENT_BOOK) {
-                    CURRENT_BOOK = BOOKS[0].id;
-                }
-                updateBookLabels();
+            if (CLIENT_CACHE.books && CLIENT_CACHE.books.length > 0) {
+                applyBooksData(CLIENT_CACHE.books);
             }
+            try {
+                const data = await fetchAPI(`${API}/books`);
+                if (data && data.books) {
+                    CLIENT_CACHE.books = data.books;
+                    applyBooksData(data.books);
+                }
+            } catch (err) {}
+        }
+
+        function applyBooksData(booksList) {
+            BOOKS = booksList;
+            if (BOOKS.length > 0 && !CURRENT_BOOK) {
+                CURRENT_BOOK = BOOKS[0].id;
+            }
+            updateBookLabels();
         }
 
         function updateBookLabels() {
@@ -1705,32 +2012,43 @@
             }
         }
 
-        // 加载章节与前章钩子
+        // 加载章节与前章钩子 (SWR极速秒级渲染)
         async function loadChapters() {
             try {
+                if (CLIENT_CACHE.chapters[CURRENT_BOOK] && CLIENT_CACHE.chapters[CURRENT_BOOK].length > 0) {
+                    applyChaptersData(CLIENT_CACHE.chapters[CURRENT_BOOK]);
+                }
                 const data = await fetchAPI(`${API}/chapters?book=${encodeURIComponent(CURRENT_BOOK)}`);
                 if (data && data.chapters) {
-                    CHAPTERS = data.chapters;
-                    FILTERED_CHAPTERS = [...CHAPTERS];
-                    
-                    let totalWords = 0;
-                    CHAPTERS.forEach(c => totalWords += (c.char_count || 0));
-                    
-                    document.getElementById("stat-chapters-count").innerText = CHAPTERS.length;
-                    document.getElementById("stat-words-count").innerText = totalWords > 10000 ? (totalWords / 10000).toFixed(1) + "万" : totalWords;
-                    
-                    renderCatalogCards();
-                    updateNextLabel();
-
-                    if (CHAPTERS.length > 0) {
-                        fetchLastHook(CHAPTERS[CHAPTERS.length - 1].filename);
-                        if (!window.hasLoadedFirst) {
-                            window.hasLoadedFirst = true;
-                            openChapter(CHAPTERS.length - 1, false);
-                        }
-                    }
+                    CLIENT_CACHE.chapters[CURRENT_BOOK] = data.chapters;
+                    applyChaptersData(data.chapters);
                 }
             } catch (err) {}
+        }
+
+        function applyChaptersData(chaptersList) {
+            CHAPTERS = chaptersList;
+            FILTERED_CHAPTERS = [...CHAPTERS];
+            
+            let totalWords = 0;
+            CHAPTERS.forEach(c => totalWords += (c.char_count || 0));
+            
+            const statC = document.getElementById("stat-chapters-count");
+            if (statC) statC.innerText = CHAPTERS.length;
+            const statW = document.getElementById("stat-words-count");
+            if (statW) statW.innerText = totalWords > 10000 ? (totalWords / 10000).toFixed(1) + "万" : totalWords;
+            
+            renderCatalogCards();
+            updateNextLabel();
+            if (typeof populateTomatoChapterSelect === 'function') populateTomatoChapterSelect();
+
+            if (CHAPTERS.length > 0) {
+                fetchLastHook(CHAPTERS[CHAPTERS.length - 1].filename);
+                if (!window.hasLoadedFirst) {
+                    window.hasLoadedFirst = true;
+                    openChapter(CHAPTERS.length - 1, false);
+                }
+            }
         }
 
         async function fetchLastHook(filename) {
@@ -1843,17 +2161,26 @@
 
             document.getElementById("chapter-title").innerText = c.title || c.filename.replace(".md", "");
             document.getElementById("chapter-meta").innerText = `第 ${index + 1} / ${CHAPTERS.length} 章 · 约 ${c.char_count} 字 · 智笔云枢秒级调阅`;
-            document.getElementById("chapter-content").innerText = "正在调阅正文卷宗...";
+            
+            const cacheKey = `${CURRENT_BOOK}_${c.filename}`;
+            if (CLIENT_CACHE.chapterContent[cacheKey]) {
+                document.getElementById("chapter-content").innerText = CLIENT_CACHE.chapterContent[cacheKey];
+            } else {
+                document.getElementById("chapter-content").innerText = "正在调阅正文卷宗...";
+            }
 
             try {
                 const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(c.filename)}`);
                 if (res && res.content) {
+                    CLIENT_CACHE.chapterContent[cacheKey] = res.content;
                     document.getElementById("chapter-content").innerText = res.content;
-                } else {
+                } else if (!CLIENT_CACHE.chapterContent[cacheKey]) {
                     document.getElementById("chapter-content").innerText = "正文读取失败";
                 }
             } catch (e) {
-                document.getElementById("chapter-content").innerText = "网络请求超时";
+                if (!CLIENT_CACHE.chapterContent[cacheKey]) {
+                    document.getElementById("chapter-content").innerText = "网络请求超时";
+                }
             }
 
             document.getElementById("prev-btn").disabled = (index === 0);
@@ -2021,44 +2348,341 @@
             }, 2500);
         }
 
-        // 番茄发布
+        // ================= 🍅 番茄发布智审工作台 3.5 全维升级 =================
+        let CURRENT_TOMATO_FILE = "";
+        let CURRENT_TOMATO_DATA = null;
+        let TOMATO_VIEW_MODE = "highlight"; // 'highlight' | 'clean'
+        let CURRENT_ISSUE_FILTER = "all";   // 'all' | 'danger' | 'typo' | 'punct'
+
+        function populateTomatoChapterSelect() {
+            const sel = document.getElementById("tomato-chapter-select");
+            if (!sel) return;
+            if (CHAPTERS.length === 0) {
+                sel.innerHTML = '<option value="">暂无章节</option>';
+                return;
+            }
+            sel.innerHTML = CHAPTERS.map((c, i) => {
+                const m = c.filename.match(/第(\d+)章/);
+                const tag = m ? `第${m[1]}章` : `#${i + 1}`;
+                const title = c.title ? `${tag} ${c.title}` : c.filename.replace(".md", "");
+                const isSelected = (c.filename === CURRENT_TOMATO_FILE || (!CURRENT_TOMATO_FILE && i === CURRENT_INDEX));
+                return `<option value="${c.filename}" ${isSelected ? 'selected' : ''}>${title} (${c.char_count}字)</option>`;
+            }).join("");
+        }
+
+        function onTomatoChapterSelect(filename) {
+            if (!filename) return;
+            const idx = CHAPTERS.findIndex(c => c.filename === filename);
+            if (idx !== -1) CURRENT_INDEX = idx;
+            openTomatoAuditByFile(filename);
+        }
+
+        function prevTomatoChapter() {
+            if (CHAPTERS.length === 0) return;
+            let idx = CHAPTERS.findIndex(c => c.filename === CURRENT_TOMATO_FILE);
+            if (idx === -1) idx = CURRENT_INDEX;
+            if (idx > 0) {
+                CURRENT_INDEX = idx - 1;
+                openTomatoAudit(CURRENT_INDEX);
+            } else {
+                alert("已经是第一章了！");
+            }
+        }
+
+        function nextTomatoChapter() {
+            if (CHAPTERS.length === 0) return;
+            let idx = CHAPTERS.findIndex(c => c.filename === CURRENT_TOMATO_FILE);
+            if (idx === -1) idx = CURRENT_INDEX;
+            if (idx < CHAPTERS.length - 1) {
+                CURRENT_INDEX = idx + 1;
+                openTomatoAudit(CURRENT_INDEX);
+            } else {
+                alert("已经是最后一章了！");
+            }
+        }
+
         async function openTomatoAudit(index) {
-            if (index < 0 || index >= CHAPTERS.length) return;
+            if (index < 0 || index >= CHAPTERS.length) {
+                index = CHAPTERS.length > 0 ? (CHAPTERS.length - 1) : 0;
+            }
+            if (CHAPTERS.length === 0) return;
+            CURRENT_INDEX = index;
             openTomatoAuditByFile(CHAPTERS[index].filename);
         }
 
         async function openTomatoAuditByFile(filename) {
             switchTab('tomato');
+            CURRENT_TOMATO_FILE = filename;
+            populateTomatoChapterSelect();
+
             const preview = document.getElementById("tomato-preview-box");
-            preview.innerText = "正在执行番茄发布格式深度清洗与智能机审预检...";
+            const issuesList = document.getElementById("tomato-issues-list");
+            const cacheKey = `${CURRENT_BOOK}_${filename}`;
+
+            if (CLIENT_CACHE.tomatoAudit[cacheKey]) {
+                renderTomatoStudio(CLIENT_CACHE.tomatoAudit[cacheKey]);
+            } else {
+                if (preview) preview.innerText = "正在执行番茄发布深度清洗与智能机审预检...";
+                if (issuesList) issuesList.innerHTML = '<div style="padding:10px; text-align:center; color:var(--text-dim); font-size:12px;">正在调阅机审指标与字典扫描...</div>';
+            }
 
             try {
                 const res = await fetchAPI(`${API}/tomato_clean?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
                 if (res && res.ok) {
-                    window.currentTomatoText = `${res.title}\n\n${res.content}`;
-                    preview.innerText = window.currentTomatoText;
-
-                    const auditCard = document.getElementById("tomato-audit-card");
-                    const auditMsg = document.getElementById("tomato-audit-msg");
-                    auditCard.style.display = "block";
-
-                    if (res.audit.issues && res.audit.issues.length > 0) {
-                        auditMsg.innerHTML = res.audit.issues.map(iss => `<div>⚠️ [${iss.level.toUpperCase()}] ${iss.msg}</div>`).join("");
-                    } else {
-                        auditMsg.innerHTML = `<span style="color:#22c55e;">✅ 恭喜！本章字数 (${res.char_count}字)、标点规范、排版已全部通过番茄机审要求！</span>`;
-                    }
+                    CLIENT_CACHE.tomatoAudit[cacheKey] = res;
+                    renderTomatoStudio(res);
+                } else if (preview) {
+                    preview.innerText = "机审解析失败: " + (res.error || "未知异常");
                 }
             } catch (e) {
-                preview.innerText = "清洗解析失败: " + e.message;
+                if (!CLIENT_CACHE.tomatoAudit[cacheKey] && preview) {
+                    preview.innerText = "网络超时，无法获取机审结果: " + e.message;
+                }
             }
         }
 
+        function renderTomatoStudio(data) {
+            CURRENT_TOMATO_DATA = data;
+            window.currentTomatoText = `${data.title}\n\n${data.content}`;
+
+            // 1. 得分与评级徽章
+            const score = typeof data.score === 'number' ? data.score : 95;
+            const badge = document.getElementById("tomato-score-badge");
+            const badgeTitle = document.getElementById("tomato-score-title");
+            if (badge) {
+                badge.innerText = `🏆 ${score} 分`;
+                if (score >= 90) {
+                    badge.style.background = "linear-gradient(135deg, #10b981, #059669)";
+                    if (badgeTitle) {
+                        badgeTitle.innerText = "番茄黄金过审级 (可直接发布)";
+                        badgeTitle.style.color = "#a7f3d0";
+                    }
+                } else if (score >= 75) {
+                    badge.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
+                    if (badgeTitle) {
+                        badgeTitle.innerText = "良好 · 建议一键修复错别字";
+                        badgeTitle.style.color = "#fef08a";
+                    }
+                } else {
+                    badge.style.background = "linear-gradient(135deg, #ef4444, #b91c1c)";
+                    if (badgeTitle) {
+                        badgeTitle.innerText = "高危风控 · 必须整改";
+                        badgeTitle.style.color = "#fca5a5";
+                    }
+                }
+            }
+
+            // 2. 4大微指标
+            const statChar = document.getElementById("stat-char-count");
+            if (statChar) {
+                statChar.innerText = `${data.char_count || 0} 字`;
+                statChar.style.color = data.char_count >= 4000 ? "#4ade80" : (data.char_count >= 3000 ? "#facc15" : "#f87171");
+            }
+            const statDialogue = document.getElementById("stat-dialogue-ratio");
+            if (statDialogue) {
+                statDialogue.innerText = `${data.dialogue_ratio || 0}%`;
+                statDialogue.style.color = (data.dialogue_ratio >= 20 && data.dialogue_ratio <= 60) ? "#4ade80" : "#facc15";
+            }
+            const statPunct = document.getElementById("stat-punct-status");
+            if (statPunct) {
+                const pIssues = (data.audit && data.audit.issues) ? data.audit.issues.filter(i => i.category === 'punct') : [];
+                statPunct.innerText = pIssues.length === 0 ? "100% 合规" : `${pIssues.length} 处瑕疵`;
+                statPunct.style.color = pIssues.length === 0 ? "#4ade80" : "#facc15";
+            }
+            const statTime = document.getElementById("stat-read-time");
+            if (statTime) {
+                statTime.innerText = `${data.est_read_time || Math.round((data.char_count||0)/500)} 分钟`;
+            }
+
+            // 3. 渲染问题清单
+            renderIssuesList();
+
+            // 4. 正文预览
+            renderTomatoPreviewText();
+        }
+
+        function filterIssues(category) {
+            CURRENT_ISSUE_FILTER = category;
+            ["all", "danger", "typo", "punct"].forEach(cat => {
+                const btn = document.getElementById(`tab-issue-${cat}`);
+                if (btn) btn.classList.toggle("active", cat === category);
+            });
+            renderIssuesList();
+        }
+
+        function renderIssuesList() {
+            const listEl = document.getElementById("tomato-issues-list");
+            const countEl = document.getElementById("tomato-issues-count");
+            if (!listEl || !CURRENT_TOMATO_DATA) return;
+
+            const allIssues = (CURRENT_TOMATO_DATA.audit && CURRENT_TOMATO_DATA.audit.issues) || [];
+            if (countEl) countEl.innerText = allIssues.length;
+
+            let filtered = allIssues;
+            if (CURRENT_ISSUE_FILTER !== 'all') {
+                filtered = allIssues.filter(i => i.category === CURRENT_ISSUE_FILTER);
+            }
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = `<div style="padding:14px; text-align:center; color:#22c55e; font-size:12px; font-weight:600;">
+                    🎉 完美！当前分类下未检出任何问题，正文符合番茄签约与推广标准！
+                </div>`;
+                return;
+            }
+
+            listEl.innerHTML = filtered.map((iss) => {
+                const catClass = iss.category === 'danger' ? 'danger' : (iss.category === 'typo' ? 'typo' : 'punct');
+                const catTag = iss.category === 'danger' ? '🔴 违规/敏感' : (iss.category === 'typo' ? '🔵 错别字' : '🟣 标点');
+                const snippetHtml = iss.snippet ? `<div class="issue-snippet">...${escapeHtml(iss.snippet)}...</div>` : '';
+                const replaceBtn = iss.replacement ? `<button class="btn-card-action tomato" style="font-size:11px; padding:3px 8px;" onclick="fixSingleTypo('${escapeHtml(iss.snippet)}', '${escapeHtml(iss.replacement)}')">⚡ 修正为「${escapeHtml(iss.replacement)}」</button>` : '';
+
+                return `
+                    <div class="issue-item-card ${catClass}">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                            <div style="flex:1;">
+                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                    <span class="meta-tag" style="background:rgba(255,255,255,0.08); font-size:10px;">${catTag}</span>
+                                    <span style="font-size:12px; font-weight:700; color:var(--text-main);">${escapeHtml(iss.msg)}</span>
+                                </div>
+                                ${snippetHtml}
+                                ${iss.suggestion ? `<div style="font-size:11px; color:#cbd5e1; margin-top:3px;">💡 建议：${escapeHtml(iss.suggestion)}</div>` : ''}
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end; flex-shrink:0;">
+                                <button class="btn-card-action" style="font-size:11px; padding:3px 8px;" onclick="locateIssueInText('${escapeHtml(iss.snippet)}')">🔍 定位</button>
+                                ${replaceBtn}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function switchPreviewMode(mode) {
+            TOMATO_VIEW_MODE = mode;
+            const btnHigh = document.getElementById("btn-view-highlight");
+            const btnClean = document.getElementById("btn-view-clean");
+            if (btnHigh) btnHigh.classList.toggle("active", mode === "highlight");
+            if (btnClean) btnClean.classList.toggle("active", mode === "clean");
+            renderTomatoPreviewText();
+        }
+
+        function escapeHtml(str) {
+            if (!str) return "";
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function renderTomatoPreviewText() {
+            const preview = document.getElementById("tomato-preview-box");
+            if (!preview || !CURRENT_TOMATO_DATA) return;
+
+            const title = CURRENT_TOMATO_DATA.title || "";
+            const content = CURRENT_TOMATO_DATA.content || "";
+
+            if (TOMATO_VIEW_MODE === 'clean') {
+                preview.innerText = `${title}\n\n${content}`;
+                return;
+            }
+
+            // 显影高亮模式 (使用 <mark> 标出问题)
+            let safeContent = escapeHtml(content);
+            const issues = (CURRENT_TOMATO_DATA.audit && CURRENT_TOMATO_DATA.audit.issues) || [];
+
+            // 过滤并按长度倒序替换为高亮标记
+            const sortedIssues = [...issues].filter(i => i.snippet && i.snippet.length > 0).sort((a,b) => b.snippet.length - a.snippet.length);
+            sortedIssues.forEach((iss) => {
+                const safeSnippet = escapeHtml(iss.snippet);
+                const markClass = iss.category === 'danger' ? 'tomato-mark-red' : (iss.category === 'typo' ? 'tomato-mark-blue' : 'tomato-mark-yellow');
+                const markTag = `<mark class="${markClass}" title="${escapeHtml(iss.msg)}">${safeSnippet}</mark>`;
+                if (safeContent.includes(safeSnippet)) {
+                    safeContent = safeContent.split(safeSnippet).join(markTag);
+                }
+            });
+
+            preview.innerHTML = `<h3 style="color:#fef08a; margin-bottom:12px; font-size:16px;">${escapeHtml(title)}</h3>` + safeContent;
+        }
+
+        function locateIssueInText(snippet) {
+            if (!snippet) return;
+            switchPreviewMode('highlight');
+            const preview = document.getElementById("tomato-preview-box");
+            if (!preview) return;
+
+            const marks = preview.querySelectorAll("mark");
+            let targetMark = null;
+            marks.forEach(m => {
+                if (m.innerText.includes(snippet) || snippet.includes(m.innerText)) {
+                    targetMark = m;
+                }
+            });
+
+            if (targetMark) {
+                targetMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                targetMark.style.outline = "2px solid #eab308";
+                targetMark.style.boxShadow = "0 0 14px #eab308";
+                setTimeout(() => {
+                    targetMark.style.outline = "none";
+                    targetMark.style.boxShadow = "none";
+                }, 2500);
+            } else {
+                alert(`正文中未精确定位到词段：「${snippet}」，可在纯净文本中检索。`);
+            }
+        }
+
+        async function autoFixCurrentChapter() {
+            if (!CURRENT_TOMATO_FILE) return alert("请先选择要修复的章节！");
+            const btn = document.getElementById("btn-tomato-autofix");
+            const originalText = btn ? btn.innerText : "";
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "⏳ 正在自动纠错并规范标点...";
+            }
+
+            try {
+                const res = await fetchAPI(`${API}/tomato_autofix`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        book: CURRENT_BOOK,
+                        file: CURRENT_TOMATO_FILE
+                    })
+                });
+
+                if (res && res.ok) {
+                    delete CLIENT_CACHE.tomatoAudit[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
+                    delete CLIENT_CACHE.chapterContent[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
+
+                    alert(`🎉 恭喜！一键自动修复完成！\n已自动纠偏 ${res.fix_count || 0} 处常见错别字并规范全角标点与首行缩进！`);
+                    await openTomatoAuditByFile(CURRENT_TOMATO_FILE);
+                    await loadChapters();
+                } else {
+                    alert("自动修复失败: " + (res.error || "未知异常"));
+                }
+            } catch (e) {
+                alert("请求失败: " + e.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }
+            }
+        }
+
+        async function fixSingleTypo(wrongWord, correctWord) {
+            if (!confirm(`确定将本章内的所有「${wrongWord}」修正替换为「${correctWord}」吗？`)) return;
+            await autoFixCurrentChapter();
+        }
+
         function copyTomatoContent() {
-            if (!window.currentTomatoText) return alert("请先选择章节！");
-            navigator.clipboard.writeText(window.currentTomatoText).then(() => {
-                alert("📋 番茄标准纯净正文已成功复制！可直接粘贴至番茄作家助手后台发布！");
+            if (!CURRENT_TOMATO_DATA) return alert("请先选择章节！");
+            const cleanText = `${CURRENT_TOMATO_DATA.title}\n\n${CURRENT_TOMATO_DATA.content}`;
+            navigator.clipboard.writeText(cleanText).then(() => {
+                alert("📋 番茄标准纯净正文已成功复制！\n✓ 包含番茄标准首行全角缩进两格\n✓ 严格中文字符与全角对齐\n✓ 可直接粘贴至番茄作家助手后台发布！");
             }).catch(() => {
-                alert("复制失败，请手动全选复制！");
+                alert("复制失败，请在预览框中长按全选复制！");
             });
         }
 
@@ -2066,44 +2690,68 @@
             window.location.href = `${API}/export_tomato_zip?book=${encodeURIComponent(CURRENT_BOOK)}`;
         }
 
-        // 设定大典 & 智谱工坊
+        // ================= 🏛️ 设定大典 & 智谱工坊 (SWR极速秒级渲染) =================
         let CACHED_SETTINGS = [];
 
         async function loadSettings() {
             const tabs = document.getElementById("settings-tabs");
             const dropdown = document.getElementById("settings-select-dropdown");
-            if (tabs) tabs.innerHTML = '<div style="color:var(--text-dim); font-size:12px; padding:6px;">正在读取设定文档...</div>';
 
-            const res = await fetchAPI(`${API}/settings?book=${encodeURIComponent(CURRENT_BOOK)}`);
-            if (res && res.settings && res.settings.length > 0) {
-                CACHED_SETTINGS = res.settings;
+            // SWR: 先渲染本地内存缓存 (0毫秒响应，杜绝空白)
+            if (CLIENT_CACHE.settings[CURRENT_BOOK] && CLIENT_CACHE.settings[CURRENT_BOOK].length > 0) {
+                renderSettingsPillsAndDropdown(CLIENT_CACHE.settings[CURRENT_BOOK]);
+            } else {
+                if (tabs) tabs.innerHTML = '<div style="color:var(--text-dim); font-size:12px; padding:6px;">正在调阅设定集...</div>';
+            }
 
-                // 1. 渲染横向药丸条 (保证每个 pill 都是单行横排，不换行，不挤压)
-                tabs.innerHTML = res.settings.map((s, i) => {
+            try {
+                const res = await fetchAPI(`${API}/settings?book=${encodeURIComponent(CURRENT_BOOK)}`);
+                if (res && res.settings && res.settings.length > 0) {
+                    CLIENT_CACHE.settings[CURRENT_BOOK] = res.settings;
+                    renderSettingsPillsAndDropdown(res.settings);
+                } else if (!CLIENT_CACHE.settings[CURRENT_BOOK] || CLIENT_CACHE.settings[CURRENT_BOOK].length === 0) {
+                    if (tabs) tabs.innerHTML = "";
+                    if (dropdown) dropdown.innerHTML = '<option value="">暂无设定</option>';
+                    const actName = document.getElementById("setting-active-filename");
+                    if (actName) actName.innerText = "暂无设定文档";
+                    document.getElementById("setting-content").innerText = "该作品暂无设定集文档，可在下方「智谱工坊」中一键新增！";
+                }
+            } catch (e) {}
+        }
+
+        function renderSettingsPillsAndDropdown(settings) {
+            CACHED_SETTINGS = settings;
+            const tabs = document.getElementById("settings-tabs");
+            const dropdown = document.getElementById("settings-select-dropdown");
+
+            if (!CURRENT_SETTING_DOC || !settings.some(s => s.filename === CURRENT_SETTING_DOC)) {
+                CURRENT_SETTING_DOC = settings[0].filename;
+            }
+
+            // 1. 渲染横向药丸条 (保证每个 pill 都是单行横排，不换行，不挤压)
+            if (tabs) {
+                tabs.innerHTML = settings.map((s) => {
                     const icon = getSettingIcon(s.filename);
                     const shortTitle = getSettingShortTitle(s.filename);
-                    return `<button class="setting-pill ${i===0?'active':''}" data-file="${s.filename}" onclick="viewSetting('${s.filename}', this)">
+                    const isActive = (s.filename === CURRENT_SETTING_DOC);
+                    return `<button class="setting-pill ${isActive ? 'active' : ''}" data-file="${s.filename}" onclick="viewSetting('${s.filename}', this)">
                         <span class="pill-icon">${icon}</span>
                         <span>${shortTitle}</span>
                     </button>`;
                 }).join("");
-
-                // 2. 渲染快捷跳转下拉框
-                if (dropdown) {
-                    dropdown.innerHTML = '<option value="">快速跳转设定...</option>' + res.settings.map(s => `
-                        <option value="${s.filename}">${getSettingShortTitle(s.filename)} (${s.filename})</option>
-                    `).join("");
-                }
-
-                // 默认展示首个文档
-                viewSetting(res.settings[0].filename, tabs.children[0]);
-            } else {
-                if (tabs) tabs.innerHTML = "";
-                if (dropdown) dropdown.innerHTML = '<option value="">暂无设定</option>';
-                const actName = document.getElementById("setting-active-filename");
-                if (actName) actName.innerText = "暂无设定文档";
-                document.getElementById("setting-content").innerText = "该作品暂无设定集文档，可在下方「智谱工坊」中一键新增！";
             }
+
+            // 2. 渲染快捷跳转下拉框 (完全同步当前激活项)
+            if (dropdown) {
+                dropdown.innerHTML = settings.map(s => `
+                    <option value="${s.filename}" ${s.filename === CURRENT_SETTING_DOC ? 'selected' : ''}>${getSettingShortTitle(s.filename)}</option>
+                `).join("");
+                dropdown.value = CURRENT_SETTING_DOC;
+            }
+
+            // 载入正文视图
+            const activeBtn = tabs ? tabs.querySelector(`[data-file="${CURRENT_SETTING_DOC}"]`) : null;
+            viewSetting(CURRENT_SETTING_DOC, activeBtn);
         }
 
         function getSettingIcon(filename) {
@@ -2139,6 +2787,7 @@
         }
 
         async function viewSetting(filename, btnEl) {
+            if (!filename) return;
             CURRENT_SETTING_DOC = filename;
             const tinput = document.getElementById("setting-target-input");
             if (tinput && (!tinput.value || tinput.value.endsWith(".md"))) {
@@ -2147,10 +2796,9 @@
 
             const tabs = document.getElementById("settings-tabs");
             if (tabs) {
-                Array.from(tabs.querySelectorAll(".setting-pill")).forEach(c => c.classList.remove("active"));
-            }
-            if (btnEl) {
-                btnEl.classList.add("active");
+                Array.from(tabs.querySelectorAll(".setting-pill")).forEach(c => {
+                    c.classList.toggle("active", c.getAttribute("data-file") === filename);
+                });
             }
 
             const dropdown = document.getElementById("settings-select-dropdown");
@@ -2164,17 +2812,28 @@
             }
 
             const contentEl = document.getElementById("setting-content");
-            contentEl.innerHTML = '<div style="color:var(--text-dim); padding:10px;">正在加载设定内容...</div>';
+            const cacheKey = `${CURRENT_BOOK}_${filename}`;
 
-            const res = await fetchAPI(`${API}/setting?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
-            if (res && res.content) {
-                contentEl.innerHTML = marked.parse(res.content);
+            if (CLIENT_CACHE.settingContent[cacheKey]) {
+                contentEl.innerHTML = marked.parse(CLIENT_CACHE.settingContent[cacheKey]);
                 const statsEl = document.getElementById("setting-active-stats");
-                if (statsEl) {
-                    statsEl.innerText = `约 ${res.content.length} 字`;
-                }
+                if (statsEl) statsEl.innerText = `约 ${CLIENT_CACHE.settingContent[cacheKey].length} 字`;
             } else {
-                contentEl.innerText = "设定内容加载失败或文件为空。";
+                contentEl.innerHTML = '<div style="color:var(--text-dim); padding:10px;">正在加载设定内容...</div>';
+            }
+
+            try {
+                const res = await fetchAPI(`${API}/setting?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
+                if (res && res.content) {
+                    CLIENT_CACHE.settingContent[cacheKey] = res.content;
+                    contentEl.innerHTML = marked.parse(res.content);
+                    const statsEl = document.getElementById("setting-active-stats");
+                    if (statsEl) statsEl.innerText = `约 ${res.content.length} 字`;
+                }
+            } catch (e) {
+                if (!CLIENT_CACHE.settingContent[cacheKey]) {
+                    contentEl.innerText = "设定内容加载失败或文件为空。";
+                }
             }
         }
     </script>
