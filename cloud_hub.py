@@ -48,7 +48,7 @@ LOCAL_STATUS = {
 APP_VERSION_INFO = {
     "versionCode": 6,
     "versionName": "1.4.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.4.0",
     "changelog": "1. 【主力引擎升级】全面接入 Google 最新 Gemini 3.8 Flash High，量大管饱，生成极速！\n2. 【故障自愈机制】新增电脑端网络代理波动自动重试与模型额度饱和自动熔断切换备用模型，创作绝不中断！\n3. 【后台唤醒守护】支持电脑端 Antigravity 客户端自动唤醒与健康检测！\n4. 【设定大典重构】重构设定集横向胶囊导航栏与快捷下拉跳转，修复文字竖排与屏幕遮挡，手机阅读更清爽！",
     "forceUpdate": False
 }
@@ -116,21 +116,26 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_html("<h1>大秦科技修仙远程中枢 3.0 启动中...</h1>")
             return
 
-        # APK 下载路由 (公网免密)
-        if (path.endswith("/download/NovelRemoteHub.apk") or path == "/download/NovelRemoteHub.apk" or
-            path.endswith("/download/DaqinNovelHub.apk") or path == "/download/DaqinNovelHub.apk"):
-            apk_filename = "NovelRemoteHub.apk" if "NovelRemoteHub" in path else "DaqinNovelHub.apk"
-            apk_path = os.path.join(DOWNLOAD_DIR, apk_filename)
-            if not os.path.exists(apk_path):
-                cand = [f for f in [os.path.join(DOWNLOAD_DIR, "NovelRemoteHub.apk"), os.path.join(DOWNLOAD_DIR, "DaqinNovelHub.apk")] if os.path.exists(f)]
-                if cand:
-                    apk_path = cand[0]
-            if os.path.exists(apk_path):
+        # APK 下载路由 (公网免密，严密防缓存)
+        if ("download/NovelRemoteHub.apk" in path or "download/DaqinNovelHub.apk" in path):
+            candidates = [
+                os.path.join(DOWNLOAD_DIR, "NovelRemoteHub.apk"),
+                os.path.join(DOWNLOAD_DIR, "DaqinNovelHub.apk"),
+                os.path.join(os.path.dirname(__file__), "NovelRemoteHub.apk"),
+                os.path.join(os.path.dirname(__file__), "DaqinNovelHub.apk")
+            ]
+            existing = [f for f in candidates if os.path.exists(f)]
+            if existing:
+                existing.sort(key=os.path.getmtime, reverse=True)
+                apk_path = existing[0]
                 size = os.path.getsize(apk_path)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/vnd.android.package-archive")
-                self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(apk_path)}"')
+                self.send_header("Content-Disposition", 'attachment; filename="NovelRemoteHub.apk"')
                 self.send_header("Content-Length", str(size))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
                 self.end_headers()
                 with open(apk_path, "rb") as fp:
                     shutil.copyfileobj(fp, self.wfile)
