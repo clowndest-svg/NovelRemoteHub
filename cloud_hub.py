@@ -524,27 +524,52 @@ class HubHandler(BaseHTTPRequestHandler):
             os.makedirs(os.path.join(bpath, "01_正文", "第一卷_人界篇"), exist_ok=True)
             os.makedirs(os.path.join(bpath, "00_设定集"), exist_ok=True)
 
-            # 同步章节
+            # 同步章节 (仅在内容发生变动时才写盘并精准失效缓存，避免重复破坏缓存)
             chapters = body.get("chapters", [])
+            has_chapter_changes = False
             for c in chapters:
                 fpath = os.path.join(bpath, "01_正文", "第一卷_人界篇", c["filename"])
-                with open(fpath, "w", encoding="utf-8") as fp:
-                    fp.write(c["content"])
+                old_text = ""
+                if os.path.exists(fpath):
+                    try:
+                        with open(fpath, "r", encoding="utf-8", errors="ignore") as fp:
+                            old_text = fp.read()
+                    except Exception:
+                        pass
+                if old_text != c["content"]:
+                    with open(fpath, "w", encoding="utf-8") as fp:
+                        fp.write(c["content"])
+                    has_chapter_changes = True
+                    invalidate_cache(c["filename"])
 
             # 同步设定
             settings = body.get("settings", [])
+            has_setting_changes = False
             for s in settings:
                 fpath = os.path.join(bpath, "00_设定集", s["filename"])
-                with open(fpath, "w", encoding="utf-8") as fp:
-                    fp.write(s["content"])
+                old_text = ""
+                if os.path.exists(fpath):
+                    try:
+                        with open(fpath, "r", encoding="utf-8", errors="ignore") as fp:
+                            old_text = fp.read()
+                    except Exception:
+                        pass
+                if old_text != s["content"]:
+                    with open(fpath, "w", encoding="utf-8") as fp:
+                        fp.write(s["content"])
+                    has_setting_changes = True
+                    invalidate_cache(s["filename"])
 
             # 同步对话
             conversations = body.get("conversations", [])
             if conversations:
                 save_json_file(os.path.join(DATA_DIR, "conversations.json"), conversations)
 
-            # 立即失效该书的缓存，确保下次查询立即拿到最新落盘数据
-            invalidate_cache(book_id)
+            # 仅在有实际内容变更时失效目录总览缓存
+            if has_chapter_changes:
+                invalidate_cache(f"novel:cache:chapters:{book_id}")
+            if has_setting_changes:
+                invalidate_cache(f"novel:cache:settings:{book_id}")
 
             self.send_json({"ok": True, "chapters_count": len(chapters), "settings_count": len(settings)})
             return

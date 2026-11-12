@@ -311,8 +311,11 @@ def run_bridge_loop():
 
     last_sync_time = time.time()
     last_file_count = 0
+    last_sync_mtime = 0
     if os.path.exists(BOOKS_ROOT):
-        last_file_count = len(glob.glob(os.path.join(BOOKS_ROOT, "**", "*.md"), recursive=True))
+        md_files = glob.glob(os.path.join(BOOKS_ROOT, "**", "*.md"), recursive=True)
+        last_file_count = len(md_files)
+        last_sync_mtime = max((os.path.getmtime(f) for f in md_files), default=0)
 
     while True:
         try:
@@ -484,17 +487,17 @@ def run_bridge_loop():
                         "log": output
                     })
 
-            # 2. 定时检查本地是否有新文件生成并同步
-            if time.time() - last_sync_time > 10:
-                current_count = 0
+            # 2. 定时检查本地是否有新文件或内容变动 (只在真正有变动时才同步，避免频繁无意义刷空缓存)
+            if time.time() - last_sync_time > 15:
                 if os.path.exists(BOOKS_ROOT):
-                    current_count = len(glob.glob(os.path.join(BOOKS_ROOT, "**", "*.md"), recursive=True))
-                if current_count != last_file_count:
-                    print(f"[Sync] 检测到文件变化 ({last_file_count} -> {current_count})，立即自动同步至云端！")
-                    sync_all_books_to_cloud()
-                    last_file_count = current_count
-                else:
-                    sync_all_books_to_cloud()
+                    current_md_files = glob.glob(os.path.join(BOOKS_ROOT, "**", "*.md"), recursive=True)
+                    current_count = len(current_md_files)
+                    current_max_mtime = max((os.path.getmtime(f) for f in current_md_files), default=0)
+                    if current_count != last_file_count or current_max_mtime > last_sync_mtime:
+                        print(f"[Sync] 检测到文件数量或修改时间变化 ({last_file_count} -> {current_count})，立即自动同步至云端！")
+                        sync_all_books_to_cloud()
+                        last_file_count = current_count
+                        last_sync_mtime = current_max_mtime
                 last_sync_time = time.time()
 
         except Exception as e:
