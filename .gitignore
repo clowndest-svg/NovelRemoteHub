@@ -1,0 +1,16 @@
+# 凭据与密钥安全 (Strict Security Exclusions)
+*.pem
+server_key.pem
+*.keystore
+test.pem
+
+# 编译与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+build_tmp/
+*.log
+
+# 工具链二进制包与生成的 APK
+apk_tools/
+*.apk

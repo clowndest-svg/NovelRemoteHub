@@ -1,0 +1,1734 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>NovelRemoteHub · 智笔云枢 | 多书架 AI 协同创作与番茄自动化发布中枢</title>
+    <!-- Marked.js 极速渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-base: #06080d;
+            --bg-primary: #0d121c;
+            --bg-secondary: #131b29;
+            --bg-card: #182234;
+            --bg-card-hover: #1f2c42;
+            --text-main: #f1f5f9;
+            --text-sub: #94a3b8;
+            --text-dim: #64748b;
+            --accent: #e2b740; /* 仙秦玄金 */
+            --accent-hover: #fcd34d;
+            --accent-glow: rgba(226, 183, 64, 0.25);
+            --border: #243044;
+            --border-highlight: rgba(226, 183, 64, 0.45);
+            --reader-bg: #0b1018;
+            --reader-text: #e2e8f0;
+            --reader-font-size: 19px;
+            --reader-line-height: 1.88;
+            --bottom-nav-height: 64px;
+            --radius-sm: 8px;
+            --radius-md: 14px;
+            --radius-lg: 20px;
+            --cyan: #38bdf8;
+            --green: #22c55e;
+            --tomato: #ef4444;
+        }
+
+        /* 皮肤：羊皮纸 */
+        body.theme-parchment {
+            --bg-base: #f0e6cf;
+            --bg-primary: #f7efe0;
+            --bg-secondary: #ebdcbb;
+            --bg-card: #e5d2a8;
+            --bg-card-hover: #dcc799;
+            --text-main: #2b2114;
+            --text-sub: #634f31;
+            --text-dim: #88724d;
+            --border: #d4be8f;
+            --reader-bg: #f9f2e3;
+            --reader-text: #261d11;
+        }
+
+        /* 皮肤：竹青护眼 */
+        body.theme-green {
+            --bg-base: #0c1712;
+            --bg-primary: #12211a;
+            --bg-secondary: #172a22;
+            --bg-card: #1d362b;
+            --bg-card-hover: #244336;
+            --text-main: #e2f0ea;
+            --text-sub: #8fb8a5;
+            --text-dim: #5c8774;
+            --border: #294c3d;
+            --reader-bg: #101e18;
+            --reader-text: #dcf2e8;
+        }
+
+        /* 皮肤：晨光皓白 */
+        body.theme-light {
+            --bg-base: #f8fafc;
+            --bg-primary: #ffffff;
+            --bg-secondary: #f1f5f9;
+            --bg-card: #ffffff;
+            --bg-card-hover: #f8fafc;
+            --text-main: #0f172a;
+            --text-sub: #475569;
+            --text-dim: #94a3b8;
+            --border: #e2e8f0;
+            --reader-bg: #ffffff;
+            --reader-text: #1e293b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding-bottom: calc(var(--bottom-nav-height) + 20px);
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 顶部导航条 (防闪烁 + 左右对齐) */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(13, 18, 28, 0.92);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .brand-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            text-decoration: none;
+            flex-shrink: 0;
+        }
+
+        /* 纯矢量内联 SVG Logo (零闪烁 · 毫秒渲染) */
+        .brand-logo-svg {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            box-shadow: 0 0 14px var(--accent-glow);
+            flex-shrink: 0;
+        }
+
+        .brand-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--accent);
+            letter-spacing: 0.5px;
+            line-height: 1.2;
+        }
+
+        .brand-sub {
+            font-size: 11px;
+            color: var(--text-sub);
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        /* 右上角按钮横向优雅排列 (针对图一用户反馈专项重构) */
+        .header-actions {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+            color: #4ade80;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+
+        .status-pill.offline {
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.35);
+            color: #f87171;
+        }
+
+        .pulse-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+            animation: pulse-ring 2s infinite;
+        }
+
+        .status-pill.offline .pulse-dot {
+            background: #ef4444;
+            box-shadow: none;
+            animation: none;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .btn-apk-top {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 20px;
+            text-decoration: none;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .btn-apk-top:hover {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+        }
+
+        /* 多书架切换条 */
+        .shelf-strip {
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border);
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            overflow-x: auto;
+        }
+
+        .active-book-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-highlight);
+            color: var(--accent);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .active-book-pill:hover {
+            background: var(--bg-card-hover);
+        }
+
+        /* 主体内容容器 */
+        main {
+            flex: 1;
+            max-width: 960px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 14px 16px;
+        }
+
+        .panel {
+            display: none;
+            animation: fadeIn 0.25s ease;
+        }
+
+        .panel.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 顶部大卡片：唤醒操控 Antigravity */
+        .hero-action-card {
+            background: linear-gradient(135deg, rgba(226, 183, 64, 0.12), rgba(24, 34, 52, 0.95));
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 20px var(--accent-glow);
+            cursor: pointer;
+        }
+
+        .hero-action-card:active {
+            transform: scale(0.98);
+        }
+
+        /* 章节目录全新设计 (针对图二用户反馈彻底重构) */
+        .catalog-hero-box {
+            background: linear-gradient(135deg, #131c2d, #1a253c);
+            border: 1px solid var(--border-highlight);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .catalog-book-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .catalog-book-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .catalog-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            background: rgba(9, 13, 20, 0.6);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            margin-bottom: 12px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .stat-val {
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        .stat-val.gold { color: var(--accent); }
+        .stat-val.green { color: var(--green); }
+
+        .stat-lbl {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        .catalog-action-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn-catalog-quick {
+            flex: 1;
+            min-width: 140px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 8px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-catalog-quick:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-catalog-quick.highlight {
+            background: linear-gradient(135deg, rgba(226, 183, 64, 0.25), rgba(226, 183, 64, 0.1));
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* 搜索与筛选工具栏 */
+        .catalog-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            position: relative;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 9px 12px 9px 34px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-dim);
+            pointer-events: none;
+        }
+
+        .sort-toggle-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+            padding: 9px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .sort-toggle-btn:hover {
+            color: var(--text-main);
+            border-color: var(--accent);
+        }
+
+        /* 章节卡片列表容器 */
+        .chapter-cards-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* 优雅的章节卡片组件 */
+        .chapter-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+        }
+
+        .chapter-card:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-highlight);
+            transform: translateX(2px);
+        }
+
+        .chapter-card.active {
+            background: rgba(226, 183, 64, 0.12);
+            border-color: var(--accent);
+        }
+
+        .chapter-card-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .chapter-index-pill {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid var(--border);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 800;
+            padding: 4px 8px;
+            border-radius: 6px;
+            white-space: nowrap;
+            letter-spacing: 0.5px;
+        }
+
+        .chapter-card.active .chapter-index-pill {
+            background: var(--accent);
+            color: #06080d;
+        }
+
+        .chapter-card-content {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .chapter-card-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chapter-card-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: var(--text-dim);
+            flex-wrap: wrap;
+        }
+
+        .meta-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .meta-tag.chars { color: var(--cyan); font-weight: 600; }
+        .meta-tag.status { color: var(--green); }
+
+        .chapter-card-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .btn-card-action {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+            padding: 5px 9px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-card-action:hover {
+            color: #fff;
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .btn-card-action.tomato:hover {
+            background: var(--tomato);
+            border-color: var(--tomato);
+        }
+
+        /* 阅读器 */
+        .reader-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 8px 12px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tool-btn {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .tool-btn:active {
+            transform: scale(0.96);
+        }
+
+        .reader-container {
+            background: var(--reader-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 24px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+        }
+
+        .chapter-title-hero {
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--accent);
+            line-height: 1.4;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .chapter-meta-tag {
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 24px;
+            padding-bottom: 14px;
+            border-bottom: 1px dashed var(--border);
+        }
+
+        .chapter-body-text {
+            color: var(--reader-text);
+            font-size: var(--reader-font-size);
+            line-height: var(--reader-line-height);
+            letter-spacing: 0.5px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .page-turn-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 30px;
+            padding-top: 18px;
+            border-top: 1px solid var(--border);
+            gap: 12px;
+        }
+
+        .page-btn {
+            flex: 1;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 12px;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .page-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* 操控 Antigravity 控制面板 */
+        .control-hub-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-highlight);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 24px var(--accent-glow);
+        }
+
+        .engine-switch-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 14px 0;
+        }
+
+        .engine-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .engine-card.active {
+            border-color: var(--accent);
+            background: rgba(226, 183, 64, 0.1);
+        }
+
+        .engine-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+
+        .engine-desc {
+            font-size: 11px;
+            color: var(--text-sub);
+            line-height: 1.4;
+        }
+
+        .prompt-textarea {
+            width: 100%;
+            height: 110px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-main);
+            font-size: 14px;
+            padding: 12px;
+            outline: none;
+            resize: vertical;
+            margin-bottom: 12px;
+        }
+
+        .prompt-textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .btn-launch-big {
+            width: 100%;
+            background: linear-gradient(135deg, var(--accent), #b48c28);
+            border: none;
+            color: #06080d;
+            font-size: 15px;
+            font-weight: 800;
+            padding: 13px;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            box-shadow: 0 4px 16px var(--accent-glow);
+            transition: all 0.2s;
+        }
+
+        .btn-launch-big:hover {
+            filter: brightness(1.1);
+        }
+
+        .quick-chips-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .chip {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+            font-size: 12px;
+            padding: 5px 10px;
+            border-radius: 16px;
+            cursor: pointer;
+        }
+
+        .chip:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* 终端视窗 */
+        .term-container {
+            background: #03060a;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            margin-top: 14px;
+            font-family: "Cascadia Code", Consolas, monospace;
+            font-size: 12px;
+            color: #38bdf8;
+            max-height: 240px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        /* 番茄发布工作流 */
+        .copy-box-pure {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--text-main);
+            max-height: 280px;
+            overflow-y: auto;
+            margin-bottom: 14px;
+            white-space: pre-wrap;
+        }
+
+        /* 底部固定导航栏 (Native Mobile App 样式) */
+        .dock-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: var(--bottom-nav-height);
+            background: rgba(13, 18, 28, 0.95);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            z-index: 100;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        .dock-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 11px;
+            cursor: pointer;
+            flex: 1;
+            height: 100%;
+            transition: color 0.15s;
+        }
+
+        .dock-btn.active {
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .dock-btn .d-icon {
+            font-size: 20px;
+            margin-bottom: 2px;
+        }
+
+        .dock-btn.hero {
+            position: relative;
+            top: -10px;
+        }
+
+        .dock-btn.hero .hero-circle {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), #9a741a);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            box-shadow: 0 4px 16px var(--accent-glow);
+            color: #06080d;
+        }
+
+        /* 弹窗通用样式 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(6px);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-highlight);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 480px;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--accent);
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 22px;
+            cursor: pointer;
+        }
+
+        @media (max-width: 640px) {
+            .catalog-stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .engine-switch-grid {
+                grid-template-columns: 1fr;
+            }
+            header {
+                padding: 8px 12px;
+            }
+            .brand-title {
+                font-size: 15px;
+            }
+            .brand-sub {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部导航 (防闪烁矢量 Logo + 横向排列按钮) -->
+    <header>
+        <div class="brand-box" onclick="switchTab('catalog')">
+            <!-- 纯内联矢量 SVG Logo (星轨羽笔 · 零闪烁) -->
+            <svg class="brand-logo-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="100" height="100" rx="20" fill="#0d1424"/>
+                <circle cx="50" cy="50" r="40" stroke="#e2b740" stroke-width="2.5" opacity="0.8"/>
+                <circle cx="50" cy="50" r="32" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6"/>
+                <!-- 羽笔与灵枢折纸 -->
+                <path d="M50 20 L66 45 L50 78 L34 45 Z" fill="#182338" stroke="#e2b740" stroke-width="2"/>
+                <line x1="50" y1="20" x2="50" y2="60" stroke="#fcd34d" stroke-width="2"/>
+                <circle cx="50" cy="45" r="4" fill="#38bdf8"/>
+                <path d="M26 65 Q50 78 74 65" stroke="#e2b740" stroke-width="2" fill="none"/>
+            </svg>
+            <div class="brand-info">
+                <span class="brand-title">NovelRemoteHub</span>
+                <span class="brand-sub">智笔云枢 · 多书架协同</span>
+            </div>
+        </div>
+
+        <!-- 右上角按钮横向优雅排列 (横着排列 · 不再折叠) -->
+        <div class="header-actions">
+            <div id="pc-status" class="status-pill offline">
+                <span class="pulse-dot"></span>
+                <span id="status-text">检测中</span>
+            </div>
+            <a href="/novel/download/NovelRemoteHub.apk" class="btn-apk-top" download>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span>App下载</span>
+            </a>
+        </div>
+    </header>
+
+    <!-- 多书架作品切换条 -->
+    <div class="shelf-strip">
+        <div class="active-book-pill" onclick="openBookDrawer()">
+            <span>📚 当前作品:</span>
+            <span id="current-book-label" style="text-decoration: underline;">《给政哥讲量子力学，他竟肉身硬抗二向箔》</span>
+            <span>▾</span>
+        </div>
+        <div style="font-size:12px; color:var(--text-sub); display:flex; align-items:center; gap:6px;">
+            <span>连载中</span>
+            <span style="color:var(--border);">|</span>
+            <span id="shelf-count-tag" style="color:var(--accent);">共 1 部作品</span>
+        </div>
+    </div>
+
+    <main>
+        <!-- 1. 阅读器面板 -->
+        <section id="panel-reader" class="panel">
+            <!-- 顶部快捷横幅：直达 Antigravity 操控台 -->
+            <div class="hero-action-card" onclick="switchTab('antigravity')">
+                <div>
+                    <div style="font-size:14px; font-weight:800; color:var(--accent); display:flex; align-items:center; gap:6px;">
+                        <span>🤖 电脑 Antigravity 随时待命</span>
+                    </div>
+                    <div style="font-size:12px; color:var(--text-sub); margin-top:3px;">
+                        点击此处下达创作指令 / 一键续写新章节 ➔
+                    </div>
+                </div>
+                <div style="font-size:12px; font-weight:700; color:var(--accent); background:rgba(226,183,64,0.15); padding:6px 12px; border-radius:20px;">
+                    立即指挥
+                </div>
+            </div>
+
+            <!-- 阅读器工具栏 -->
+            <div class="reader-toolbar">
+                <div class="tool-group">
+                    <button class="tool-btn" onclick="toggleTheme('dark')">🌙 玄黑</button>
+                    <button class="tool-btn" onclick="toggleTheme('parchment')">📜 羊皮</button>
+                    <button class="tool-btn" onclick="toggleTheme('green')">🌿 竹青</button>
+                    <button class="tool-btn" onclick="toggleTheme('light')">☀️ 晨白</button>
+                </div>
+                <div class="tool-group">
+                    <button class="tool-btn" onclick="changeFontSize(-1)">A-</button>
+                    <button class="tool-btn" onclick="changeFontSize(1)">A+</button>
+                    <button class="tool-btn" onclick="switchTab('catalog')">📑 选章</button>
+                </div>
+            </div>
+
+            <!-- 正文盒子 -->
+            <div class="reader-container">
+                <h1 id="chapter-title" class="chapter-title-hero">加载中...</h1>
+                <div id="chapter-meta" class="chapter-meta-tag">字数统计中...</div>
+                <div id="chapter-content" class="chapter-body-text">正在从大秦云端调阅正文卷宗...</div>
+                
+                <div class="page-turn-footer">
+                    <button id="prev-btn" class="page-btn" onclick="prevChapter()">上一章</button>
+                    <button class="page-btn" onclick="switchTab('catalog')">目 录</button>
+                    <button id="next-btn" class="page-btn" onclick="nextChapter()">下一章</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. 【核心重构】章节卷宗目录面板 (针对图二彻底优化) -->
+        <section id="panel-catalog" class="panel active">
+            <!-- 头部概览卡片 -->
+            <div class="catalog-hero-box">
+                <div class="catalog-book-header">
+                    <div class="catalog-book-title">
+                        <span>📖</span>
+                        <span id="catalog-hero-title">给政哥讲量子力学，他竟肉身硬抗二向箔</span>
+                    </div>
+                    <button class="tool-btn" onclick="loadChapters()">🔄 刷新目录</button>
+                </div>
+
+                <!-- 核心数据看板 -->
+                <div class="catalog-stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-val gold" id="stat-chapters-count">11</div>
+                        <div class="stat-lbl">已创章节</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-val" id="stat-words-count">5.3万</div>
+                        <div class="stat-lbl">全书字数</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-val green" id="stat-audit-rate">100%</div>
+                        <div class="stat-lbl">番茄规范率</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-val" id="stat-last-time">刚刚</div>
+                        <div class="stat-lbl">最新创作</div>
+                    </div>
+                </div>
+
+                <!-- 快捷功能行 -->
+                <div class="catalog-action-row">
+                    <button class="btn-catalog-quick highlight" onclick="jumpToLatestChapter()">
+                        <span>🚀 直达最新章节</span>
+                    </button>
+                    <button class="btn-catalog-quick" onclick="exportTomatoZip()">
+                        <span>📦 导出全本番茄ZIP</span>
+                    </button>
+                    <button class="btn-catalog-quick" onclick="switchTab('antigravity'); fillActionPrompt('next')">
+                        <span>➕ 续写下一章</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 搜索与筛选工具栏 -->
+            <div class="catalog-toolbar">
+                <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="catalog-search" class="search-input" placeholder="搜索章节名称、序号或关键字..." oninput="filterChapters()">
+                </div>
+                <button id="sort-btn" class="sort-toggle-btn" onclick="toggleSort()">↕️ 倒序 (最新在前)</button>
+            </div>
+
+            <!-- 章节卡片列表 -->
+            <div id="chapters-cards-container" class="chapter-cards-list">
+                <div style="padding:30px; text-align:center; color:var(--text-sub);">正在加载章节卡片...</div>
+            </div>
+        </section>
+
+        <!-- 3. 操控本电脑 Antigravity / Gemini Pro 中枢 -->
+        <section id="panel-antigravity" class="panel">
+            <div class="control-hub-panel">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <div style="font-size:16px; font-weight:800; color:var(--accent);">🎮 远程唤醒办公室 Antigravity</div>
+                    <span style="font-size:11px; background:rgba(56,189,248,0.15); color:var(--cyan); padding:4px 8px; border-radius:10px;">Pro会员算力</span>
+                </div>
+
+                <div style="font-size:12px; color:var(--text-sub); line-height:1.5; margin-bottom:12px;">
+                    当前指挥作品：<strong id="ai-target-book" style="color:var(--accent);">《给政哥讲量子力学，他竟肉身硬抗二向箔》</strong><br>
+                    下发指令后，办公室电脑将自动检索大纲设定集，执行创作并把正文写盘同步至手机！
+                </div>
+
+                <!-- 双引擎切换 -->
+                <div class="engine-switch-grid">
+                    <div id="eng-antigravity" class="engine-card active" onclick="selectEngine('antigravity_pro')">
+                        <div class="engine-title">🌟 Antigravity 智能体</div>
+                        <div class="engine-desc">官方桌面代理，自动检索大纲与写盘，IDE永久留痕。</div>
+                    </div>
+                    <div id="eng-gemini" class="engine-card" onclick="selectEngine('gemini_pro_direct')">
+                        <div class="engine-title">⚡ Gemini Pro 极速流</div>
+                        <div class="engine-desc">通过电脑 TUN 虚拟网卡节点直连，毫秒级打字机回显。</div>
+                    </div>
+                </div>
+
+                <!-- 快捷指令预设 -->
+                <div class="quick-chips-row">
+                    <div class="chip" onclick="fillActionPrompt('next')">➕ 续写下一章 (分章大纲+悬念)</div>
+                    <div class="chip" onclick="fillActionPrompt('polish')">✨ 精修润色最新章</div>
+                    <div class="chip" onclick="fillActionPrompt('check')">🔍 设定集一致性质检</div>
+                </div>
+
+                <textarea id="prompt-box" class="prompt-textarea" placeholder="在此输入给 Antigravity 的具体创作/润色指令..."></textarea>
+
+                <button id="dispatch-btn" class="btn-launch-big" onclick="launchTask()">
+                    🔥 唤醒电脑端 Antigravity 立即执行
+                </button>
+
+                <!-- 实时终端回显视窗 -->
+                <div id="term-container" class="term-container" style="display:none;">
+                    <div id="task-terminal">等待任务指令...</div>
+                </div>
+            </div>
+
+            <!-- 历史对话记录抽屉 -->
+            <div class="catalog-hero-box" style="margin-top:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="font-size:14px; font-weight:800; color:var(--accent);">📜 Antigravity 会话回溯</div>
+                    <button class="tool-btn" onclick="loadConversations()">🔄 刷新</button>
+                </div>
+                <div id="conversations-timeline" style="max-height:260px; overflow-y:auto;">
+                    <div style="padding:20px; text-align:center; color:var(--text-sub);">点击刷新载入历史会话</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. 设定大典面板 -->
+        <section id="panel-settings" class="panel">
+            <div class="catalog-hero-box">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <div class="catalog-book-title">
+                        <span>🏛️</span>
+                        <span>世界观 · 登天境 · 分章细纲总谱</span>
+                    </div>
+                    <button class="tool-btn" onclick="loadSettings()">🔄 刷新</button>
+                </div>
+                <div id="settings-tabs" style="display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; padding-bottom:6px;">
+                    <!-- 设定标签 -->
+                </div>
+                <div class="reader-container" style="padding:16px;">
+                    <div id="setting-content" class="chapter-body-text">
+                        请在上方选择查看的世界观或细纲卷宗。
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. 番茄发布工作流面板 -->
+        <section id="panel-tomato" class="panel">
+            <div class="catalog-hero-box">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <div class="catalog-book-title">
+                        <span>🍅</span>
+                        <span>番茄小说自动化发布工作流</span>
+                    </div>
+                    <button class="tool-btn" onclick="exportTomatoZip()">📦 导出全本ZIP</button>
+                </div>
+
+                <div style="font-size:12px; color:var(--text-sub); margin-bottom:12px;">
+                    选择章节自动完成：① 去除Markdown标签 ② 首行缩进两全角字符 ③ 标点全角规范化 ④ 敏感词预检
+                </div>
+
+                <div id="tomato-audit-card" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:12px; display:none;">
+                    <div id="tomato-audit-msg" style="font-size:13px; font-weight:700; color:#f87171;"></div>
+                </div>
+
+                <div id="tomato-preview-box" class="copy-box-pure">请在目录中点击「番茄格式」选择章节进行清洗转换...</div>
+
+                <button class="btn-launch-big" style="background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff;" onclick="copyTomatoContent()">
+                    <span>📋 一键复制番茄纯净正文 (可直接粘贴发布)</span>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- 底部固定导航栏 (Native Mobile App 样式) -->
+    <nav class="dock-bar">
+        <div id="dock-catalog" class="dock-btn active" onclick="switchTab('catalog')">
+            <div class="d-icon">📑</div>
+            <span>章节卷宗</span>
+        </div>
+        <div id="dock-reader" class="dock-btn" onclick="switchTab('reader')">
+            <div class="d-icon">📖</div>
+            <span>阅读正文</span>
+        </div>
+        <!-- 正中央高亮按钮：操控 Antigravity -->
+        <div class="dock-btn hero" onclick="switchTab('antigravity')">
+            <div class="hero-circle">🎮</div>
+            <span style="margin-top:2px; font-weight:800; color:var(--accent);">操控AI</span>
+        </div>
+        <div id="dock-settings" class="dock-btn" onclick="switchTab('settings')">
+            <div class="d-icon">🏛️</div>
+            <span>设定大典</span>
+        </div>
+        <div id="dock-tomato" class="dock-btn" onclick="switchTab('tomato')">
+            <div class="d-icon">🍅</div>
+            <span>番茄发布</span>
+        </div>
+    </nav>
+
+    <!-- 多书架抽屉 Modal -->
+    <div id="book-modal" class="modal-overlay" onclick="closeBookDrawer(event)">
+        <div class="modal-box" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title">📚 作品书架管理</div>
+                <button class="close-btn" onclick="closeBookDrawer()">&times;</button>
+            </div>
+            <div id="books-list-container" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;">
+                <!-- 动态书架列表 -->
+            </div>
+            <div style="font-size:12px; color:var(--text-dim); text-align:center;">
+                系统自动扫描公司电脑 D:\小说 目录下的全部作品
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = "/novel/api";
+        let TOKEN = localStorage.getItem("novel_token") || "daqin_authorized";
+        let BOOKS = [];
+        let CURRENT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔";
+        let CHAPTERS = [];
+        let FILTERED_CHAPTERS = [];
+        let CURRENT_INDEX = 0;
+        let CURRENT_ENGINE = "antigravity_pro";
+        let ACTIVE_TASK_ID = null;
+        let TASK_POLL_TIMER = null;
+        let SORT_DESC = true; // 默认最新章节在最上面
+
+        // 初始化
+        window.addEventListener("DOMContentLoaded", () => {
+            initApp();
+        });
+
+        async function initApp() {
+            checkStatus();
+            setInterval(checkStatus, 10000);
+            await loadBooks();
+            await loadChapters();
+            checkAppUpdate();
+        }
+
+        async function fetchAPI(url, opts = {}) {
+            opts.headers = opts.headers || {};
+            opts.headers["X-Novel-Token"] = TOKEN;
+            if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
+                opts.headers["Content-Type"] = "application/json";
+            }
+            try {
+                const res = await fetch(url, opts);
+                if (res.status === 401) {
+                    const pwd = prompt("请输入大秦云端访问口令：", "daqin666");
+                    if (pwd) {
+                        const lres = await fetch(`${API}/login`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ password: pwd })
+                        });
+                        const ldata = await lres.json();
+                        if (ldata.ok) {
+                            TOKEN = ldata.token;
+                            localStorage.setItem("novel_token", TOKEN);
+                            return fetchAPI(url, opts);
+                        } else {
+                            alert("口令错误！");
+                        }
+                    }
+                }
+                return await res.json();
+            } catch (e) {
+                console.error("API Error:", e);
+                return { error: e.message };
+            }
+        }
+
+        // 检查电脑在线状态
+        async function checkStatus() {
+            try {
+                const res = await fetch(`${API}/status`);
+                const data = await res.json();
+                const pill = document.getElementById("pc-status");
+                const text = document.getElementById("status-text");
+                if (data.online) {
+                    pill.className = "status-pill";
+                    text.innerText = "电脑在线";
+                } else {
+                    pill.className = "status-pill offline";
+                    text.innerText = data.last_seen_ago > 0 ? `离线 ${Math.floor(data.last_seen_ago / 60)}分` : "电脑离线";
+                }
+            } catch (e) {
+                const pill = document.getElementById("pc-status");
+                pill.className = "status-pill offline";
+                document.getElementById("status-text").innerText = "中枢离线";
+            }
+        }
+
+        // 检查客户端 APK 更新
+        async function checkAppUpdate() {
+            try {
+                const res = await fetch(`${API}/version`);
+                const data = await res.json();
+                if (data && data.versionName) {
+                    console.log("云端最新 App 版本:", data.versionName);
+                }
+            } catch (e) {}
+        }
+
+        // 加载书架作品
+        async function loadBooks() {
+            const data = await fetchAPI(`${API}/books`);
+            if (data && data.books) {
+                BOOKS = data.books;
+                if (BOOKS.length > 0 && !CURRENT_BOOK) {
+                    CURRENT_BOOK = BOOKS[0].id;
+                }
+                document.getElementById("shelf-count-tag").innerText = `共 ${BOOKS.length} 部作品`;
+                updateBookLabels();
+            }
+        }
+
+        function updateBookLabels() {
+            const lbl = document.getElementById("current-book-label");
+            if (lbl) lbl.innerText = `《${CURRENT_BOOK}》`;
+            const htitle = document.getElementById("catalog-hero-title");
+            if (htitle) htitle.innerText = CURRENT_BOOK;
+            const aitarget = document.getElementById("ai-target-book");
+            if (aitarget) aitarget.innerText = `《${CURRENT_BOOK}》`;
+        }
+
+        function openBookDrawer() {
+            const container = document.getElementById("books-list-container");
+            container.innerHTML = BOOKS.map(b => `
+                <div style="background:var(--bg-secondary); border:1px solid ${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--border)'}; border-radius:var(--radius-sm); padding:12px; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectBook('${b.id}')">
+                    <div>
+                        <div style="font-size:14px; font-weight:800; color:${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--text-main)'};">📖 《${b.title}》</div>
+                        <div style="font-size:11px; color:var(--text-dim); margin-top:3px;">共 ${b.chapter_count || 0} 章 · 设定卷宗 ${b.settings_count || 0} 篇</div>
+                    </div>
+                    <span style="color:var(--accent);">${b.id === CURRENT_BOOK ? '● 当前' : '➔ 切换'}</span>
+                </div>
+            `).join("");
+            document.getElementById("book-modal").classList.add("show");
+        }
+
+        function closeBookDrawer(e) {
+            document.getElementById("book-modal").classList.remove("show");
+        }
+
+        async function selectBook(bookId) {
+            CURRENT_BOOK = bookId;
+            updateBookLabels();
+            closeBookDrawer();
+            await loadChapters();
+        }
+
+        // 加载章节卷宗
+        async function loadChapters() {
+            try {
+                const data = await fetchAPI(`${API}/chapters?book=${encodeURIComponent(CURRENT_BOOK)}`);
+                if (data && data.chapters) {
+                    CHAPTERS = data.chapters;
+                    FILTERED_CHAPTERS = [...CHAPTERS];
+                    
+                    // 计算字数总和
+                    let totalWords = 0;
+                    CHAPTERS.forEach(c => totalWords += (c.char_count || 0));
+                    
+                    document.getElementById("stat-chapters-count").innerText = CHAPTERS.length;
+                    document.getElementById("stat-words-count").innerText = totalWords > 10000 ? (totalWords / 10000).toFixed(1) + "万" : totalWords;
+                    
+                    renderCatalogCards();
+                    updateNextLabel();
+
+                    if (CHAPTERS.length > 0 && !window.hasLoadedFirst) {
+                        window.hasLoadedFirst = true;
+                        openChapter(CHAPTERS.length - 1, false);
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function updateNextLabel() {
+            const nextNum = CHAPTERS.length + 1;
+            const padNum = String(nextNum).padStart(3, "0");
+            const btn = document.getElementById("dispatch-btn");
+            if (btn && !btn.disabled) {
+                btn.innerText = `🔥 唤醒电脑 Antigravity (创作第${padNum}章)`;
+            }
+        }
+
+        // 渲染重构后的章节卡片 (告别丑陋文本列表)
+        function renderCatalogCards() {
+            const container = document.getElementById("chapters-cards-container");
+            if (!container) return;
+
+            let displayList = [...FILTERED_CHAPTERS];
+            if (SORT_DESC) {
+                displayList.reverse();
+            }
+
+            if (displayList.length === 0) {
+                container.innerHTML = `<div style="padding:40px; text-align:center; color:var(--text-sub);">未找到匹配的章节卷宗</div>`;
+                return;
+            }
+
+            container.innerHTML = displayList.map(c => {
+                const origIndex = CHAPTERS.findIndex(item => item.filename === c.filename);
+                const isActive = origIndex === CURRENT_INDEX;
+                const m = c.filename.match(/第(\d+)章/);
+                const chapterTag = m ? `第${m[1]}章` : `#${origIndex + 1}`;
+                const dateStr = c.mtime ? new Date(c.mtime * 1000).toLocaleDateString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}) : '';
+
+                return `
+                    <div class="chapter-card ${isActive ? 'active' : ''}" onclick="openChapter(${origIndex})">
+                        <div class="chapter-card-left">
+                            <span class="chapter-index-pill">${chapterTag}</span>
+                            <div class="chapter-card-content">
+                                <div class="chapter-card-title">${c.title || c.raw_title}</div>
+                                <div class="chapter-card-meta">
+                                    <span class="meta-tag chars">📏 ${c.char_count} 字</span>
+                                    <span class="meta-tag">🕒 ${dateStr}</span>
+                                    <span class="meta-tag status">✓ 番茄规范达标</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chapter-card-actions" onclick="event.stopPropagation()">
+                            <button class="btn-card-action" onclick="openChapter(${origIndex})">阅读</button>
+                            <button class="btn-card-action tomato" onclick="openTomatoAuditByFile('${c.filename}')">番茄</button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        // 搜索章节
+        function filterChapters() {
+            const query = document.getElementById("catalog-search").value.trim().toLowerCase();
+            if (!query) {
+                FILTERED_CHAPTERS = [...CHAPTERS];
+            } else {
+                FILTERED_CHAPTERS = CHAPTERS.filter(c => 
+                    (c.title && c.title.toLowerCase().includes(query)) ||
+                    (c.filename && c.filename.toLowerCase().includes(query))
+                );
+            }
+            renderCatalogCards();
+        }
+
+        // 切换排序方式
+        function toggleSort() {
+            SORT_DESC = !SORT_DESC;
+            const btn = document.getElementById("sort-btn");
+            btn.innerText = SORT_DESC ? "↕️ 倒序 (最新在前)" : "↕️ 正序 (第一章在前)";
+            renderCatalogCards();
+        }
+
+        // 直达最新章节
+        function jumpToLatestChapter() {
+            if (CHAPTERS.length > 0) {
+                openChapter(CHAPTERS.length - 1);
+            }
+        }
+
+        // 打开章节阅读
+        async function openChapter(index, doSwitch = true) {
+            if (index < 0 || index >= CHAPTERS.length) return;
+            CURRENT_INDEX = index;
+            const c = CHAPTERS[index];
+
+            if (doSwitch) {
+                switchTab('reader');
+            }
+
+            document.getElementById("chapter-title").innerText = c.title || c.filename.replace(".md", "");
+            document.getElementById("chapter-meta").innerText = `第 ${index + 1} / ${CHAPTERS.length} 章 · 约 ${c.char_count} 字 · 智笔云枢秒级调阅`;
+            document.getElementById("chapter-content").innerText = "正在调阅正文卷宗...";
+
+            try {
+                const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(c.filename)}`);
+                if (res && res.content) {
+                    document.getElementById("chapter-content").innerText = res.content;
+                } else {
+                    document.getElementById("chapter-content").innerText = "正文读取失败";
+                }
+            } catch (e) {
+                document.getElementById("chapter-content").innerText = "网络请求超时";
+            }
+
+            document.getElementById("prev-btn").disabled = (index === 0);
+            document.getElementById("next-btn").disabled = (index === CHAPTERS.length - 1);
+            renderCatalogCards();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        function prevChapter() {
+            if (CURRENT_INDEX > 0) openChapter(CURRENT_INDEX - 1);
+        }
+
+        function nextChapter() {
+            if (CURRENT_INDEX < CHAPTERS.length - 1) openChapter(CURRENT_INDEX + 1);
+        }
+
+        // 切换面板选项卡
+        function switchTab(tabId) {
+            document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+            const targetPanel = document.getElementById(`panel-${tabId}`);
+            if (targetPanel) targetPanel.classList.add("active");
+
+            document.querySelectorAll(".dock-btn").forEach(b => b.classList.remove("active"));
+            const activeDock = document.getElementById(`dock-${tabId}`);
+            if (activeDock) activeDock.classList.add("active");
+
+            if (tabId === 'settings') loadSettings();
+            if (tabId === 'antigravity') loadConversations();
+            if (tabId === 'tomato' && CHAPTERS.length > 0) {
+                openTomatoAudit(CURRENT_INDEX);
+            }
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        // 阅读器字体调整
+        let CURRENT_FONT_SIZE = 19;
+        function changeFontSize(delta) {
+            CURRENT_FONT_SIZE = Math.max(14, Math.min(32, CURRENT_FONT_SIZE + delta));
+            document.documentElement.style.setProperty("--reader-font-size", `${CURRENT_FONT_SIZE}px`);
+        }
+
+        // 阅读器主题切换
+        function toggleTheme(themeName) {
+            document.body.className = "";
+            if (themeName !== 'dark') {
+                document.body.classList.add(`theme-${themeName}`);
+            }
+        }
+
+        // 选择引擎
+        function selectEngine(mode) {
+            CURRENT_ENGINE = mode;
+            document.getElementById("eng-antigravity").classList.toggle("active", mode === 'antigravity_pro');
+            document.getElementById("eng-gemini").classList.toggle("active", mode === 'gemini_pro_direct');
+        }
+
+        // 填充快捷创作指令
+        function fillActionPrompt(type) {
+            const box = document.getElementById("prompt-box");
+            const nextNum = CHAPTERS.length + 1;
+            const padNum = String(nextNum).padStart(3, "0");
+            if (type === "next") {
+                box.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，检索分章细纲中第${padNum}章规划，无缝承接上一章末尾悬念钩子，开始创作【第${padNum}章】正文（4000-5000字，番茄移动端短段落排版，戏带设定）。`;
+            } else if (type === "polish") {
+                box.value = `请对最新章节进行全篇精修润色：强化剧情反差戏剧张力，深化硬科幻/未来物理与修仙融合细节，确保中文全角双引号“”规范。`;
+            } else if (type === "check") {
+                box.value = `请全面对比全部章节正文与【00_设定集】文档，检查角色人设、战力体系、科技进展是否存在任何冲突或逻辑断层。`;
+            }
+        }
+
+        // 下发 Antigravity 执行任务
+        async function launchTask() {
+            const prompt = document.getElementById("prompt-box").value.trim();
+            if (!prompt) return alert("请输入创作指令要求！");
+
+            const btn = document.getElementById("dispatch-btn");
+            btn.disabled = true;
+            btn.innerText = "⏳ 正在唤醒电脑端 Antigravity...";
+
+            try {
+                const res = await fetchAPI(`${API}/dispatch_task`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        action: "creative_instruction",
+                        prompt: prompt,
+                        book_id: CURRENT_BOOK,
+                        engine_mode: CURRENT_ENGINE
+                    })
+                });
+
+                if (res.ok) {
+                    ACTIVE_TASK_ID = res.task.id;
+                    document.getElementById("term-container").style.display = "block";
+                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在通知公司电脑端 Antigravity (Gemini Pro)...`;
+                    startPolling();
+                } else {
+                    alert("指令下发失败: " + res.error);
+                }
+            } catch (e) {
+                alert("网络请求失败");
+            } finally {
+                btn.disabled = false;
+                updateNextLabel();
+            }
+        }
+
+        function startPolling() {
+            if (TASK_POLL_TIMER) clearInterval(TASK_POLL_TIMER);
+            TASK_POLL_TIMER = setInterval(async () => {
+                if (!ACTIVE_TASK_ID) return;
+                try {
+                    const data = await fetchAPI(`${API}/task_status?id=${ACTIVE_TASK_ID}`);
+                    const term = document.getElementById("task-terminal");
+                    term.innerText = (data.progress_log || []).join("\n");
+                    term.scrollTop = term.scrollHeight;
+
+                    if (data.status === "completed") {
+                        clearInterval(TASK_POLL_TIMER);
+                        term.innerText += `\n\n🎉 Antigravity 执行完毕！正文已在电脑落盘并同步至云端！`;
+                        await loadChapters();
+                        alert("🎉 Antigravity 创作完成！新章节已同步，快去阅读吧！");
+                    } else if (data.status === "failed") {
+                        clearInterval(TASK_POLL_TIMER);
+                        term.innerText += `\n\n❌ 任务执行中断，请检查公司电脑执行端`;
+                    }
+                } catch (e) {}
+            }, 2500);
+        }
+
+        // 番茄发布工作流
+        async function openTomatoAudit(index) {
+            if (index < 0 || index >= CHAPTERS.length) return;
+            openTomatoAuditByFile(CHAPTERS[index].filename);
+        }
+
+        async function openTomatoAuditByFile(filename) {
+            switchTab('tomato');
+            const preview = document.getElementById("tomato-preview-box");
+            preview.innerText = "正在执行番茄发布格式深度清洗与智能机审预检...";
+
+            try {
+                const res = await fetchAPI(`${API}/tomato_clean?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
+                if (res && res.ok) {
+                    window.currentTomatoText = `${res.title}\n\n${res.content}`;
+                    preview.innerText = window.currentTomatoText;
+
+                    const auditCard = document.getElementById("tomato-audit-card");
+                    const auditMsg = document.getElementById("tomato-audit-msg");
+                    auditCard.style.display = "block";
+
+                    if (res.audit.issues && res.audit.issues.length > 0) {
+                        auditMsg.innerHTML = res.audit.issues.map(iss => `<div>⚠️ [${iss.level.toUpperCase()}] ${iss.msg}</div>`).join("");
+                    } else {
+                        auditMsg.innerHTML = `<span style="color:#22c55e;">✅ 恭喜！本章字数 (${res.char_count}字)、标点规范、排版已全部通过番茄机审要求！</span>`;
+                    }
+                }
+            } catch (e) {
+                preview.innerText = "清洗解析失败: " + e.message;
+            }
+        }
+
+        function copyTomatoContent() {
+            if (!window.currentTomatoText) return alert("请先选择章节！");
+            navigator.clipboard.writeText(window.currentTomatoText).then(() => {
+                alert("📋 番茄标准纯净正文已成功复制到剪贴板！可直接粘贴至番茄作家助手后台发布！");
+            }).catch(() => {
+                alert("复制失败，请手动全选复制！");
+            });
+        }
+
+        function exportTomatoZip() {
+            window.location.href = `${API}/export_tomato_zip?book=${encodeURIComponent(CURRENT_BOOK)}`;
+        }
+
+        // 加载设定大典
+        async function loadSettings() {
+            const tabs = document.getElementById("settings-tabs");
+            const res = await fetchAPI(`${API}/settings?book=${encodeURIComponent(CURRENT_BOOK)}`);
+            if (res && res.settings && res.settings.length > 0) {
+                tabs.innerHTML = res.settings.map((s, i) => `
+                    <button class="tool-btn ${i===0?'active':''}" onclick="viewSetting('${s.filename}', this)">${s.title}</button>
+                `).join("");
+                viewSetting(res.settings[0].filename, tabs.children[0]);
+            } else {
+                tabs.innerHTML = "";
+                document.getElementById("setting-content").innerText = "该作品暂无设定集文档";
+            }
+        }
+
+        async function viewSetting(filename, btnEl) {
+            if (btnEl) {
+                Array.from(btnEl.parentElement.children).forEach(c => c.style.borderColor = 'var(--border)');
+                btnEl.style.borderColor = 'var(--accent)';
+            }
+            const res = await fetchAPI(`${API}/setting?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
+            if (res && res.content) {
+                document.getElementById("setting-content").innerHTML = marked.parse(res.content);
+            }
+        }
+
+        // 加载历史会话
+        async function loadConversations() {
+            const tl = document.getElementById("conversations-timeline");
+            try {
+                const res = await fetchAPI(`${API}/conversations`);
+                const list = res.conversations || [];
+                if (list.length === 0) {
+                    tl.innerHTML = `<div style="padding:20px; text-align:center; color:var(--text-sub);">暂无历史会话记录</div>`;
+                    return;
+                }
+                tl.innerHTML = list.map(item => `
+                    <div style="margin-bottom:10px; font-size:12px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:10px;">
+                        <div style="color:var(--text-dim); margin-bottom:4px;">${item.time || ''} · ${item.role==='user'?'手机指令':'Antigravity'}</div>
+                        ${item.thinking ? `<div style="color:var(--accent); margin-bottom:4px;">🧠 思考: ${item.thinking}</div>` : ''}
+                        <div style="color:var(--text-main); white-space:pre-wrap;">${item.text || ''}</div>
+                    </div>
+                `).join("");
+            } catch (e) {}
+        }
+    </script>
+</body>
+</html>

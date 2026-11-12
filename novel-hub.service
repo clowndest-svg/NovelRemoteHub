@@ -1,0 +1,15 @@
+﻿[Unit]
+Description=Novel Remote Hub Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/novel_hub
+ExecStart=/usr/bin/python3 /opt/novel_hub/cloud_hub.py
+Restart=always
+RestartSec=3
+Environment=NOVEL_HUB_PASSWORD=daqin666
+
+[Install]
+WantedBy=multi-user.target
