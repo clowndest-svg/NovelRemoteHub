@@ -53,7 +53,7 @@ python local_bridge.py
 
 脚本默认监听 `127.0.0.1:8899`。本机生产 service 通过 `NOVEL_HUB_BIND=172.17.0.1` 适配现有 Docker HTTPS 反向代理，转发 `/novel/`。数据默认保存于 `/root/novel_hub_data`，下载目录为 `/opt/novel_hub/download`。
 
-支持环境变量 `NOVEL_HUB_DATA_DIR`、`NOVEL_HUB_DOWNLOAD_DIR`、`NOVEL_HUB_PORT`、`NOVEL_HUB_BIND` 与 `NOVEL_HUB_PASSWORD`。首次启动在数据目录生成 `auth_token`，本地桥接配置需与该服务器令牌对应。重新登录网页获取当前令牌。
+支持环境变量 `NOVEL_HUB_DATA_DIR`、`NOVEL_HUB_DOWNLOAD_DIR`、`NOVEL_HUB_PORT`、`NOVEL_HUB_BIND` 与 `NOVEL_HUB_PASSWORD`。通过环境变量提供访问口令，省略时在数据目录生成私有 `access_password`。首次启动在数据目录生成 `auth_token`，本地桥接配置需与该服务器令牌对应。重新登录网页获取当前令牌。
 
 发布前备份 `/opt/novel_hub`、数据目录和 service 文件，记录正文及设定摘要。先在隔离端口运行回归，再替换本项目文件并重启 `novel-hub`。验证 HTTPS 页面、授权读取、未授权写入、桥接心跳、下载版本及业务数据摘要。失败时恢复备份文件并重启本项目服务。
 

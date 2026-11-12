@@ -46,10 +46,22 @@ except Exception:
 DATA_DIR = os.environ.get("NOVEL_HUB_DATA_DIR", "/root/novel_hub_data")
 BOOKS_DIR = os.path.join(DATA_DIR, "books")
 DOWNLOAD_DIR = os.environ.get("NOVEL_HUB_DOWNLOAD_DIR", "/opt/novel_hub/download")
-PASSWORD = os.environ.get("NOVEL_HUB_PASSWORD", "daqin666")
+PASSWORD = os.environ.get("NOVEL_HUB_PASSWORD")
 
 os.makedirs(BOOKS_DIR, exist_ok=True)
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+PASSWORD_FILE = os.path.join(DATA_DIR, "access_password")
+if not PASSWORD:
+    if os.path.exists(PASSWORD_FILE):
+        with open(PASSWORD_FILE, encoding="utf-8") as password_stream:
+            PASSWORD = password_stream.read().strip()
+    else:
+        PASSWORD = secrets.token_urlsafe(20)
+        atomic_write(PASSWORD_FILE, PASSWORD)
+        os.chmod(PASSWORD_FILE, 0o600)
+if not PASSWORD:
+    raise ValueError("访问口令不能为空")
 
 TOKEN_FILE = os.path.join(DATA_DIR, "auth_token")
 if os.path.exists(TOKEN_FILE):
@@ -675,7 +687,7 @@ class HubHandler(BaseHTTPRequestHandler):
         # 登录认证
         if path == "/api/login" or path == "/novel/api/login":
             pwd = body.get("password", "")
-            if pwd == PASSWORD:
+            if isinstance(pwd, str) and hmac.compare_digest(pwd, PASSWORD):
                 self.send_json({"ok": True, "token": AUTH_TOKEN})
             else:
                 self.send_json({"ok": False, "error": "口令错误，请重新输入"}, 401)

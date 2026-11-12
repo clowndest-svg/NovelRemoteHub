@@ -17,3 +17,5 @@ apk_tools/
 .tools/
 .bridge-config.json
 .test-data/
+
+.local-access.txt
