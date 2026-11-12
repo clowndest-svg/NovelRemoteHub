@@ -327,6 +327,36 @@ class RegressionTests(unittest.TestCase):
         with patch('agent_client.daemon_environment', return_value={}), patch('agent_client.subprocess.run', return_value=completed):
             with self.assertRaises(RuntimeError): agent_client.new_conversation('prompt', 'title')
 
+    def test_thumbnail_upload_and_content_type(self):
+        from PIL import Image
+        payload = self.image_payload()
+        filename = 'a' * 32 + '_1.thumb.jpg'
+        image = io.BytesIO()
+        Image.new('RGB', (768, 432), 'white').save(image, 'JPEG')
+        payload['meta']['illustrations'][0]['thumbnail_filename'] = filename
+        payload['images'][filename] = base64.b64encode(image.getvalue()).decode()
+        status, result = self.request('/api/sync_illustrations', payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result['saved_images'], 1)
+        self.assertEqual(result['saved_files'], 2)
+        query = urllib.parse.urlencode(dict(book=self.book, chap='第013章', img=filename))
+        req = urllib.request.Request(self.url + '/api/illustration?' + query, headers={'X-Novel-Token': hub.AUTH_TOKEN})
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req) as response:
+            self.assertEqual(response.headers['Content-Type'], 'image/jpeg')
+
+    def test_missing_thumbnail_rejects_publication(self):
+        payload = self.image_payload()
+        payload['meta']['illustrations'][0]['thumbnail_filename'] = 'a' * 32 + '_1.thumb.jpg'
+        self.assertEqual(self.request('/api/sync_illustrations', payload)[0], 400)
+        self.assertFalse(self.extras()['has_extras'])
+
+    def test_corrupt_png_rejected(self):
+        payload = self.image_payload()
+        filename = next(iter(payload['images']))
+        raw = base64.b64decode(payload['images'][filename])
+        payload['images'][filename] = base64.b64encode(raw[:32]).decode()
+        self.assertEqual(self.request('/api/sync_illustrations', payload)[0], 400)
+
 
 if __name__ == '__main__':
     unittest.main()

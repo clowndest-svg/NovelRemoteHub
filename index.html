@@ -1519,8 +1519,8 @@
                         <div class="stat-lbl">全书字数</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-val green" id="stat-audit-rate">100%</div>
-                        <div class="stat-lbl">番茄规范率</div>
+                        <div class="stat-val green" id="stat-settings-count">—</div>
+                        <div class="stat-lbl">设定文档</div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-val" id="stat-last-time">刚刚</div>
@@ -2388,6 +2388,7 @@
             const statW = document.getElementById("stat-words-count");
             if (statW) statW.innerText = totalWords > 10000 ? (totalWords / 10000).toFixed(1) + "万" : totalWords;
             
+            document.getElementById("stat-settings-count").innerText = BOOKS.find(book => book.id === CURRENT_BOOK)?.settings_count || 0;
             renderCatalogCards();
             updateNextLabel();
             if (typeof populateTomatoChapterSelect === 'function') populateTomatoChapterSelect();
@@ -3449,7 +3450,9 @@
                 imageBox.className = "illustration-img-box";
                 imageBox.style.cssText = "display:block;width:100%;padding:0;border:0;cursor:zoom-in";
                 const image = document.createElement("img");
-                image.src = url;
+                const thumbnailQuery = new URLSearchParams(imageQuery);
+                if (item.thumbnail_filename) thumbnailQuery.set("img", item.thumbnail_filename);
+                image.src = `${API}/illustration?${thumbnailQuery}`;
                 image.alt = item.title || item.scene_title || `场景 ${index + 1}`;
                 image.loading = "lazy";
                 imageBox.append(image);

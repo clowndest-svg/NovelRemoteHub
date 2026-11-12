@@ -26,7 +26,6 @@ import secrets
 import hmac
 import hashlib
 import base64
-import struct
 from storage import atomic_json, atomic_write, safe_component, within
 from urllib.parse import urlparse, parse_qs
 
@@ -160,6 +159,10 @@ class BoundedHTTPServer(ThreadingHTTPServer):
 
 
 class HubHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        message = re.sub(r"([?&]token=)[^&\s\"]+", r"\1[redacted]", format % args)
+        super().log_message("%s", message)
+
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -340,8 +343,8 @@ class HubHandler(BaseHTTPRequestHandler):
                     "name": "Gemini 3.8 Flash High",
                     "full_name": "Google Gemini 3.8 Flash High (主力创作旗舰 · 量大管饱)",
                     "tier": "gemini-3.8-flash-high",
-                    "provider": "Google DeepMind 官方最新 3.8 高性能大模型",
-                    "auth": "Google Gemini 官方订阅直通已激活",
+                    "provider": "通过本地 Antigravity 客户端调用",
+                    "auth": "模型权限与额度由 Antigravity 账号决定",
                     "proxy": "Clash Verge TUN 虚拟网卡专属高速通道 · 具备故障自愈重试",
                     "workspace": "D:\\小说",
                     "features": "超大上下文窗口、极速吞吐与密集爽点输出，全自动额度熔断与代理自愈降级"
@@ -351,7 +354,7 @@ class HubHandler(BaseHTTPRequestHandler):
                         "id": "gemini-3.8-flash-high",
                         "tier": "gemini-3.8-flash-high",
                         "name": "🚀 Gemini 3.8 Flash High (主力 · 量大管饱 · 推荐)",
-                        "desc": "Google 官方最新 3.8 高性能大模型，超大上下文与高并发输出，写长篇正文首选主力引擎！",
+                        "desc": "按已配置的模型标识发送至 Antigravity，实际可用性由客户端及账号决定。",
                         "recommended": True
                     },
                     {
@@ -560,7 +563,7 @@ class HubHandler(BaseHTTPRequestHandler):
                     with open(img_path, "rb") as fp:
                         img_data = fp.read()
                     self.send_response(200)
-                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Content-Type", "image/jpeg" if img_name.endswith(".jpg") else "image/png")
                     self.send_header("Content-Length", str(len(img_data)))
                     self.send_header("Cache-Control", "private, max-age=86400")
                     if qs.get("download") == ["1"]:
@@ -805,18 +808,36 @@ class HubHandler(BaseHTTPRequestHandler):
             if not isinstance(images, dict):
                 raise ValueError("图片数据格式无效")
             items = incoming.get("illustrations", [])
-            if not isinstance(items, list) or len(items) > 4 or len(images) != len(items):
+            if not isinstance(items, list) or len(items) > 4:
                 raise ValueError("图片数量无效")
-            decoded = {}
+            expected = {}
             for item in items:
-                image_name = safe_component(item["filename"])
-                if not re.fullmatch(r"[0-9a-f]{32}_[1-4]\.png", image_name):
+                expected[safe_component(item["filename"])] = False
+                if item.get("thumbnail_filename"):
+                    expected[safe_component(item["thumbnail_filename"])] = True
+            if set(expected) != set(images):
+                raise ValueError("图片文件与元数据不一致")
+            decoded = {}
+            from PIL import Image
+            import io
+            for image_name, thumbnail in expected.items():
+                pattern = r"[0-9a-f]{32}_[1-4]\.thumb\.jpg" if thumbnail else r"[0-9a-f]{32}_[1-4]\.png"
+                if not re.fullmatch(pattern, image_name):
                     raise ValueError("图片文件名必须包含本次生成编号")
                 raw = base64.b64decode(images[image_name], validate=True)
-                if len(raw) > 8 * 1024 * 1024 or raw[:8] != b"\x89PNG\r\n\x1a\n" or len(raw) < 32:
-                    raise ValueError("图片格式或大小无效")
-                width, height = struct.unpack(">II", raw[16:24])
-                if width < 800 or height < 450 or width * height > 24000000:
+                if len(raw) > 8 * 1024 * 1024:
+                    raise ValueError("图片大小无效")
+                try:
+                    with Image.open(io.BytesIO(raw)) as image:
+                        width, height = image.size
+                        image_format = image.format
+                        image.verify()
+                except Exception as error:
+                    raise ValueError("图片格式无效") from error
+                if image_format != ("JPEG" if thumbnail else "PNG"):
+                    raise ValueError("图片编码与文件名不匹配")
+                minimum_width, minimum_height = (256, 144) if thumbnail else (800, 450)
+                if width < minimum_width or height < minimum_height or width * height > 24000000:
                     raise ValueError("图片尺寸无效")
                 decoded[image_name] = raw
             for image_name, raw in decoded.items():
@@ -837,7 +858,7 @@ class HubHandler(BaseHTTPRequestHandler):
             atomic_write(os.path.join(target_dir, "作者有话说.md"), meta["author_note"])
             atomic_write(os.path.join(target_dir, "章节评论.md"), "\n\n".join(meta["chapter_comments"]))
             save_json_file(os.path.join(target_dir, "meta.json"), meta)
-            self.send_json({"ok": True, "saved_images": len(decoded), "revision": meta["revision"]})
+            self.send_json({"ok": True, "saved_images": len(items), "saved_files": len(decoded), "revision": meta["revision"]})
             return
 
         # 番茄发布工作台：一键自动修复错别字与标点规范

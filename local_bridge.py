@@ -473,20 +473,21 @@ def run_bridge_loop():
                         notes_only=notes_only, model=model_tier)
                     import base64
                     illu_dir = Path(bpath) / "02_插图" / meta_res["chapter_code"]
-                    images = {item["filename"]: base64.b64encode((illu_dir / item["filename"]).read_bytes()).decode()
-                              for item in meta_res["illustrations"]}
+                    filenames = [item[key] for item in meta_res["illustrations"]
+                                 for key in ("filename", "thumbnail_filename") if item.get(key)]
+                    images = {name: base64.b64encode((illu_dir / name).read_bytes()).decode() for name in filenames}
                     report_progress("素材已生成，正在验证云端保存回执")
                     uploaded = api_post("sync_illustrations", {
                         "book_id": book_id, "chapter_code": meta_res["chapter_code"],
                         "meta": meta_res, "images": images, "notes_only": notes_only,
                         "base_revision": base_revision})
-                    if not uploaded or not uploaded.get("ok") or uploaded.get("saved_images") != len(images):
+                    if not uploaded or not uploaded.get("ok") or uploaded.get("saved_images") != len(meta_res["illustrations"]):
                         raise RuntimeError((uploaded or {}).get("error") or "云端未确认完整保存，本地生成文件已保留，可重试同步")
                     latest = api_get("chapter_extras?" + query)
                     if latest and latest.get("meta"):
                         atomic_json(illu_dir / "meta.json", latest["meta"])
                     api_post("task_progress", {"id": tid, "status": "completed",
-                        "log": "章节文案已生成并保存" if notes_only else f"已生成并同步 {len(images)} 张二维水墨场景插画与互动文案",
+                        "log": "章节文案已生成并保存" if notes_only else f"已生成并同步 {len(meta_res['illustrations'])} 张二维水墨场景插画与互动文案",
                         "result": {"conversation_id": meta_res["conversation_id"]}})
                     continue
 

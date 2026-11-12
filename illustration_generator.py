@@ -49,7 +49,7 @@ def generate_chapter_visual_bundle(book_root, chapter_filename, chapter_text, co
 避免编造下一章剧情、更新时间、科学定论、读者反应或声称插画已经发布。
 """
     if notes_only:
-        task += "本次只生成文案。illustrations 必须为空数组，无需调用图像工具。\n"
+        task += "本次只生成文案。illustrations 必须为空数组，无需调用图像工具。直接依据本章正文撰写，无需查阅其他历史会话或已有插图。\n"
     else:
         task += f"""必须调用你实际可用的 generate_image 图像生成工具绘制 {count} 张不同场景。
 画风统一为2D中国水墨场景插画，宣纸肌理，水墨晕染、淡彩、留白和真实场景纵深。
@@ -59,11 +59,13 @@ def generate_chapter_visual_bundle(book_root, chapter_filename, chapter_text, co
 将实际生成图片复制至本任务目录，使用 illustration_1.png 等文件名。
 无法调用图像工具或生成失败时，在 result.json 中写 error，明确说明原因。
 """
+    schema = {"author_note": "作者有话说全文", "chapter_comments": ["问题1", "问题2"], "illustrations": []}
+    if not notes_only:
+        schema["illustrations"] = [{"index": 1, "filename": "illustration_1.png", "title": "本章场景名",
+                                   "desc": "简短场景描述", "source_excerpt": "本章原文短摘录", "prompt": "实际图像提示词"}]
     task += f"""
 最后一步将 UTF-8 JSON 写入 {receipt_path}，结构严格如下。
-{{"author_note":"作者有话说全文","chapter_comments":["问题1","问题2"],
-"illustrations":[{{"index":1,"filename":"illustration_1.png","title":"本章场景名",
-"desc":"简短场景描述","source_excerpt":"本章原文短摘录","prompt":"实际图像提示词"}}]}}
+{json.dumps(schema, ensure_ascii=False)}
 文件全部写入完成后再写result.json，作为此次任务完成回执。回执写入后立即结束，禁止再改动或删除任何输出。
 """
     if progress:
@@ -99,7 +101,15 @@ def generate_chapter_visual_bundle(book_root, chapter_filename, chapter_text, co
             raise ValueError("插画场景缺少可核对的本章原文依据")
         filename = f"{run_id}_{index}.png"
         atomic_write(output / filename, normalized.read_bytes())
+        thumbnail_filename = f"{run_id}_{index}.thumb.jpg"
+        with Image.open(normalized) as thumbnail:
+            thumbnail.thumbnail((768, 432))
+            import io
+            buffer = io.BytesIO()
+            thumbnail.convert("RGB").save(buffer, "JPEG", quality=80, optimize=True)
+            atomic_write(output / thumbnail_filename, buffer.getvalue())
         metadata.append({**item, "index": index, "filename": filename,
+                         "thumbnail_filename": thumbnail_filename,
                          "relative_path": f"{chapter_dir}/{filename}",
                          "size": f"{width}x{height}", "aspect_ratio": "16:9"})
     meta = {"ok": True, "schema_version": 2, "style": "2d-ink",
