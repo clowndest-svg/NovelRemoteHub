@@ -991,6 +991,7 @@ if __name__ == "__main__":
         elif task["status"] == "running":
             task["heartbeat_at"] = time.time()
     save_json_file(tasks_file, TASKS)
+    invalidate_cache()
     port = 8899
     server = BoundedHTTPServer((os.environ.get("NOVEL_HUB_BIND", "127.0.0.1"), int(os.environ.get("NOVEL_HUB_PORT", port))), HubHandler)
     print(f"Novel Hub 3.5 Server (Redis Cache & Fast Tomato Engine) running on 0.0.0.0:{port}...")
