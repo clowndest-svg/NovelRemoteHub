@@ -919,6 +919,11 @@
             background: rgba(56, 189, 248, 0.08);
         }
 
+        .issue-item-card.length {
+            border-left-color: #a855f7;
+            background: rgba(168, 85, 247, 0.1);
+        }
+
         .view-mode-tabs {
             display: flex;
             gap: 4px;
@@ -1696,9 +1701,14 @@
                             <span id="tomato-score-badge" class="score-badge">🏆 98 分</span>
                             <span id="tomato-score-title" style="font-size:13px; font-weight:800; color:#fef08a;">番茄黄金过审级</span>
                         </div>
-                        <button id="btn-tomato-autofix" class="tool-btn gold" onclick="autoFixCurrentChapter()" title="一键替换已知错别字并纠偏全角标点">
-                            ⚡ 一键自动修复
-                        </button>
+                        <div style="display:flex; gap:6px;">
+                            <button id="btn-tomato-autofix" class="tool-btn gold" onclick="autoFixCurrentChapter()" title="一键替换已知错别字并纠偏全角标点">
+                                ⚡ 一键常规纠错
+                            </button>
+                            <button id="btn-tomato-repair" class="tool-btn" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; border:none; font-weight:800;" onclick="openTomatoRepairModal()" title="根据番茄审核驳回意见或机审检出词，唤醒 Antigravity 定点重塑重写本章">
+                                🛠️ 驳回重构修复
+                            </button>
+                        </div>
                     </div>
 
                     <!-- 4微指标网格 -->
@@ -1726,11 +1736,12 @@
                 <div class="tomato-issues-box">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
                         <span style="font-size:12px; font-weight:700; color:var(--text-main);">🔍 机审检出项 (<span id="tomato-issues-count">0</span>)</span>
-                        <div style="display:flex; gap:4px;">
+                        <div style="display:flex; gap:4px; flex-wrap:wrap;">
                             <button id="tab-issue-all" class="issue-filter-chip active" onclick="filterIssues('all')">全部</button>
-                            <button id="tab-issue-danger" class="issue-filter-chip" onclick="filterIssues('danger')">高危风控</button>
-                            <button id="tab-issue-typo" class="issue-filter-chip" onclick="filterIssues('typo')">错别字</button>
-                            <button id="tab-issue-punct" class="issue-filter-chip" onclick="filterIssues('punct')">标点排版</button>
+                            <button id="tab-issue-danger" class="issue-filter-chip" onclick="filterIssues('danger')">🔴 高危风控</button>
+                            <button id="tab-issue-typo" class="issue-filter-chip" onclick="filterIssues('typo')">🔵 错别字</button>
+                            <button id="tab-issue-punct" class="issue-filter-chip" onclick="filterIssues('punct')">🟣 标点排版</button>
+                            <button id="tab-issue-length" class="issue-filter-chip" onclick="filterIssues('length')">📏 篇幅字数</button>
                         </div>
                     </div>
 
@@ -1893,6 +1904,56 @@
 
             <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="submitNewNovelArchitecture()">
                 🔥 唤醒 Antigravity 自动生成全套架构与设定集
+            </button>
+        </div>
+    </div>
+
+    <!-- 番茄驳回/存量章节定点重构向导 Modal -->
+    <div id="tomato-repair-modal" class="modal-overlay" onclick="closeTomatoRepairModal(event)">
+        <div class="modal-box" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title" style="display:flex; align-items:center; gap:6px;">
+                    <span>🛠️ 章节定点重塑 · 番茄驳回修复工坊</span>
+                </div>
+                <button class="close-btn" onclick="closeTomatoRepairModal()">&times;</button>
+            </div>
+            
+            <div style="background:rgba(239, 68, 68, 0.12); border:1px solid rgba(239, 68, 68, 0.3); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:12px; font-weight:700; color:#fca5a5;">🎯 待重塑修复章节：</span>
+                    <span id="repair-target-chap-tag" class="meta-tag" style="background:#ef4444; color:#fff; font-weight:800;">第011章</span>
+                </div>
+                <div id="repair-audit-summary-box" style="font-size:11px; color:#fecaca; margin-top:6px; line-height:1.5;">
+                    正在提取机审预检问题...
+                </div>
+            </div>
+
+            <div class="input-group">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <label class="input-label" style="margin:0;">📝 平台驳回原因 / 重点修改要求</label>
+                    <button class="btn-card-action" style="font-size:10px; padding:2px 8px; background:rgba(234, 179, 8, 0.2); color:#fef08a;" onclick="fillDetectedIssuesToRepairInput()">⚡ 一键填入机审检出项</button>
+                </div>
+                <textarea id="repair-rejection-reason" class="prompt-textarea" style="height:90px;" placeholder="例如：番茄平台提示第11章涉嫌暴力涉敏词汇「暴动」，李斯微积分推导部分过于生硬。要求：保留渭水核反应堆前文伏笔，将反秦暴动改为楚地暗中密谋，文笔更加自然流畅，字数控制在4500字左右..."></textarea>
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">🎛️ 重塑执行模式</label>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" id="btn-repair-mode-polish" class="wf-tab-btn active" style="flex:1;" onclick="setRepairMode('polish')">
+                        🛡️ 合规脱敏精修<br><span style="font-size:9px; opacity:0.8;">仅替换违规词与微调对白，维持原情节骨架</span>
+                    </button>
+                    <button type="button" id="btn-repair-mode-remake" class="wf-tab-btn" style="flex:1;" onclick="setRepairMode('remake')">
+                        ⚡ 深度剧情重构<br><span style="font-size:9px; opacity:0.8;">结合前章与大纲全盘重塑高潮与断章悬念</span>
+                    </button>
+                </div>
+            </div>
+
+            <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px; line-height:1.4;">
+                🛡️ 安全保障：Antigravity 会自动通读上一章正文、当前章、以及全套 00_设定集，在执行前自动将原章节文件备份至 <code>01_正文/.backup/</code>，绝不丢失任何前文数据！
+            </div>
+
+            <button class="btn-launch-big" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; font-weight:800;" onclick="submitChapterRepairTask()">
+                🚀 唤醒 Antigravity 定点重构并安全备份落盘
             </button>
         </div>
     </div>
@@ -2781,7 +2842,7 @@
 
         function filterIssues(category) {
             CURRENT_ISSUE_FILTER = category;
-            ["all", "danger", "typo", "punct"].forEach(cat => {
+            ["all", "danger", "typo", "punct", "length"].forEach(cat => {
                 const btn = document.getElementById(`tab-issue-${cat}`);
                 if (btn) btn.classList.toggle("active", cat === category);
             });
@@ -2798,7 +2859,17 @@
 
             let filtered = allIssues;
             if (CURRENT_ISSUE_FILTER !== 'all') {
-                filtered = allIssues.filter(i => i.category === CURRENT_ISSUE_FILTER);
+                if (CURRENT_ISSUE_FILTER === 'danger') {
+                    filtered = allIssues.filter(i => i.category === 'danger' || i.category === 'warn' || i.level === 'danger' || (i.category_name && (i.category_name.includes("风控") || i.category_name.includes("警告"))));
+                } else if (CURRENT_ISSUE_FILTER === 'typo') {
+                    filtered = allIssues.filter(i => i.category === 'typo' || i.type === 'typo' || (i.category_name && i.category_name.includes("错别字")));
+                } else if (CURRENT_ISSUE_FILTER === 'punct') {
+                    filtered = allIssues.filter(i => i.category === 'punct' || i.type === 'punctuation' || i.type === 'layout' || (i.category_name && i.category_name.includes("标点")));
+                } else if (CURRENT_ISSUE_FILTER === 'length') {
+                    filtered = allIssues.filter(i => i.category === 'length' || i.type === 'word_count' || (i.category_name && i.category_name.includes("字数")));
+                } else {
+                    filtered = allIssues.filter(i => i.category === CURRENT_ISSUE_FILTER);
+                }
             }
 
             if (filtered.length === 0) {
@@ -2809,8 +2880,13 @@
             }
 
             listEl.innerHTML = filtered.map((iss) => {
-                const catClass = iss.category === 'danger' ? 'danger' : (iss.category === 'typo' ? 'typo' : 'punct');
-                const catTag = iss.category === 'danger' ? '🔴 违规/敏感' : (iss.category === 'typo' ? '🔵 错别字' : '🟣 标点');
+                const catClass = (iss.level === 'danger' || iss.category === 'danger') ? 'danger' : (iss.category === 'typo' ? 'typo' : (iss.category === 'length' ? 'length' : 'punct'));
+                const catTag = iss.category_name || (
+                    iss.category === 'danger' || iss.level === 'danger' ? '🔴 高危风控' :
+                    iss.category === 'warn' ? '🟡 违规警告' :
+                    iss.category === 'typo' ? '🔵 错别字' :
+                    iss.category === 'length' ? '📏 篇幅字数' : '🟣 标点'
+                );
                 const snippetHtml = iss.snippet ? `<div class="issue-snippet">...${escapeHtml(iss.snippet)}...</div>` : '';
                 const replaceBtn = iss.replacement ? `<button class="btn-card-action tomato" style="font-size:11px; padding:3px 8px;" onclick="fixSingleTypo('${escapeHtml(iss.snippet)}', '${escapeHtml(iss.replacement)}')">⚡ 修正为「${escapeHtml(iss.replacement)}」</button>` : '';
 
@@ -2833,6 +2909,107 @@
                     </div>
                 `;
             }).join("");
+        }
+
+        // ================= 🛠️ 番茄驳回/存量章节定点重构工坊 =================
+        let CURRENT_REPAIR_MODE = 'polish';
+
+        function openTomatoRepairModal() {
+            if (!CURRENT_TOMATO_FILE) return alert("请先在上方选择一个章节！");
+            const modal = document.getElementById("tomato-repair-modal");
+            const tag = document.getElementById("repair-target-chap-tag");
+            const summaryBox = document.getElementById("repair-audit-summary-box");
+            if (tag) tag.innerText = CURRENT_TOMATO_FILE.replace(".md", "");
+
+            const allIssues = (CURRENT_TOMATO_DATA && CURRENT_TOMATO_DATA.audit && CURRENT_TOMATO_DATA.audit.issues) || [];
+            if (summaryBox) {
+                if (allIssues.length > 0) {
+                    const dangers = allIssues.filter(i => i.level === 'danger' || i.category === 'danger');
+                    const warns = allIssues.filter(i => i.level === 'warn' || i.category === 'warn');
+                    const typos = allIssues.filter(i => i.category === 'typo');
+                    const summaryParts = [];
+                    if (dangers.length > 0) summaryParts.push(`🔴 高危涉敏(${dangers.length}处): ${dangers.map(d => '「' + d.word + '」').join('、')}`);
+                    if (warns.length > 0) summaryParts.push(`🟡 违规警告(${warns.length}处): ${warns.map(w => '「' + w.word + '」').join('、')}`);
+                    if (typos.length > 0) summaryParts.push(`🔵 疑似错字(${typos.length}处)`);
+                    summaryBox.innerHTML = summaryParts.join('<br>') || `共检出 ${allIssues.length} 处排版与机审优化项`;
+                } else {
+                    summaryBox.innerText = "✓ 本章机审评分极高，无严重高危违规。如因情节或读者反馈需精修重构，可直接在下方输入修改指导。";
+                }
+            }
+
+            if (modal) modal.classList.add("show");
+        }
+
+        function closeTomatoRepairModal(e) {
+            const modal = document.getElementById("tomato-repair-modal");
+            if (modal) modal.classList.remove("show");
+        }
+
+        function setRepairMode(mode) {
+            CURRENT_REPAIR_MODE = mode;
+            const btnPolish = document.getElementById("btn-repair-mode-polish");
+            const btnRemake = document.getElementById("btn-repair-mode-remake");
+            if (btnPolish) btnPolish.classList.toggle("active", mode === 'polish');
+            if (btnRemake) btnRemake.classList.toggle("active", mode === 'remake');
+        }
+
+        function fillDetectedIssuesToRepairInput() {
+            const textarea = document.getElementById("repair-rejection-reason");
+            if (!textarea) return;
+            const allIssues = (CURRENT_TOMATO_DATA && CURRENT_TOMATO_DATA.audit && CURRENT_TOMATO_DATA.audit.issues) || [];
+            if (allIssues.length === 0) {
+                textarea.value = "请根据本书宏观世界观与前文连贯性，对本章进行深度精修润色，提升对白质感与高潮爽感。";
+                return;
+            }
+            const items = allIssues.map((iss, idx) => `${idx + 1}. [${iss.category_name || iss.category}] ${iss.msg} ${iss.suggestion ? '（建议：' + iss.suggestion + '）' : ''}`).join("\n");
+            textarea.value = `【机审检出问题自纠清单】：\n${items}\n\n【修改要求】：请彻底去除上述高危涉敏词汇与违规点，使用合规艺术化表达；保持前文伏笔，润物细无声展现生产力跃迁；字数维持在4000-5000字黄金篇幅。`;
+        }
+
+        async function submitChapterRepairTask() {
+            if (!CURRENT_TOMATO_FILE) return alert("请先选择章节！");
+            const reasonInput = document.getElementById("repair-rejection-reason");
+            const reason = reasonInput ? reasonInput.value.trim() : "";
+            if (!reason) return alert("请输入驳回原因或修改要求！");
+
+            const allIssues = (CURRENT_TOMATO_DATA && CURRENT_TOMATO_DATA.audit && CURRENT_TOMATO_DATA.audit.issues) || [];
+            closeTomatoRepairModal();
+
+            try {
+                const res = await fetchAPI(`${API}/dispatch_task`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        action: "repair_chapter",
+                        book_id: CURRENT_BOOK,
+                        prompt: reason,
+                        engine_mode: CURRENT_ENGINE,
+                        extra_data: {
+                            chapter_file: CURRENT_TOMATO_FILE,
+                            rejection_reason: reason,
+                            repair_mode: CURRENT_REPAIR_MODE,
+                            audit_issues: allIssues,
+                            model_tier: CURRENT_MODEL_TIER
+                        }
+                    })
+                });
+
+                if (res && res.task_id) {
+                    ACTIVE_TASK_ID = res.task_id;
+                    alert(`🛠️ 章节定点重构任务已成功下发至电脑端！\n目标章节：${CURRENT_TOMATO_FILE}\n正在自动跳转到「操控AI」工坊监控 Antigravity 执行进度...`);
+                    switchTab('antigravity');
+                    startPolling(async () => {
+                        delete CLIENT_CACHE.chapterContent[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
+                        delete CLIENT_CACHE.tomatoAudit[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
+                        await loadChapters();
+                        switchTab('tomato');
+                        await openTomatoAuditByFile(CURRENT_TOMATO_FILE);
+                        alert(`🎉 恭喜！当前章节「${CURRENT_TOMATO_FILE}」已完成定点重构与安全替换！原文件已安全备份至 .backup 目录！`);
+                    });
+                } else {
+                    alert("指令下发失败: " + (res.error || "未知异常"));
+                }
+            } catch (e) {
+                alert("网络请求失败: " + e.message);
+            }
         }
 
         function switchPreviewMode(mode) {

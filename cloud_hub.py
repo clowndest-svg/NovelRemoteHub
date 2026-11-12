@@ -52,10 +52,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 8,
-    "versionName": "1.6.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.6.0",
-    "changelog": "1. 【番茄发布随章概念插图工坊】全面上线！支持自定义1~4张电影级概念插图生成，大秦修仙高燃宽屏海报一键落盘！\n2. 【作者有话说与章评互动】自动提取剧情爆点、硬核科幻修仙考据与读者互动话题，一键复制直达作家后台！\n3. 【电影级全屏灯箱】插图支持全屏画质预览、单张无损下载与全本ZIP打包导出！\n4. 【架构升级】极致性能，0毫秒无缝切换！",
+    "versionCode": 9,
+    "versionName": "1.7.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.7.0",
+    "changelog": "1. 【番茄机审多分类筛选全面修复】彻底解决筛选类别空白问题，精准细分「🔴高危风控」、「🔵错别字」、「🟣标点排版」与「📏篇幅字数」，标签显影对齐！\n2. 【章节定点重构与番茄驳回修复工坊】全新上线！针对审核驳回或敏感词，唤醒 Antigravity 自动通读前后章与全套设定集，自动备份原章，支持合规脱敏精修与深度剧情重构！\n3. 【设定大典与创作 SOP 铁律双向互锁】续写新章节与大纲推演时，全量注入 00_设定集清单与必须调阅规范，严格保障战力法则、文明演进与剧情逻辑严密一致！",
     "forceUpdate": False
 }
 

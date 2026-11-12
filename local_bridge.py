@@ -473,62 +473,166 @@ def run_bridge_loop():
                     time.sleep(1)
                     continue
 
-                # E. 正文创作与章节续写精修
+                # E. 番茄驳回/存量章节定点重塑修复
+                elif action == "repair_chapter":
+                    chapter_filename = extra_data.get("chapter_file", "")
+                    rejection_reason = extra_data.get("rejection_reason", user_prompt)
+                    repair_mode = extra_data.get("repair_mode", "polish")
+                    audit_issues = extra_data.get("audit_issues", [])
+
+                    report_progress(f"正在调阅《{book_id}》【{chapter_filename}】，准备进行定点重塑修复...")
+
+                    bpath = os.path.join(BOOKS_ROOT, book_id)
+                    all_c_files = sorted(glob.glob(os.path.join(bpath, "01_正文", "**", "*.md"), recursive=True))
+                    
+                    target_file_path = None
+                    target_idx = -1
+                    for idx_c, cf in enumerate(all_c_files):
+                        if os.path.basename(cf) == os.path.basename(chapter_filename):
+                            target_file_path = cf
+                            target_idx = idx_c
+                            break
+
+                    if not target_file_path or not os.path.exists(target_file_path):
+                        api_post("task_progress", {"id": tid, "status": "failed", "log": f"未找到对应章节正文文件: {chapter_filename}"})
+                        continue
+
+                    # 自动安全备份原章节文件
+                    backup_dir = os.path.join(bpath, "01_正文", ".backup")
+                    os.makedirs(backup_dir, exist_ok=True)
+                    backup_filename = f"{os.path.basename(target_file_path)}.bak_{int(time.time())}"
+                    backup_path = os.path.join(backup_dir, backup_filename)
+                    with open(target_file_path, "r", encoding="utf-8", errors="ignore") as rfp:
+                        orig_content = rfp.read()
+                    with open(backup_path, "w", encoding="utf-8") as wfp:
+                        wfp.write(orig_content)
+                    report_progress(f"原章节已安全备份至: .backup/{backup_filename}")
+
+                    # 确定前一章与后一章，保证上下文承接
+                    prev_chapter_path = all_c_files[target_idx - 1] if target_idx > 0 else None
+                    next_chapter_path = all_c_files[target_idx + 1] if target_idx < len(all_c_files) - 1 else None
+
+                    # 收集全套设定集清单
+                    setting_files = sorted(glob.glob(os.path.join(bpath, "00_设定集", "*.md")))
+                    setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
+
+                    # 格式化机审问题清单
+                    issues_summary_lines = []
+                    for iss in audit_issues[:15]:
+                        cat = iss.get("category_name") or iss.get("category") or "机审项"
+                        msg = iss.get("msg") or ""
+                        sug = iss.get("suggestion") or ""
+                        issues_summary_lines.append(f"- [{cat}] {msg} {f'（建议：{sug}）' if sug else ''}")
+                    issues_summary_str = "\n".join(issues_summary_lines) if issues_summary_lines else "（暂无具体机审问题，按作者要求重构）"
+
+                    mode_desc = "【🛡️ 合规脱敏精修】：保持原章节剧情大骨架不变，精准替换、重写涉敏涉嫌违规词句（如涉暴动、敏感冲突等），使用文雅合规的修仙科幻隐喻艺术化表达，优化不顺对白。" if repair_mode == "polish" else "【⚡ 深度剧情重构】：结合前后章节主线与细纲，全盘重写本章高潮冲突与悬念反转，解决逻辑违和或节奏拖沓问题，彻底重塑读者爽感与完读率。"
+
+                    prompt = f"""【《{book_id}》番茄小说章节定点重构与驳回修复指令 · {os.path.basename(target_file_path)}】
+当前小说工程工作区：`D:\\小说\\{book_id}`
+目标修复章节文件：`{target_file_path}`
+前置章节参考：`{prev_chapter_path if prev_chapter_path else "（此章为第一章）"}`
+后置章节参考：`{next_chapter_path if next_chapter_path else "（此章为目前最新章）"}`
+原文件安全备份已落盘至：`{backup_path}`
+
+【平台审核驳回意见 / 作者修改指令】：
+\"\"\"
+{rejection_reason}
+\"\"\"
+
+【机审预检问题清单】：
+{issues_summary_str}
+
+【重塑执行模式】：
+{mode_desc}
+
+【必须执行的工作流 SOP（铁律执行）】：
+1. 步骤1：调用 read_file 读取本章原正文（路径：`{target_file_path}`）{f'以及上一章全文（路径：`{prev_chapter_path}`）' if prev_chapter_path else ''}，吃透前文承接与人物言行质感；
+2. 步骤2：检索并查阅 `D:\\小说\\{book_id}\\00_设定集\\` 目录下全部设定：
+{setting_file_list_str}
+   确保重写后的情节、战力能级、大秦朝廷政治与微观物理修真设定严密自洽，润物细无声展现生产力跃迁；
+3. 步骤3：遵循番茄小说行文规范（中文全角双引号“”、移动端短段落排版、戏带设定、每章必留抓人点击下一章的强力断章钩子）；
+4. 步骤4：将重塑后的完整正文直接调用 write_file 覆盖写入目标章节路径：
+   `{target_file_path}`！
+"""
+                    task_title = f"【手机遥控】重构修复《{book_id}》{os.path.basename(target_file_path)}"
+
+                # F. 正文创作与章节续写精修 / 大纲总谱推演
                 else:
                     book_root = os.path.join(BOOKS_ROOT, book_id)
                     c_files = sorted(glob.glob(os.path.join(book_root, "01_正文", "**", "*.md"), recursive=True))
                     next_chapter_num = len(c_files) + 1
                     pad_num = f"{next_chapter_num:03d}"
 
+                    prev_chapter_file = c_files[-1] if c_files else None
                     prev_chapter_tail = ""
-                    if c_files:
-                        with open(c_files[-1], "r", encoding="utf-8", errors="ignore") as fp:
-                            prev_chapter_tail = fp.read()[-1500:]
+                    if prev_chapter_file:
+                        with open(prev_chapter_file, "r", encoding="utf-8", errors="ignore") as fp:
+                            prev_chapter_tail = fp.read()[-2000:]
+
+                    # 收集全套设定集清单
+                    setting_files = sorted(glob.glob(os.path.join(book_root, "00_设定集", "*.md")))
+                    setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
 
                     outline_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*细纲*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*大纲*.md"))
                     chapter_outline = ""
                     if outline_candidates:
                         with open(outline_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
                             outline_text = fp.read()
-                            m = re.search(rf"(第{pad_num}章[^\n]*\n(?:(?!\n###|\n##第|\n\* \*\*第).)*)", outline_text, re.DOTALL)
+                            pattern = r"(第" + pad_num + r"章[^\n]*\n(?:(?!\n###|\n##第|\n\* \*\*第).)*)"
+                            m = re.search(pattern, outline_text, re.DOTALL)
                             if m:
                                 chapter_outline = m.group(1).strip()
 
                     is_write_chapter = any(kw in user_prompt for kw in ["第", "章", "创作", "续写", "开始写作"]) or not user_prompt
 
                     if is_write_chapter:
-                        prompt = f"""【《{book_id}》小说创作指令 · 第{pad_num}章】
-你正在为番茄小说作品《{book_id}》创作正文。
-请严格遵循全局创作铁律：
-1. 题材核心：遵循本书宇宙设定与主线总谱，将硬核设定与情节高潮深度融合；
-2. 生产力决定生产关系铁律：民生政治文化润物细无声，展现真实质感与震撼；
-3. 番茄小说排版规范：移动端短段落黄金排版，对话严格使用中文全角双引号“”，每段1-3行，戏带设定，绝不通篇说明文；
-4. 篇幅要求：4000-5000字，字数充沛，情节饱满，节奏极度紧凑。
+                        prompt = f"""【《{book_id}》小说新章节创作指令 · 第{pad_num}章】
+你正在为番茄小说作品《{book_id}》创作全新正文第{pad_num}章。
+当前小说工程工作区：`D:\\小说\\{book_id}`
+上一章正文文件路径：`{prev_chapter_file if prev_chapter_file else "（首章）"}`
 
-【上一章末尾衔接钩子】：
+【全套设定集文档清单（必须严格对照，杜绝任何设定冲突）】：
+{setting_file_list_str}
+
+【上一章末尾衔接剧情与悬念钩子】：
 \"\"\"
 {prev_chapter_tail}
 \"\"\"
 
 【本章分章细纲规划】：
-{chapter_outline if chapter_outline else f"第{pad_num}章按总谱剧情推进，承接上一章伏笔"}
+\"\"\"
+{chapter_outline if chapter_outline else f"第{pad_num}章按全书细纲与主线总谱剧情推进，承接上一章伏笔"}
+\"\"\"
 
-【指令附加要求】：
+【作者指令附加要求】：
+\"\"\"
 {user_prompt if user_prompt else "按大纲极致推演，强化剧情反差张力，章末设置引人点击下一章的王炸悬念钩子"}
+\"\"\"
 
-请直接开始创作第{pad_num}章完整正文，并在完成后调用 write_file 写入对应文件路径：
-`D:\\小说\\{book_id}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
+【必须执行的工作流 SOP（铁律执行）】：
+1. 步骤1：调用 read_file 读取上一章正文（路径：`{prev_chapter_file}`），确保剧情节奏、人物台词对白与章末悬念钩子无缝衔接，逻辑严密！
+2. 步骤2：检索并查阅 `D:\\小说\\{book_id}\\00_设定集\\` 目录下全部设定文档（特别是《00_AI长期记忆与创作铁律.md》、《全书设定集与二十四重登天境总纲.md》与《设定大典_第三部分_文明跃迁篇》），确保生产力决定生产关系、科技与修真深度自洽；
+3. 步骤3：遵循番茄小说行文规范（中文全角双引号“”、移动端短段落排版、戏带设定、每章必留抓人点击下一章的强力断章钩子）；
+4. 步骤4：篇幅要求：4000-5000字，情节饱满，节奏极度紧凑；
+5. 步骤5：创作完成后直接调用 write_file 写入对应文件路径：
+   `D:\\小说\\{book_id}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
 """
+                        task_title = f"【手机遥控】《{book_id}》创作第{pad_num}章"
                     else:
-                        prompt = f"""【《{book_id}》小说辅助指令】
+                        prompt = f"""【《{book_id}》小说辅助构思与推演指令】
 当前小说工程工作区：`D:\\小说\\{book_id}`
+设定集目录：`D:\\小说\\{book_id}\\00_设定集`
+现有全套设定文档：
+{setting_file_list_str}
+
 来自作者的指令：
 \"\"\"
 {user_prompt}
 \"\"\"
-请严格按照本书宇宙设定集与大纲体系执行该要求，并在必要时直接修改或创建对应文件。
+
+请严格通读并参考上述全部设定集文档，遵循本书宏观世界观与严密逻辑执行该推演要求，并在必要时直接调用 write_file 或 edit_file 更新对应文档！
 """
-                    task_title = f"【手机遥控】《{book_id}》创作第{pad_num}章"
+                        task_title = f"【手机遥控】《{book_id}》智能推演"
 
                 report_progress(f"正在唤醒 Antigravity (模型: {model_tier})，开启智能创作会话...")
                 ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier, progress_cb=report_progress)

@@ -244,7 +244,8 @@ def audit_for_tomato(cleaned_result):
             snippet = "..." + content[start:end].replace("\n", " ") + "..."
             issues.append({
                 "type": "sensitive_red",
-                "category": "🔴 高危风控",
+                "category": "danger",
+                "category_name": "🔴 高危风控",
                 "level": "danger",
                 "word": word,
                 "msg": f"命中高危涉敏/风控词「{word}」，平台机审极易直接驳回！",
@@ -263,7 +264,8 @@ def audit_for_tomato(cleaned_result):
             snippet = "..." + content[start:end].replace("\n", " ") + "..."
             issues.append({
                 "type": "sensitive_yellow",
-                "category": "🟡 违规警告",
+                "category": "warn",
+                "category_name": "🟡 违规警告",
                 "level": "warn",
                 "word": word,
                 "msg": f"发现可能触发低俗/粗口限流词汇「{word}」",
@@ -283,7 +285,8 @@ def audit_for_tomato(cleaned_result):
             snippet = "..." + content[start:end].replace("\n", " ") + "..."
             issues.append({
                 "type": "typo",
-                "category": "🔵 错别字排查",
+                "category": "typo",
+                "category_name": "🔵 错别字",
                 "level": "info",
                 "word": wrong,
                 "replacement": right,
@@ -301,7 +304,8 @@ def audit_for_tomato(cleaned_result):
         diff = abs(open_quotes - close_quotes)
         issues.append({
             "type": "punctuation",
-            "category": "🟣 标点规范",
+            "category": "punct",
+            "category_name": "🟣 标点规范",
             "level": "warn",
             "word": "引号未闭合",
             "msg": f"中文双引号未完全成对（前引号“ 共 {open_quotes} 个，后引号” 共 {close_quotes} 个，相差 {diff} 处）",
@@ -316,7 +320,8 @@ def audit_for_tomato(cleaned_result):
     if english_punct:
         issues.append({
             "type": "punctuation",
-            "category": "🟣 标点规范",
+            "category": "punct",
+            "category_name": "🟣 标点规范",
             "level": "info",
             "word": "半角标点残留",
             "msg": f"正文中检测到 {len(english_punct)} 处半角英文标点符号",
@@ -337,7 +342,8 @@ def audit_for_tomato(cleaned_result):
     if long_paras:
         issues.append({
             "type": "layout",
-            "category": "🟣 排版体感",
+            "category": "punct",
+            "category_name": "🟣 排版体感",
             "level": "info",
             "word": "超长段落",
             "msg": f"存在 {len(long_paras)} 处超过 350 字的超长段落（如第 {long_paras[0][0]} 段达 {long_paras[0][1]} 字）",
@@ -352,7 +358,8 @@ def audit_for_tomato(cleaned_result):
     if char_count < 2000:
         issues.append({
             "type": "word_count",
-            "category": "📏 字数达标",
+            "category": "length",
+            "category_name": "📏 篇幅字数",
             "level": "danger",
             "word": f"{char_count} 字",
             "msg": f"字数仅 {char_count} 字，低于番茄最低签约与推荐线(2000字)",
@@ -365,7 +372,8 @@ def audit_for_tomato(cleaned_result):
     elif char_count < 3000:
         issues.append({
             "type": "word_count",
-            "category": "📏 字数达标",
+            "category": "length",
+            "category_name": "📏 篇幅字数",
             "level": "info",
             "word": f"{char_count} 字",
             "msg": f"当前字数 {char_count} 字，达到基本要求，若扩展到 3500+ 字更易获得算法推流",
@@ -377,7 +385,8 @@ def audit_for_tomato(cleaned_result):
     elif char_count > 6500:
         issues.append({
             "type": "word_count",
-            "category": "📏 字数达标",
+            "category": "length",
+            "category_name": "📏 篇幅字数",
             "level": "warn",
             "word": f"{char_count} 字",
             "msg": f"单章字数达 {char_count} 字，篇幅偏长",
