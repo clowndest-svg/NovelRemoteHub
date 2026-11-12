@@ -52,10 +52,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 7,
-    "versionName": "1.5.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.5.0",
-    "changelog": "1. 【界面美化统一】彻底修复下拉框在Android原生WebView中的白色刺眼方框问题，统一为黑金赛博暗黑风格！\n2. 【Redis高速缓存】全量接入Redis与前端SWR双层缓存体系，章节、设定切换0毫秒即刻呈现，告别等待与虚假空状态！\n3. 【番茄发布智审工作台】全面上线AI敏感词/违规风控预检、60+常见网文错别字定位显影、标点排版分析及一键自动纠错修复！\n4. 【模型与引擎矩阵】默认Google Gemini 3.8 Flash High主力驱动，支持Claude 4.6与Gemini Pro无缝调度！",
+    "versionCode": 8,
+    "versionName": "1.6.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.6.0",
+    "changelog": "1. 【番茄发布随章概念插图工坊】全面上线！支持自定义1~4张电影级概念插图生成，大秦修仙高燃宽屏海报一键落盘！\n2. 【作者有话说与章评互动】自动提取剧情爆点、硬核科幻修仙考据与读者互动话题，一键复制直达作家后台！\n3. 【电影级全屏灯箱】插图支持全屏画质预览、单张无损下载与全本ZIP打包导出！\n4. 【架构升级】极致性能，0毫秒无缝切换！",
     "forceUpdate": False
 }
 
@@ -169,6 +169,19 @@ class HubHandler(BaseHTTPRequestHandler):
             auth_header = self.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:]
+        if not token and hasattr(self, 'path'):
+            try:
+                parsed = urlparse(self.path)
+                qs = parse_qs(parsed.query)
+                token = qs.get("token", [None])[0]
+            except Exception:
+                pass
+        if not token:
+            cookie_header = self.headers.get("Cookie", "")
+            for item in cookie_header.split(";"):
+                item = item.strip()
+                if item.startswith("novel_token="):
+                    token = item[len("novel_token="):]
         return token == "daqin_authorized"
 
     def get_json_body(self):
@@ -417,6 +430,37 @@ class HubHandler(BaseHTTPRequestHandler):
             self.wfile.write(zip_bytes)
             return
 
+        # 获取章节的「作者有话说」与插画集元数据
+        if path in ["/api/chapter_extras", "/novel/api/chapter_extras"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            fname = qs.get("file", [""])[0]
+            extras = novel_manager.get_chapter_extras(book_id, fname, BOOKS_DIR)
+            self.send_json(extras)
+            return
+
+        # 调阅单张概念插图 (流式输出 PNG)
+        if path in ["/api/illustration", "/novel/api/illustration"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            chap_dir = qs.get("chap", [""])[0]
+            img_name = qs.get("img", [""])[0]
+            bpath, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
+            img_path = os.path.join(bpath, "02_插图", chap_dir, img_name)
+            if os.path.exists(img_path) and os.path.isfile(img_path):
+                try:
+                    with open(img_path, "rb") as fp:
+                        img_data = fp.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Content-Length", str(len(img_data)))
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.end_headers()
+                    self.wfile.write(img_data)
+                    return
+                except Exception:
+                    pass
+            self.send_json({"error": "Illustration not found"}, 404)
+            return
+
         # 获取设定集列表 (启用高速缓存)
         if path == "/api/settings" or path == "/novel/api/settings":
             book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
@@ -572,6 +616,40 @@ class HubHandler(BaseHTTPRequestHandler):
                 invalidate_cache(f"novel:cache:settings:{book_id}")
 
             self.send_json({"ok": True, "chapters_count": len(chapters), "settings_count": len(settings)})
+            return
+
+        # 随章插图与「作者有话说」元数据双端同步接口
+        if path in ["/api/sync_illustrations", "/novel/api/sync_illustrations"]:
+            book_id = body.get("book_id", "给政哥讲量子力学，他竟肉身硬抗二向箔")
+            chap_dir = body.get("chapter_code", "")
+            meta = body.get("meta", {})
+            images = body.get("images", {})
+            
+            bpath, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
+            chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_dir)
+            target_dir = os.path.join(bpath, "02_插图", chap_clean_name)
+            os.makedirs(target_dir, exist_ok=True)
+            
+            import base64
+            saved_cnt = 0
+            for fname, b64_str in images.items():
+                try:
+                    img_bytes = base64.b64decode(b64_str)
+                    with open(os.path.join(target_dir, fname), "wb") as ifp:
+                        ifp.write(img_bytes)
+                    saved_cnt += 1
+                except Exception:
+                    pass
+                    
+            if meta:
+                with open(os.path.join(target_dir, "meta.json"), "w", encoding="utf-8") as mfp:
+                    json.dump(meta, mfp, ensure_ascii=False, indent=2)
+                    
+            if "author_note" in meta:
+                with open(os.path.join(target_dir, "作者有话说.md"), "w", encoding="utf-8") as nfp:
+                    nfp.write(meta["author_note"])
+                    
+            self.send_json({"ok": True, "saved_images": saved_cnt})
             return
 
         # 番茄发布工作台：一键自动修复错别字与标点规范

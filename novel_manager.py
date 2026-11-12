@@ -456,24 +456,58 @@ def auto_fix_tomato_content(content):
         "replaced_count": replaced_count
     }
 
-# ----------------- 6. 打包导出 -----------------
+# ----------------- 6. 章节「作者有话说」与插图集调阅 -----------------
+
+def get_chapter_extras(book_id, fname, root_dir):
+    """
+    读取指定章节的「作者有话说」与插图元数据
+    """
+    bpath, btitle = get_book_path(book_id, root_dir)
+    m = re.search(r"第(\d+)章", fname)
+    chap_code = f"第{m.group(1)}章" if m else fname.replace(".md", "")
+    chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
+    
+    illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
+    meta_path = os.path.join(illu_dir, "meta.json")
+    
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8", errors="ignore") as fp:
+                meta = json.load(fp)
+            return {
+                "ok": True,
+                "has_extras": True,
+                "chapter_code": chap_code,
+                "chap_dir": chap_clean_name,
+                "meta": meta
+            }
+        except Exception as e:
+            return {"ok": False, "has_extras": False, "error": str(e)}
+            
+    return {
+        "ok": True,
+        "has_extras": False,
+        "chapter_code": chap_code,
+        "chap_dir": chap_clean_name,
+        "meta": None
+    }
+
+# ----------------- 7. 打包导出 -----------------
 
 def export_tomato_zip(book_id=None, root_dir=None):
-    """打包生成番茄小说批量发布专用的分章 TXT 压缩包"""
+    """打包生成番茄小说批量发布专用的分章 TXT 压缩包，含随章插图与作者有话说"""
     bpath, btitle = get_book_path(book_id, root_dir)
     chapters_dir = os.path.join(bpath, "01_正文")
     files = sorted(glob.glob(os.path.join(chapters_dir, "**", "*.md"), recursive=True))
 
     mem_zip = io.BytesIO()
     with zipfile.ZipFile(mem_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        readme = f"""《{btitle}》番茄小说发布规范专用分章包
+        readme = f"""《{btitle}》番茄小说发布规范专用分章包 (全集含插图与作者有话说)
 生成时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 总章节数：{len(files)} 章
 规范特性：
-1. 纯净无 Markdown 标记符号；
-2. 每段段首自动缩进两个全角汉字空格；
-3. 标点符号完全符合中文全角排版规范；
-4. 适合直接导入番茄作家助手或第三方批量发布后台。
+1. 【01_纯净正文/】：纯净无 Markdown 标记符号，段首自动缩进两个全角汉字空格，标点符合中文全角排版规范；
+2. 【02_随章插图与作者有话说/】：包含由 Antigravity 生成的高清 16:9 概念原画海报及番茄作家助手专用的「作者有话说」与读者互动神评！
 """
         zf.writestr("番茄发布说明.txt", readme.encode("utf-8"))
 
@@ -483,7 +517,19 @@ def export_tomato_zip(book_id=None, root_dir=None):
             cleaned = clean_for_tomato(raw_text, os.path.basename(f))
             fname = f"{cleaned['title']}.txt" if cleaned['title'] else os.path.basename(f).replace(".md", ".txt")
             file_body = f"{cleaned['title']}\n\n{cleaned['content']}\n"
-            zf.writestr(fname, file_body.encode("utf-8"))
+            zf.writestr(f"01_纯净正文/{fname}", file_body.encode("utf-8"))
+
+            # 随章插图打包
+            m = re.search(r"第(\d+)章", os.path.basename(f))
+            chap_code = f"第{m.group(1)}章" if m else os.path.basename(f).replace(".md", "")
+            chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
+            illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
+            if os.path.exists(illu_dir):
+                for ifile in os.listdir(illu_dir):
+                    ifile_path = os.path.join(illu_dir, ifile)
+                    if os.path.isfile(ifile_path):
+                        with open(ifile_path, "rb") as ifp:
+                            zf.writestr(f"02_随章插图与作者有话说/{chap_clean_name}/{ifile}", ifp.read())
 
     mem_zip.seek(0)
     return mem_zip.getvalue(), f"{btitle}_番茄发布包.zip"

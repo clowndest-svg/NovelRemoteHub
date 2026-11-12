@@ -411,7 +411,69 @@ def run_bridge_loop():
 """
                     task_title = f"【手机遥控】《{book_id}》设定演进"
 
-                # D. 正文创作与章节续写精修
+                # D. 番茄发布专属：为章节绘制概念插图与生成作者有话说
+                elif action == "generate_chapter_illustrations":
+                    chapter_filename = extra_data.get("chapter_file", "")
+                    image_count = int(extra_data.get("image_count", 4))
+                    custom_prompt = extra_data.get("custom_prompt", user_prompt)
+                    
+                    report_progress(f"正在分析《{book_id}》【{chapter_filename}】剧情，准备提炼高潮分镜并绘制 {image_count} 张专属概念原画海报...")
+                    
+                    bpath = os.path.join(BOOKS_ROOT, book_id)
+                    candidates = glob.glob(os.path.join(bpath, "01_正文", "**", os.path.basename(chapter_filename)), recursive=True)
+                    chapter_text = ""
+                    if candidates and os.path.exists(candidates[0]):
+                        with open(candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
+                            chapter_text = fp.read()
+                    
+                    if not chapter_text:
+                        api_post("task_progress", {"id": tid, "status": "failed", "log": f"未找到对应章节正文文件: {chapter_filename}"})
+                        continue
+
+                    # 1. 调用 illustration_generator 本地引擎渲染
+                    report_progress(f"正在进行场景张力分析，绘制 {image_count} 张 16:9 高清电影级仙秦赛博概念插图...")
+                    import illustration_generator
+                    meta_res = illustration_generator.generate_chapter_visual_bundle(
+                        book_root=bpath,
+                        chapter_filename=chapter_filename,
+                        chapter_text=chapter_text,
+                        count=image_count,
+                        custom_prompt=custom_prompt
+                    )
+                    
+                    chap_code = meta_res["chapter_code"]
+                    chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
+                    illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
+                    
+                    # 2. 读取图片并转为 base64 上传云端
+                    report_progress(f"插图与「作者有话说」已生成落盘，正在双端同步至云枢服务器...")
+                    import base64
+                    b64_images = {}
+                    for img_item in meta_res["illustrations"]:
+                        fname = img_item["filename"]
+                        fpath = os.path.join(illu_dir, fname)
+                        if os.path.exists(fpath):
+                            with open(fpath, "rb") as ifp:
+                                b64_images[fname] = base64.b64encode(ifp.read()).decode("utf-8")
+                                
+                    api_post("sync_illustrations", {
+                        "book_id": book_id,
+                        "chapter_code": chap_clean_name,
+                        "meta": meta_res,
+                        "images": b64_images
+                    })
+                    
+                    # 3. 唤醒 Antigravity 沉淀为会话记录
+                    report_progress("正在将本章插图灵感与作者有话说同步至 Antigravity 智脑存档...")
+                    ag_prompt = f"【《{book_id}》随章插图与作者有话说生成报告】\n目标章节：{chapter_filename}\n已为本章绘制 {len(b64_images)} 张高清概念插图，并生成专属读者互动评述。请查阅确认。"
+                    execute_agentapi(ag_prompt, title=f"【插图工坊】《{book_id}》{chap_code}", model_tier=model_tier)
+                    
+                    log_text = f"🎉 恭喜！《{book_id}》【{chap_code}】已成功生成 {len(b64_images)} 张电影级概念插图及番茄专属「作者有话说」！\n插图已落盘并同步至云端，可在番茄发布工作台即刻查看、复制与打包下载！"
+                    api_post("task_progress", {"id": tid, "status": "completed", "log": log_text})
+                    time.sleep(1)
+                    continue
+
+                # E. 正文创作与章节续写精修
                 else:
                     book_root = os.path.join(BOOKS_ROOT, book_id)
                     c_files = sorted(glob.glob(os.path.join(book_root, "01_正文", "**", "*.md"), recursive=True))
