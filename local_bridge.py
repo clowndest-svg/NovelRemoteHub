@@ -131,24 +131,45 @@ def api_get(endpoint):
         return None
 
 # 3. Antigravity 进程健康检测与自动唤醒拉起
-def ensure_antigravity_running():
+def is_process_running(proc_name):
     try:
-        res = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Antigravity.exe"], capture_output=True, text=True, errors="ignore")
-        is_running = "Antigravity.exe" in res.stdout
-        if not is_running:
-            # 进一步检测后台 language_server
-            res_ls = subprocess.run(["tasklist", "/FI", "IMAGENAME eq language_server.exe"], capture_output=True, text=True, errors="ignore")
-            if "language_server.exe" in res_ls.stdout:
-                return True, "Antigravity 后台语言服务 (language_server) 在线活跃中！"
+        res = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {proc_name}"], capture_output=True, text=True, errors="ignore")
+        return proc_name.lower() in res.stdout.lower()
+    except Exception:
+        return False
 
-            print("[Antigravity] 检测到客户端未处于运行状态，正在自动拉起唤醒...")
+def ensure_antigravity_running(progress_cb=None):
+    try:
+        has_gui = is_process_running("Antigravity.exe")
+        has_server = is_process_running("language_server.exe")
+
+        if has_gui and has_server:
+            return True, "Antigravity 客户端及后台语言服务均在线活跃！"
+
+        # 如果两者都不在，或者客户端界面未打开，自动静默拉起客户端
+        if not has_gui:
+            if progress_cb:
+                progress_cb("⚡ 检测到电脑端 Antigravity 处于完全关闭状态，正在自动拉起唤醒客户端...")
+            print("[Antigravity] 检测到客户端完全关闭，正在自动拉起 Antigravity.exe...")
             if os.path.exists(ANTIGRAVITY_EXE):
-                subprocess.Popen([ANTIGRAVITY_EXE], close_fds=True)
-                time.sleep(4)
-                return True, "已成功拉起并唤醒本电脑 Antigravity 客户端！"
-        return True, "Antigravity 客户端在线正常！"
+                subprocess.Popen([ANTIGRAVITY_EXE], cwd=os.path.dirname(ANTIGRAVITY_EXE), close_fds=True)
+            else:
+                return False, f"未找到 Antigravity 可执行路径: {ANTIGRAVITY_EXE}"
+
+        # 智能轮询等待核心引擎 language_server.exe 启动并就绪 (最多等待 15 秒)
+        for i in range(15):
+            time.sleep(1)
+            if is_process_running("language_server.exe"):
+                if progress_cb:
+                    progress_cb("✅ Antigravity 核心引擎已就绪，正在接入高速创作管道...")
+                time.sleep(2)  # 给 IPC 管道建立留足缓冲
+                return True, "已成功自动拉起并唤醒本电脑 Antigravity 客户端及后台语言服务！"
+            if progress_cb and (i + 1) % 3 == 0:
+                progress_cb(f"正在等待 Antigravity 客户端完成启动初始化 ({i+1}/15秒)...")
+
+        return True, "已成功发送拉起指令，正在尝试连接 Antigravity 任务通道..."
     except Exception as e:
-        return False, f"进程检测异常: {e}"
+        return False, f"进程拉起与检测异常: {e}"
 
 # 4. 检测本地代理 (Clash Verge) 连通性
 def check_proxy_health():
@@ -251,8 +272,8 @@ def sync_all_books_to_cloud():
 
 # 7. 执行 Antigravity 唤醒 (具备网络代理自愈重试 + 额度熔断自动降级机制)
 def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro", model_tier="gemini-3.8-flash-high", progress_cb=None):
-    # 先做健康检测
-    ensure_antigravity_running()
+    # 先做健康检测与智能拉起唤醒
+    ensure_antigravity_running(progress_cb=progress_cb)
 
     # 规范化模型选择 (默认主力: gemini-3.8-flash-high)
     model_map = {
@@ -398,7 +419,7 @@ def run_bridge_loop():
                 # A. 远程唤醒/健康检查指令
                 if action == "wake_antigravity":
                     report_progress("正在对电脑端 Antigravity 客户端及后台语言服务进行健康检查与唤醒...")
-                    ensure_ok, ensure_msg = ensure_antigravity_running()
+                    ensure_ok, ensure_msg = ensure_antigravity_running(progress_cb=report_progress)
                     proxy_ok, proxy_msg = check_proxy_health()
                     log_text = f"✅ 电脑端健康检测完毕：\n1. 引擎状态：{ensure_msg}\n2. 网络代理：{proxy_msg}"
                     api_post("task_progress", {"id": tid, "status": "completed", "log": log_text})
