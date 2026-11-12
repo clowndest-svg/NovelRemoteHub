@@ -653,33 +653,102 @@
             white-space: nowrap;
         }
 
-        /* 模型能级切换条 */
+        /* 模型能级切换条 (4大模型矩阵) */
         .model-tier-switcher {
-            display: flex;
-            gap: 6px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
             margin-top: 10px;
             padding-top: 8px;
             border-top: 1px dashed rgba(56, 189, 248, 0.25);
         }
 
         .model-tier-btn {
-            flex: 1;
-            background: rgba(15, 23, 42, 0.6);
+            background: rgba(15, 23, 42, 0.7);
             border: 1px solid var(--border);
             color: var(--text-sub);
-            padding: 6px 8px;
+            padding: 7px 6px;
             border-radius: var(--radius-sm);
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 600;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            white-space: nowrap;
         }
 
         .model-tier-btn.active {
-            border-color: var(--cyan);
-            color: #fff;
-            background: rgba(56, 189, 248, 0.25);
+            border-color: #38bdf8;
+            color: #f0f9ff;
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(14, 165, 233, 0.38));
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+        }
+
+        /* 设定大典横向滑动药丸条 (彻底杜绝竖排变形与屏幕遮挡) */
+        #settings-tabs {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            white-space: nowrap;
+            margin-bottom: 10px;
+            padding: 4px 2px 10px 2px;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+        }
+
+        #settings-tabs::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        #settings-tabs::-webkit-scrollbar-thumb {
+            background: rgba(234, 179, 8, 0.35);
+            border-radius: 4px;
+        }
+
+        .setting-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 15px;
+            background: rgba(22, 33, 49, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 20px;
+            color: #cbd5e1;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            flex-shrink: 0;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .setting-pill:hover, .setting-pill.active {
+            background: linear-gradient(135deg, rgba(234, 179, 8, 0.25), rgba(202, 138, 4, 0.42));
+            border-color: #eab308;
+            color: #fef08a;
+            box-shadow: 0 0 12px rgba(234, 179, 8, 0.28);
+        }
+
+        .setting-pill .pill-icon {
+            font-size: 14px;
+        }
+
+        .setting-active-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 7px 12px;
+            margin-bottom: 10px;
+            background: rgba(15, 23, 42, 0.65);
+            border-radius: var(--radius-sm);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 11px;
+            color: var(--text-sub);
         }
 
         /* 创作模式 4 大工坊选项卡 */
@@ -1091,24 +1160,33 @@
                 <div class="ai-intel-header">
                     <div class="ai-intel-title">
                         <span>🤖 底座智脑</span>
-                        <span id="active-model-name" class="ai-model-tag">Gemini 2.0 Pro</span>
+                        <span id="active-model-name" class="ai-model-tag" style="background:linear-gradient(135deg, rgba(234, 179, 8, 0.28), rgba(202, 138, 4, 0.4)); border:1px solid #eab308; color:#fef08a;">Gemini 3.8 Flash High</span>
                     </div>
-                    <span style="font-size:11px; color:#4ade80;">● 专线连通</span>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <button class="tool-btn" style="padding:4px 8px; font-size:11px; background:rgba(234, 179, 8, 0.15); border-color:rgba(234, 179, 8, 0.4); color:#fef08a;" onclick="wakeAntigravity()" title="远程健康检测或拉起本电脑 Antigravity 客户端">⚡ 唤醒检测</button>
+                        <span style="font-size:11px; color:#4ade80;">● 专线连通</span>
+                    </div>
                 </div>
                 <div class="ai-meta-grid">
-                    <div class="meta-line"><span>👑 算力：</span><span style="color:#fcd34d;">Google Gemini Pro 会员权益</span></div>
-                    <div class="meta-line"><span>🌐 通道：</span><span style="color:#7dd3fc;">Clash Verge 全局 TUN 专线</span></div>
-                    <div class="meta-line"><span>💻 终端：</span><span style="color:#e2e8f0;">办公室 Antigravity 桌面 IDE</span></div>
+                    <div class="meta-line"><span>👑 算力：</span><span style="color:#fcd34d;">Google Gemini 3.8 Flash (主力 · 量大管饱)</span></div>
+                    <div class="meta-line"><span>🌐 通道：</span><span style="color:#7dd3fc;">Clash Verge TUN 专线 · 故障自动重试</span></div>
+                    <div class="meta-line"><span>💻 终端：</span><span style="color:#e2e8f0;">办公室 Antigravity 桌面 IDE (支持自动唤醒)</span></div>
                     <div class="meta-line"><span>📚 根区：</span><span style="color:#e2e8f0;">D:\小说 (严格C盘0占用)</span></div>
                 </div>
 
-                <!-- 模型能级自由切换 -->
+                <!-- 4大模型自由切换矩阵 -->
                 <div class="model-tier-switcher">
-                    <div id="btn-model-pro" class="model-tier-btn active" onclick="switchModelTier('pro')">
-                        🌟 Gemini 2.0 Pro (深度推理旗舰 · 推荐)
+                    <div id="btn-model-38flash" class="model-tier-btn active" onclick="switchModelTier('gemini-3.8-flash-high')">
+                        🚀 3.8 Flash High (主力推荐)
+                    </div>
+                    <div id="btn-model-claude" class="model-tier-btn" onclick="switchModelTier('claude-sonnet-4-6')">
+                        🧠 Claude 4.6 (深度构思)
                     </div>
                     <div id="btn-model-flash" class="model-tier-btn" onclick="switchModelTier('flash')">
-                        ⚡ Gemini 2.0 Flash (毫秒响应极速流)
+                        ⚡ Gemini Flash (标准极速)
+                    </div>
+                    <div id="btn-model-pro" class="model-tier-btn" onclick="switchModelTier('pro')">
+                        🏛️ Gemini Pro (高维推理)
                     </div>
                 </div>
             </div>
@@ -1151,25 +1229,38 @@
 
                 <!-- 动态执行流水线与日志视窗 -->
                 <div id="term-container" class="term-container" style="display:none;">
-                    <div style="color:var(--accent); font-weight:700; margin-bottom:4px;" id="pipeline-status-text">⚡ 正在调度 Gemini Pro 执行任务...</div>
+                    <div style="color:var(--accent); font-weight:700; margin-bottom:4px;" id="pipeline-status-text">⚡ 正在调度 Gemini 3.8 Flash High 执行任务...</div>
                     <div id="task-terminal">等待指令下发...</div>
                 </div>
             </div>
         </section>
 
         <!-- 4. 设定大典 & 智谱工坊 -->
-        <section id="panel-settings" class="panel">
+        <section id="panel-settings" class="panel" style="padding-bottom:60px;">
             <div class="catalog-hero-box">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <div class="catalog-book-title">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px;">
+                    <div class="catalog-book-title" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                         <span>🏛️</span>
                         <span>世界观 · 战力体系 · 分章细纲</span>
                     </div>
+                    <select id="settings-select-dropdown" class="select-box" style="max-width:145px; font-size:11px; padding:5px 8px;" onchange="onSettingDropdownChange(this.value)">
+                        <option value="">快速跳转...</option>
+                    </select>
                     <button class="tool-btn" onclick="loadSettings()">🔄 刷新</button>
                 </div>
-                <div id="settings-tabs" style="display:flex; gap:6px; overflow-x:auto; margin-bottom:10px; padding-bottom:4px;"></div>
-                <div class="reader-container" style="padding:14px; margin-bottom:14px; max-height:360px; overflow-y:auto;">
-                    <div id="setting-content" class="chapter-body-text" style="font-size:14px; line-height:1.7;">
+
+                <!-- 横向滑动药丸条 (彻底杜绝竖向挤压变形) -->
+                <div id="settings-tabs"></div>
+
+                <!-- 当前激活文档信息栏 -->
+                <div class="setting-active-bar">
+                    <span id="setting-active-filename">📄 请选择上方设定文档阅读</span>
+                    <span id="setting-active-stats"></span>
+                </div>
+
+                <!-- 设定文档正文视窗 (自适应视口高度，字距排版优化，杜绝遮挡) -->
+                <div class="reader-container" style="padding:16px 18px; margin-bottom:14px; max-height:52vh; min-height:260px; overflow-y:auto; -webkit-overflow-scrolling:touch;">
+                    <div id="setting-content" class="chapter-body-text" style="font-size:14px; line-height:1.75;">
                         请选择上方设定文档阅读。
                     </div>
                 </div>
@@ -1310,7 +1401,7 @@
         let FILTERED_CHAPTERS = [];
         let CURRENT_INDEX = 0;
         let CURRENT_ENGINE = "antigravity_pro";
-        let CURRENT_MODEL_TIER = "pro"; // 默认使用 Gemini 2.0 Pro
+        let CURRENT_MODEL_TIER = "gemini-3.8-flash-high"; // 默认主力模型: Google Gemini 3.8 Flash High
         let ACTIVE_TASK_ID = null;
         let TASK_POLL_TIMER = null;
         let SORT_DESC = true;
@@ -1387,18 +1478,65 @@
             }
         }
 
-        // 模型能级切换
+        // 4大模型能级切换
         function switchModelTier(tier) {
             CURRENT_MODEL_TIER = tier;
-            document.getElementById("btn-model-pro").classList.toggle("active", tier === "pro");
-            document.getElementById("btn-model-flash").classList.toggle("active", tier === "flash");
+            const btns = {
+                "gemini-3.8-flash-high": document.getElementById("btn-model-38flash"),
+                "claude-sonnet-4-6": document.getElementById("btn-model-claude"),
+                "flash": document.getElementById("btn-model-flash"),
+                "pro": document.getElementById("btn-model-pro")
+            };
+            Object.keys(btns).forEach(k => {
+                if (btns[k]) btns[k].classList.toggle("active", k === tier);
+            });
             const tag = document.getElementById("active-model-name");
-            if (tier === "pro") {
-                tag.innerText = "Gemini 2.0 Pro";
-                tag.style.background = "rgba(56, 189, 248, 0.2)";
-            } else {
-                tag.innerText = "Gemini 2.0 Flash";
-                tag.style.background = "rgba(226, 183, 64, 0.2)";
+            if (tag) {
+                if (tier === "gemini-3.8-flash-high") {
+                    tag.innerText = "Gemini 3.8 Flash High";
+                    tag.style.background = "linear-gradient(135deg, rgba(234, 179, 8, 0.28), rgba(202, 138, 4, 0.4))";
+                    tag.style.borderColor = "#eab308";
+                    tag.style.color = "#fef08a";
+                } else if (tier === "claude-sonnet-4-6") {
+                    tag.innerText = "Claude Sonnet 4.6";
+                    tag.style.background = "rgba(168, 85, 247, 0.25)";
+                    tag.style.borderColor = "#a855f7";
+                    tag.style.color = "#d8b4fe";
+                } else if (tier === "flash") {
+                    tag.innerText = "Gemini Flash";
+                    tag.style.background = "rgba(56, 189, 248, 0.25)";
+                    tag.style.borderColor = "#38bdf8";
+                    tag.style.color = "#bae6fd";
+                } else {
+                    tag.innerText = "Gemini Pro";
+                    tag.style.background = "rgba(16, 185, 129, 0.25)";
+                    tag.style.borderColor = "#10b981";
+                    tag.style.color = "#a7f3d0";
+                }
+            }
+        }
+
+        // 远程唤醒检测 Antigravity
+        async function wakeAntigravity() {
+            const term = document.getElementById("term-container");
+            if (term) term.style.display = "block";
+            const statText = document.getElementById("pipeline-status-text");
+            if (statText) statText.innerText = "⚡ 正在发送指令远程唤醒与检测本电脑 Antigravity 客户端...";
+            const termText = document.getElementById("task-terminal");
+            if (termText) termText.innerText = `[${new Date().toLocaleTimeString()}] 正在检测电脑进程健康与 Clash Verge 代理端口连通性...`;
+
+            const res = await fetchAPI(`${API}/task`, {
+                method: "POST",
+                body: JSON.stringify({
+                    action: "wake_antigravity",
+                    book_id: CURRENT_BOOK
+                })
+            });
+            if (res && res.task_id) {
+                ACTIVE_TASK_ID = res.task_id;
+                startPolling(async () => {
+                    checkStatus();
+                });
             }
         }
 
@@ -1840,7 +1978,8 @@
                 if (res.ok) {
                     ACTIVE_TASK_ID = res.task.id;
                     document.getElementById("term-container").style.display = "block";
-                    document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 Gemini ${CURRENT_MODEL_TIER==='pro'?'2.0 Pro (深度推理)':'2.0 Flash'} 执行任务...`;
+                    const modelDisplayName = CURRENT_MODEL_TIER==='gemini-3.8-flash-high' ? 'Gemini 3.8 Flash High (主力)' : CURRENT_MODEL_TIER==='claude-sonnet-4-6' ? 'Claude Sonnet 4.6 (深度思考)' : CURRENT_MODEL_TIER==='flash' ? 'Gemini Flash (标准)' : 'Gemini Pro (高维推理)';
+                    document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 ${modelDisplayName} 执行任务...`;
                     document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在连接公司电脑 Antigravity IDE...`;
                     startPolling(async () => {
                         await loadChapters();
@@ -1926,19 +2065,76 @@
             window.location.href = `${API}/export_tomato_zip?book=${encodeURIComponent(CURRENT_BOOK)}`;
         }
 
-        // 设定大典
+        // 设定大典 & 智谱工坊
+        let CACHED_SETTINGS = [];
+
         async function loadSettings() {
             const tabs = document.getElementById("settings-tabs");
+            const dropdown = document.getElementById("settings-select-dropdown");
+            if (tabs) tabs.innerHTML = '<div style="color:var(--text-dim); font-size:12px; padding:6px;">正在读取设定文档...</div>';
+
             const res = await fetchAPI(`${API}/settings?book=${encodeURIComponent(CURRENT_BOOK)}`);
             if (res && res.settings && res.settings.length > 0) {
-                tabs.innerHTML = res.settings.map((s, i) => `
-                    <button class="tool-btn ${i===0?'active':''}" onclick="viewSetting('${s.filename}', this)">${s.title}</button>
-                `).join("");
+                CACHED_SETTINGS = res.settings;
+
+                // 1. 渲染横向药丸条 (保证每个 pill 都是单行横排，不换行，不挤压)
+                tabs.innerHTML = res.settings.map((s, i) => {
+                    const icon = getSettingIcon(s.filename);
+                    const shortTitle = getSettingShortTitle(s.filename);
+                    return `<button class="setting-pill ${i===0?'active':''}" data-file="${s.filename}" onclick="viewSetting('${s.filename}', this)">
+                        <span class="pill-icon">${icon}</span>
+                        <span>${shortTitle}</span>
+                    </button>`;
+                }).join("");
+
+                // 2. 渲染快捷跳转下拉框
+                if (dropdown) {
+                    dropdown.innerHTML = '<option value="">快速跳转设定...</option>' + res.settings.map(s => `
+                        <option value="${s.filename}">${getSettingShortTitle(s.filename)} (${s.filename})</option>
+                    `).join("");
+                }
+
+                // 默认展示首个文档
                 viewSetting(res.settings[0].filename, tabs.children[0]);
             } else {
-                tabs.innerHTML = "";
+                if (tabs) tabs.innerHTML = "";
+                if (dropdown) dropdown.innerHTML = '<option value="">暂无设定</option>';
+                const actName = document.getElementById("setting-active-filename");
+                if (actName) actName.innerText = "暂无设定文档";
                 document.getElementById("setting-content").innerText = "该作品暂无设定集文档，可在下方「智谱工坊」中一键新增！";
             }
+        }
+
+        function getSettingIcon(filename) {
+            if (filename.includes("铁律") || filename.includes("00_")) return "📝";
+            if (filename.includes("简介") || filename.includes("宣传")) return "📢";
+            if (filename.includes("登天境总纲") || filename.includes("总纲")) return "⚡";
+            if (filename.includes("细纲") || filename.includes("主线")) return "🗺️";
+            if (filename.includes("人物") || filename.includes("第一部分")) return "👤";
+            if (filename.includes("登天境详解") || filename.includes("第二部分")) return "🔮";
+            if (filename.includes("文明跃迁") || filename.includes("民生") || filename.includes("第三部分")) return "🏛️";
+            return "📄";
+        }
+
+        function getSettingShortTitle(filename) {
+            let name = filename.replace(/\.md$/i, "");
+            if (name.includes("00_AI长期记忆与创作铁律")) return "创作铁律";
+            if (name.includes("作品简介与宣传文案")) return "简介文案";
+            if (name.includes("全书设定集与二十四重登天境总纲")) return "登天境总纲";
+            if (name.includes("第一卷_人界篇_全240章分章细纲与主线总谱")) return "240章细纲总谱";
+            if (name.includes("设定大典_第一部分_人物与世界观")) return "人物与世界观";
+            if (name.includes("设定大典_第二部分_二十四重登天境详解")) return "登天境详解";
+            if (name.includes("设定大典_第三部分_文明跃迁篇")) return "文明跃迁篇";
+            name = name.replace(/^(\d+_|设定大典_\w+部分_)/, "");
+            return name.length > 9 ? name.slice(0, 9) + "..." : name;
+        }
+
+        function onSettingDropdownChange(filename) {
+            if (!filename) return;
+            const tabs = document.getElementById("settings-tabs");
+            const btn = tabs ? tabs.querySelector(`[data-file="${filename}"]`) : null;
+            viewSetting(filename, btn);
+            if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
         }
 
         async function viewSetting(filename, btnEl) {
@@ -1948,13 +2144,36 @@
                 tinput.value = filename;
             }
 
-            if (btnEl) {
-                Array.from(btnEl.parentElement.children).forEach(c => c.style.borderColor = 'var(--border)');
-                btnEl.style.borderColor = 'var(--accent)';
+            const tabs = document.getElementById("settings-tabs");
+            if (tabs) {
+                Array.from(tabs.querySelectorAll(".setting-pill")).forEach(c => c.classList.remove("active"));
             }
+            if (btnEl) {
+                btnEl.classList.add("active");
+            }
+
+            const dropdown = document.getElementById("settings-select-dropdown");
+            if (dropdown && dropdown.value !== filename) {
+                dropdown.value = filename;
+            }
+
+            const activeNameEl = document.getElementById("setting-active-filename");
+            if (activeNameEl) {
+                activeNameEl.innerText = `📄 当前文档：${filename}`;
+            }
+
+            const contentEl = document.getElementById("setting-content");
+            contentEl.innerHTML = '<div style="color:var(--text-dim); padding:10px;">正在加载设定内容...</div>';
+
             const res = await fetchAPI(`${API}/setting?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
             if (res && res.content) {
-                document.getElementById("setting-content").innerHTML = marked.parse(res.content);
+                contentEl.innerHTML = marked.parse(res.content);
+                const statsEl = document.getElementById("setting-active-stats");
+                if (statsEl) {
+                    statsEl.innerText = `约 ${res.content.length} 字`;
+                }
+            } else {
+                contentEl.innerText = "设定内容加载失败或文件为空。";
             }
         }
     </script>

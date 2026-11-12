@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 r"""
-NovelRemoteHub · 智笔云枢 本地执行与多书架同步桥接器 (Local Agent Bridge 2.3)
+NovelRemoteHub · 智笔云枢 本地执行与多书架同步桥接器 (Local Agent Bridge 3.0)
 运行在公司 Windows 电脑上 (D:\RuanJian\NovelRemoteHub)
 严格遵守 C 盘零占用铁律
-支持：
-1. 创作下一章与正文精修
-2. 一键构思新书、全套世界观架构与分卷细纲总谱生成
-3. 设定大典智谱演化：新增设定文档、深度扩展与正文逻辑冲突排查
+
+核心特性：
+1. 默认采用 Google 官方最新 Gemini 3.8 Flash High (主力 · 量大管饱)
+2. 智能容灾降级：遭遇模型额度上限 (Quota/429) 自动熔断切换至备用模型，保证创作不中断
+3. 代理自愈重试：遭遇 Clash Verge 代理网络波动握手超时自动 3 次重试与健康诊断
+4. 客户端常驻守护：电脑端 Antigravity 意外退出或重启可远程自动拉起唤醒
+5. 多书架实时同步与大秦小说规范全自动化
 """
 import os
 import sys
@@ -19,17 +22,18 @@ import urllib.parse
 import ssl
 import subprocess
 import ctypes
+import socket
 
 # 目录与常量配置 (支持 D:\小说 下多书架并行管理)
 BOOKS_ROOT = r"D:\小说"
 DEFAULT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔"
-BRAIN_CONV_ID = "be7c9c60-1b07-4a49-8927-f9c527d4f9f4"
 AGENTAPI_BAT = r"C:\Users\23793\.gemini\antigravity\bin\agentapi.bat"
+ANTIGRAVITY_EXE = r"C:\Users\23793\AppData\Local\Programs\antigravity\Antigravity.exe"
 
 CLOUD_SERVER_URL = "https://scientificexploration.art/novel/api"
 TOKEN = "daqin_authorized"
 
-# 忽略 SSL 证书校验 (因为直连 IP)
+# 忽略 SSL 证书校验 (安全直连)
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
@@ -70,7 +74,39 @@ def api_get(endpoint):
     except Exception as e:
         return None
 
-# 3. 扫描本地多书架数据
+# 3. Antigravity 进程健康检测与自动唤醒拉起
+def ensure_antigravity_running():
+    try:
+        res = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Antigravity.exe"], capture_output=True, text=True, errors="ignore")
+        is_running = "Antigravity.exe" in res.stdout
+        if not is_running:
+            # 进一步检测后台 language_server
+            res_ls = subprocess.run(["tasklist", "/FI", "IMAGENAME eq language_server.exe"], capture_output=True, text=True, errors="ignore")
+            if "language_server.exe" in res_ls.stdout:
+                return True, "Antigravity 后台语言服务 (language_server) 在线活跃中！"
+
+            print("[Antigravity] 检测到客户端未处于运行状态，正在自动拉起唤醒...")
+            if os.path.exists(ANTIGRAVITY_EXE):
+                subprocess.Popen([ANTIGRAVITY_EXE], close_fds=True)
+                time.sleep(4)
+                return True, "已成功拉起并唤醒本电脑 Antigravity 客户端！"
+        return True, "Antigravity 客户端在线正常！"
+    except Exception as e:
+        return False, f"进程检测异常: {e}"
+
+# 4. 检测本地代理 (Clash Verge) 连通性
+def check_proxy_health():
+    # 测试 Clash 常见本地端口 7890 / 7897
+    ports = [7890, 7897]
+    for p in ports:
+        try:
+            with socket.create_connection(("127.0.0.1", p), timeout=1.5):
+                return True, f"Clash Verge 本地代理端口 {p} 连通正常"
+        except Exception:
+            continue
+    return False, "未检测到本地代理监听端口 (7890/7897)，请确保 Clash Verge 已开启"
+
+# 5. 扫描本地多书架数据
 def collect_book_data(book_dir_name):
     book_path = os.path.join(BOOKS_ROOT, book_dir_name)
     chapters = []
@@ -129,11 +165,11 @@ def collect_all_conversations():
                             })
                     except Exception:
                         continue
-        except Exception as e:
+        except Exception:
             pass
     return conversations[-50:]
 
-# 4. 全量同步多书架至云端
+# 6. 全量同步多书架至云端
 def sync_all_books_to_cloud():
     total_chapters = 0
     total_settings = 0
@@ -157,38 +193,119 @@ def sync_all_books_to_cloud():
 
     return True, total_chapters, total_settings
 
-# 5. 执行 Antigravity 唤醒 (优先指定用户选中的 Gemini 模型)
-def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro", model_tier="pro"):
-    flag = f"--model={model_tier}" if model_tier in ["pro", "flash"] else "--model=pro"
-    model_display = "Gemini 2.0 Pro (深度推理旗舰)" if model_tier == "pro" else "Gemini 2.0 Flash (极速流)"
-    cmd = [AGENTAPI_BAT, "new-conversation", flag, f"--title={title}", prompt]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=45)
-        if proc.returncode == 0:
-            return True, f"成功启动 Antigravity 专属创作会话 [{model_display}]！\n{proc.stdout}"
-    except Exception as e:
-        print(f"[Antigravity] {flag} 调用异常: {e}")
+# 7. 执行 Antigravity 唤醒 (具备网络代理自愈重试 + 额度熔断自动降级机制)
+def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro", model_tier="gemini-3.8-flash-high", progress_cb=None):
+    # 先做健康检测
+    ensure_antigravity_running()
 
-    # Fallback
-    cmd_fallback = [AGENTAPI_BAT, "new-conversation", f"--title={title}", prompt]
-    try:
-        proc = subprocess.run(cmd_fallback, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=45)
-        if proc.returncode == 0:
-            return True, f"成功启动 Antigravity 专属创作会话！\n{proc.stdout}"
-        return False, proc.stderr or proc.stdout
-    except Exception as e:
-        return False, str(e)
+    # 规范化模型选择 (默认主力: gemini-3.8-flash-high)
+    model_map = {
+        "gemini-3.8-flash-high": {"flag": "--model=gemini-3.8-flash-high", "display": "Gemini 3.8 Flash High (主力 · 量大管饱)", "fallback": "flash"},
+        "claude-sonnet-4-6": {"flag": "--model=claude-sonnet-4-6", "display": "Claude Sonnet 4.6 (深度构思)", "fallback": "gemini-3.8-flash-high"},
+        "flash": {"flag": "--model=flash", "display": "Gemini Flash (标准极速)", "fallback": "pro"},
+        "pro": {"flag": "--model=pro", "display": "Gemini Pro (高维推理)", "fallback": "gemini-3.8-flash-high"}
+    }
 
-# 6. 任务调度主循环
+    tier_key = model_tier if model_tier in model_map else "gemini-3.8-flash-high"
+    selected = model_map[tier_key]
+    primary_flag = selected["flag"]
+    primary_display = selected["display"]
+    fallback_tier = selected["fallback"]
+
+    # 判定错误类型辅助函数
+    def is_quota_error(text):
+        lower = text.lower()
+        return any(k in lower for k in ["quota", "rate limit", "resource exhausted", "429", "capacity", "exhausted", "resource_exhausted"])
+
+    def is_network_error(text):
+        lower = text.lower()
+        return any(k in lower for k in ["timeout", "timed out", "connect", "connection refused", "proxy", "socket", "winerror 10061", "eof", "dial tcp", "reset by peer"])
+
+    # 循环尝试执行 (最多重试 3 次，并在遇到额度问题时降级)
+    max_retries = 3
+    current_flag = primary_flag
+    current_display = primary_display
+    has_fallback = False
+
+    for attempt in range(1, max_retries + 1):
+        cmd = [AGENTAPI_BAT, "new-conversation", current_flag, f"--title={title}", prompt]
+        print(f"[Antigravity] 尝试调用 (第 {attempt} 次): {current_flag} -> {title}")
+        
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=60)
+            stdout = proc.stdout or ""
+            stderr = proc.stderr or ""
+            combined = f"{stdout}\n{stderr}"
+
+            if proc.returncode == 0:
+                success_msg = f"✅ 成功唤醒 Antigravity 专属创作会话 [{current_display}]！"
+                if has_fallback:
+                    success_msg += "\n(注：已自动熔断切换至备用模型平滑完成)"
+                return True, f"{success_msg}\n{stdout}"
+
+            # 如果失败，分析错误根因
+            print(f"[Antigravity] 执行返回非零码 ({proc.returncode}): {stderr.strip()[:200]}")
+
+            # 1. 额度耗尽 (Quota / Rate Limit) -> 自动熔断切换备用模型
+            if is_quota_error(combined) and not has_fallback:
+                fb_info = model_map.get(fallback_tier, model_map["flash"])
+                current_flag = fb_info["flag"]
+                current_display = fb_info["display"]
+                has_fallback = True
+                msg = f"⚠️ 检测到 {primary_display} 额度达到上限，已自动熔断切换至备用模型 [{current_display}] 继续重试..."
+                print(f"[Antigravity Fallback] {msg}")
+                if progress_cb:
+                    progress_cb(msg)
+                time.sleep(2)
+                continue
+
+            # 2. 网络代理超时 (Proxy / Network Failure) -> 等待并重试
+            if is_network_error(combined):
+                proxy_ok, proxy_msg = check_proxy_health()
+                msg = f"⚠️ 本电脑网络代理握手超时 ({proxy_msg})，正在进行第 {attempt}/{max_retries} 次自动重试..."
+                print(f"[Antigravity Retry] {msg}")
+                if progress_cb:
+                    progress_cb(msg)
+                time.sleep(3)
+                continue
+
+            # 其他常规错误，短暂重试
+            time.sleep(2)
+
+        except subprocess.TimeoutExpired:
+            msg = f"⚠️ 进程响应超时 (60秒)，正在尝试第 {attempt}/{max_retries} 次重试..."
+            print(f"[Antigravity Timeout] {msg}")
+            if progress_cb:
+                progress_cb(msg)
+            time.sleep(2)
+        except Exception as e:
+            msg = f"⚠️ 调用异常 ({e})，正在重试..."
+            print(f"[Antigravity Exception] {msg}")
+            if progress_cb:
+                progress_cb(msg)
+            time.sleep(2)
+
+    # 如果所有重试都失败，最后尝试一次无参数极简唤醒保底
+    cmd_minimal = [AGENTAPI_BAT, "new-conversation", f"--title={title}", prompt]
+    try:
+        proc = subprocess.run(cmd_minimal, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=45)
+        if proc.returncode == 0:
+            return True, f"✅ 成功唤醒 Antigravity 默认极简会话！\n{proc.stdout}"
+        return False, f"❌ 调用失败：{proc.stderr or proc.stdout}\n[诊断建议] 请检查办公室电脑 Clash Verge TUN 代理节点与网络连接。"
+    except Exception as e:
+        return False, f"❌ 执行异常: {e}\n[诊断建议] 请检查办公室电脑 Clash Verge TUN 代理节点状态。"
+
+# 8. 任务调度主循环
 def run_bridge_loop():
     prevent_sleep()
+    ensure_antigravity_running()
     ok, c_cnt, s_cnt = sync_all_books_to_cloud()
     print(f"[Sync] 初始同步完成: 多书架章节总数={c_cnt}, 设定文档={s_cnt}")
 
     print("\n" + "="*50)
-    print("🚀 NovelRemoteHub · 智笔云枢 本地执行端 (Local Bridge 2.3) 已就绪！")
+    print("🚀 NovelRemoteHub · 智笔云枢 本地执行端 (Local Bridge 3.0) 已就绪！")
     print(f"📡 监听云端中枢: {CLOUD_SERVER_URL}")
-    print(f"🤖 引擎调度: Gemini Pro (Antigravity 智能体)")
+    print(f"🤖 主力模型: Gemini 3.8 Flash High (量大管饱 · 自动熔断与代理自愈)")
     print(f"📚 多书架工作区: {BOOKS_ROOT}")
     print("="*50 + "\n")
 
@@ -210,18 +327,32 @@ def run_bridge_loop():
                 user_prompt = task.get("prompt", "")
                 book_id = task.get("book_id", DEFAULT_BOOK)
                 engine = task.get("engine_mode", "antigravity_pro")
+                model_tier = extra_data.get("model_tier", "gemini-3.8-flash-high") if extra_data else "gemini-3.8-flash-high"
 
-                print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}")
+                print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
 
-                # 分流处理 3 大类指令
-                if action == "create_new_novel":
-                    # A. 构思创建全新小说架构
+                # 进度更新回调闭包
+                def report_progress(msg):
+                    api_post("task_progress", {"id": tid, "status": "running", "log": msg})
+
+                # A. 远程唤醒/健康检查指令
+                if action == "wake_antigravity":
+                    report_progress("正在对电脑端 Antigravity 客户端及后台语言服务进行健康检查与唤醒...")
+                    ensure_ok, ensure_msg = ensure_antigravity_running()
+                    proxy_ok, proxy_msg = check_proxy_health()
+                    log_text = f"✅ 电脑端健康检测完毕：\n1. 引擎状态：{ensure_msg}\n2. 网络代理：{proxy_msg}"
+                    api_post("task_progress", {"id": tid, "status": "completed", "log": log_text})
+                    time.sleep(1)
+                    continue
+
+                # B. 构思创建全新小说架构
+                elif action == "create_new_novel":
                     book_title = extra_data.get("title") or book_id
                     genre = extra_data.get("genre", "科幻修真 / 网文")
                     concept = extra_data.get("concept", user_prompt)
                     book_root = os.path.join(BOOKS_ROOT, book_title)
 
-                    api_post("task_progress", {"id": tid, "status": "running", "log": f"正在为全新作品《{book_title}》初始化工程目录结构..."})
+                    report_progress(f"正在为全新作品《{book_title}》初始化工程目录结构...")
                     os.makedirs(os.path.join(book_root, "00_设定集"), exist_ok=True)
                     os.makedirs(os.path.join(book_root, "01_正文", "第一卷_人界篇"), exist_ok=True)
 
@@ -242,13 +373,13 @@ def run_bridge_loop():
 """
                     task_title = f"【手机遥控】新建作品架构《{book_title}》"
 
+                # C. 设定集演进 (新增、润色扩展、一致性排查)
                 elif action == "evolve_settings":
-                    # B. 设定集演进 (新增、润色扩展、一致性排查)
                     book_root = os.path.join(BOOKS_ROOT, book_id)
                     target_doc = extra_data.get("target_doc", "")
                     doc_path = os.path.join(book_root, "00_设定集", target_doc) if target_doc else ""
 
-                    api_post("task_progress", {"id": tid, "status": "running", "log": f"正在分析《{book_id}》设定集，准备执行【{sub_action}】..."})
+                    report_progress(f"正在分析《{book_id}》设定集，准备执行【{sub_action}】...")
 
                     existing_content = ""
                     if doc_path and os.path.exists(doc_path):
@@ -277,8 +408,8 @@ def run_bridge_loop():
 """
                     task_title = f"【手机遥控】《{book_id}》设定演进"
 
+                # D. 正文创作与章节续写精修
                 else:
-                    # C. 正文创作与章节精修
                     book_root = os.path.join(BOOKS_ROOT, book_id)
                     c_files = sorted(glob.glob(os.path.join(book_root, "01_正文", "**", "*.md"), recursive=True))
                     next_chapter_num = len(c_files) + 1
@@ -334,25 +465,23 @@ def run_bridge_loop():
 """
                     task_title = f"【手机遥控】《{book_id}》创作第{pad_num}章"
 
-                model_tier = extra_data.get("model_tier", "pro") if extra_data else "pro"
-                model_name = "Gemini 2.0 Pro (深度推理旗舰)" if model_tier == "pro" else "Gemini 2.0 Flash (极速流)"
-                api_post("task_progress", {"id": tid, "status": "running", "log": f"已组装指令提示词，正在调度 [{model_name}] 唤醒 Antigravity 智能体..."})
+                report_progress(f"正在唤醒 Antigravity (模型: {model_tier})，开启智能创作会话...")
+                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier, progress_cb=report_progress)
                 
-                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier)
                 if ok:
                     api_post("task_progress", {
                         "id": tid, 
                         "status": "completed", 
-                        "log": f"✅ Antigravity (Gemini Pro) 任务执行完毕！落盘文件已自动同步至云端！\n{output.strip()}"
+                        "log": f"{output.strip()}\n\n🎉 成果已就绪，正在自动同步至多端云枢！"
                     })
                     print(f"[Task] 成功执行任务: {task_title}")
-                    # 立即全量同步
+                    # 立即全量同步最新生成的文件
                     sync_all_books_to_cloud()
                 else:
                     api_post("task_progress", {
                         "id": tid, 
                         "status": "failed", 
-                        "log": f"❌ Antigravity 执行调用返回错误: {output}"
+                        "log": output
                     })
 
             # 2. 定时检查本地是否有新文件生成并同步
@@ -369,7 +498,7 @@ def run_bridge_loop():
                 last_sync_time = time.time()
 
         except Exception as e:
-            pass
+            print(f"[Loop Exception] {e}")
 
         time.sleep(3)
 

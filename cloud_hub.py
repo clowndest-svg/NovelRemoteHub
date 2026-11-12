@@ -1,6 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 r"""
-大秦科技修仙·远程云端中枢 (Cloud Hub 2.0)
+大秦科技修仙·远程云端中枢 (Cloud Hub 3.0)
 部署在云服务器 124.220.54.64 (127.0.0.1:8899)
 Nginx /novel/ 反向代理直达
 内置多书架、番茄小说发布工作流、Redis 缓存与双核引擎调度
@@ -46,10 +46,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 4,
-    "versionName": "1.3.0",
+    "versionCode": 6,
+    "versionName": "1.4.0",
     "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk",
-    "changelog": "1. 【全面升级】所有接口、服务与下载链接全量接入官方域名 scientificexploration.art！\n2. 【模型透明化】实时显影底层 AI 模型（Gemini 2.0 Pro / Flash）与会员算力状态！\n3. 【AI指挥中心】重构4大专业网文创作模式：自动续写、单章精修、大纲推演与自由定制！\n4. 【架构增强】强化功能间联动，多书架切换数据严密一致！",
+    "changelog": "1. 【主力引擎升级】全面接入 Google 最新 Gemini 3.8 Flash High，量大管饱，生成极速！\n2. 【故障自愈机制】新增电脑端网络代理波动自动重试与模型额度饱和自动熔断切换备用模型，创作绝不中断！\n3. 【后台唤醒守护】支持电脑端 Antigravity 客户端自动唤醒与健康检测！\n4. 【设定大典重构】重构设定集横向胶囊导航栏与快捷下拉跳转，修复文字竖排与屏幕遮挡，手机阅读更清爽！",
     "forceUpdate": False
 }
 
@@ -113,7 +113,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 with open(index_path, "r", encoding="utf-8") as f:
                     self.send_html(f.read())
             else:
-                self.send_html("<h1>大秦科技修仙远程中枢 2.0 启动中...</h1>")
+                self.send_html("<h1>大秦科技修仙远程中枢 3.0 启动中...</h1>")
             return
 
         # APK 下载路由 (公网免密)
@@ -147,28 +147,42 @@ class HubHandler(BaseHTTPRequestHandler):
         if path == "/api/engines" or path == "/novel/api/engines":
             self.send_json({
                 "active_model": {
-                    "name": "Gemini 2.0 Pro",
-                    "full_name": "Google Gemini 2.0 Pro (深度推理旗舰模型)",
-                    "tier": "pro",
-                    "provider": "Google DeepMind 官方顶级大模型",
-                    "auth": "Google Gemini Pro 会员订阅直通已激活",
-                    "proxy": "Clash Verge 全局 TUN 虚拟网卡专属高速直连",
+                    "name": "Gemini 3.8 Flash High",
+                    "full_name": "Google Gemini 3.8 Flash High (主力创作旗舰 · 量大管饱)",
+                    "tier": "gemini-3.8-flash-high",
+                    "provider": "Google DeepMind 官方最新 3.8 高性能大模型",
+                    "auth": "Google Gemini 官方订阅直通已激活",
+                    "proxy": "Clash Verge TUN 虚拟网卡专属高速通道 · 具备故障自愈重试",
                     "workspace": "D:\\小说",
-                    "features": "支持超长上下文记忆链、分章细纲精准推演、复杂网文世界观逻辑闭环与正文创作"
+                    "features": "超大上下文窗口、极速吞吐与密集爽点输出，全自动额度熔断与代理自愈降级"
                 },
                 "models": [
                     {
-                        "id": "gemini_2_0_pro",
-                        "tier": "pro",
-                        "name": "🌟 Gemini 2.0 Pro (深度思考 · 推荐)",
-                        "desc": "Google 官方旗舰深度推理模型，适合长篇正文创作、大纲总谱推演、设定集构建，具备高严密逻辑与反转能力。",
+                        "id": "gemini-3.8-flash-high",
+                        "tier": "gemini-3.8-flash-high",
+                        "name": "🚀 Gemini 3.8 Flash High (主力 · 量大管饱 · 推荐)",
+                        "desc": "Google 官方最新 3.8 高性能大模型，超大上下文与高并发输出，写长篇正文首选主力引擎！",
                         "recommended": True
                     },
                     {
-                        "id": "gemini_2_0_flash",
+                        "id": "claude-sonnet-4-6",
+                        "tier": "claude-sonnet-4-6",
+                        "name": "🧠 Claude Sonnet 4.6 (深度思考 · 细纲伏笔)",
+                        "desc": "长链条深度思考模型，适合全书大纲推演、复杂战力设定冲突排查与高潮反转构思。",
+                        "recommended": False
+                    },
+                    {
+                        "id": "gemini-flash",
                         "tier": "flash",
-                        "name": "⚡ Gemini 2.0 Flash (极速响应)",
-                        "desc": "毫秒级响应，适合临时剧情灵感脑洞发散、单段落语法润色、错别字校对。",
+                        "name": "⚡ Gemini Flash (标准极速)",
+                        "desc": "标准轻量极速模型，适合快速短评、错字校正、灵感片段记录。",
+                        "recommended": False
+                    },
+                    {
+                        "id": "gemini-pro",
+                        "tier": "pro",
+                        "name": "🏛️ Gemini Pro (高维推理)",
+                        "desc": "复杂系统宏观推理模型，适合文明科技跨度推导与严谨物理法则架构。",
                         "recommended": False
                     }
                 ]
@@ -467,7 +481,7 @@ class HubHandler(BaseHTTPRequestHandler):
 def run():
     port = 8899
     server = HTTPServer(("0.0.0.0", port), HubHandler)
-    print(f"Novel Hub 2.0 Server running on 0.0.0.0:{port}...")
+    print(f"Novel Hub 3.0 Server running on 0.0.0.0:{port}...")
     server.serve_forever()
 
 if __name__ == "__main__":
