@@ -24,6 +24,48 @@ import subprocess
 import ctypes
 import socket
 
+# 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
+class SafeDaemonLogStream:
+    def __init__(self, log_path, orig_stream=None):
+        self.log_path = log_path
+        self.orig_stream = orig_stream
+    def write(self, text):
+        if not text:
+            return
+        try:
+            with open(self.log_path, "a", encoding="utf-8", errors="replace") as f:
+                f.write(text)
+        except Exception:
+            pass
+        if self.orig_stream:
+            try:
+                self.orig_stream.write(text)
+                self.orig_stream.flush()
+            except Exception:
+                pass
+    def flush(self):
+        if self.orig_stream:
+            try:
+                self.orig_stream.flush()
+            except Exception:
+                pass
+
+LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "daemon.log")
+sys.stdout = SafeDaemonLogStream(LOG_FILE_PATH, sys.stdout)
+sys.stderr = SafeDaemonLogStream(LOG_FILE_PATH, sys.stderr)
+
+import traceback
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    err = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    try:
+        with open(LOG_FILE_PATH, "a", encoding="utf-8") as f:
+            f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] [CRITICAL FATAL] 未捕获异常崩溃:\n{err}\n")
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+sys.excepthook = global_exception_handler
+
 # 目录与常量配置 (支持 D:\小说 下多书架并行管理)
 BOOKS_ROOT = r"D:\小说"
 DEFAULT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔"
@@ -37,6 +79,20 @@ TOKEN = "daqin_authorized"
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
+
+# 0. 单实例互斥守护 (端口锁)
+_LOCK_SOCKET = None
+def ensure_single_instance():
+    global _LOCK_SOCKET
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 27960))
+        s.listen(1)
+        _LOCK_SOCKET = s
+        return True
+    except Exception:
+        print("[Daemon] 另一个 NovelRemoteHub 本地守护进程已经在运行中，当前进程退出避免重复。")
+        sys.exit(0)
 
 # 1. Windows 系统防休眠设置
 def prevent_sleep():
@@ -297,6 +353,7 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
 
 # 8. 任务调度主循环
 def run_bridge_loop():
+    ensure_single_instance()
     prevent_sleep()
     ensure_antigravity_running()
     ok, c_cnt, s_cnt = sync_all_books_to_cloud()

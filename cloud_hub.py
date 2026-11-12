@@ -525,9 +525,12 @@ class HubHandler(BaseHTTPRequestHandler):
         if path == "/api/pending_task" or path == "/novel/api/pending_task":
             LOCAL_STATUS["online"] = True
             LOCAL_STATUS["last_seen"] = time.time()
+            now = time.time()
             for tid, t in list(TASKS.items()):
-                if t["status"] == "pending":
+                is_stale_assigned = (t["status"] == "assigned" and (now - t.get("assigned_at", t.get("created_at", now))) > 30)
+                if t["status"] == "pending" or is_stale_assigned:
                     t["status"] = "assigned"
+                    t["assigned_at"] = now
                     save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
                     self.send_json({"task": t})
                     return
