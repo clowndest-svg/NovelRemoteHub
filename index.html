@@ -1807,7 +1807,7 @@
 
                         <div style="display:flex; gap:8px;">
                             <input type="text" id="custom-illu-prompt" class="search-input" placeholder="💡 可选：补充本章画面重点 / 运镜氛围 (留空则由 AI 自动提炼四大高潮瞬间)..." style="font-size:12px; padding:7px 10px;">
-                            <button class="btn-card-action" style="background:linear-gradient(135deg, #eab308, #a855f7); color:#000; font-weight:800; border:none; padding:7px 14px; white-space:nowrap; cursor:pointer;" onclick="launchIllustrationGeneration()">
+                            <button id="btn-launch-illu" class="btn-card-action" style="background:linear-gradient(135deg, #eab308, #a855f7); color:#000; font-weight:800; border:none; padding:7px 14px; white-space:nowrap; cursor:pointer;" onclick="launchIllustrationGeneration()">
                                 🚀 唤醒 AI 绘制插图
                             </button>
                         </div>
@@ -3180,11 +3180,50 @@
             }
         }
 
+        function showToast(msg, duration = 2500) {
+            let toast = document.getElementById("app-floating-toast");
+            if (!toast) {
+                toast = document.createElement("div");
+                toast.id = "app-floating-toast";
+                toast.style.cssText = "position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:rgba(15,23,42,0.96); color:#fde047; border:1px solid rgba(234,179,8,0.5); padding:10px 20px; border-radius:30px; font-size:12px; font-weight:700; z-index:99999; box-shadow:0 10px 30px rgba(0,0,0,0.85); pointer-events:none; transition:opacity 0.3s ease; opacity:0; text-align:center; max-width:85%;";
+                document.body.appendChild(toast);
+            }
+            toast.innerText = msg;
+            toast.style.opacity = "1";
+            clearTimeout(toast._timer);
+            toast._timer = setTimeout(() => {
+                toast.style.opacity = "0";
+            }, duration);
+        }
+
         async function launchIllustrationGeneration() {
             if (!CURRENT_TOMATO_FILE) return alert("请先在上方选择或阅读一个章节！");
             const customPrompt = document.getElementById("custom-illu-prompt") ? document.getElementById("custom-illu-prompt").value.trim() : "";
             const badge = document.getElementById("extras-status-badge");
+            const btn = document.getElementById("btn-launch-illu");
+            const gallery = document.getElementById("illustrations-gallery-container");
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<span style="display:inline-block; animation:spin 1s linear infinite;">⚡</span> 正在提炼名场面并绘制大片...`;
+                btn.style.opacity = "0.75";
+            }
             if (badge) badge.innerText = "⏳ 正在调度 Antigravity 构思视觉概念...";
+
+            // 原地展示高科技脉冲骨架屏 (不跳转页面，原地无缝沉浸式体验)
+            if (gallery) {
+                gallery.innerHTML = `
+                    <div class="illustrations-gallery-grid">
+                        ${[1, 2, 3, 4].slice(0, SELECTED_ILLU_COUNT).map(i => `
+                            <div class="illustration-card" style="min-height:160px; display:flex; flex-direction:column; justify-content:center; align-items:center; background:rgba(15,23,42,0.7); border:1px dashed rgba(234,179,8,0.35); border-radius:var(--radius-sm); padding:20px; text-align:center;">
+                                <div style="font-size:26px; margin-bottom:8px; animation:spin 2s linear infinite;">🎨</div>
+                                <div style="font-size:12px; font-weight:700; color:#fef08a;">正在分析分镜 #${i}</div>
+                                <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">1280x720 电影海报合成中...</div>
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+            }
 
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
@@ -3192,7 +3231,9 @@
                     body: JSON.stringify({
                         action: "generate_chapter_illustrations",
                         book: CURRENT_BOOK,
+                        book_id: CURRENT_BOOK,
                         target_chapter: CURRENT_TOMATO_FILE,
+                        chapter_file: CURRENT_TOMATO_FILE,
                         image_count: SELECTED_ILLU_COUNT,
                         custom_prompt: customPrompt,
                         instructions: `针对当前章节「${CURRENT_TOMATO_FILE}」绘制 ${SELECTED_ILLU_COUNT} 张高燃宽屏概念插图，并生成作者有话说`
@@ -3200,20 +3241,57 @@
                 });
 
                 if (res && res.task_id) {
-                    ACTIVE_TASK_ID = res.task_id;
-                    alert(`🎨 插图工坊任务已下达！\n目标章节：${CURRENT_TOMATO_FILE}\n计划张数：${SELECTED_ILLU_COUNT} 张\n正在自动跳转到「操控AI」工坊监控生成进度...`);
-                    switchTab('antigravity');
-                    startPolling(async () => {
-                        switchTab('tomato');
-                        await loadChapterExtras(CURRENT_TOMATO_FILE);
-                        alert(`🎉 恭喜！当前章节「${CURRENT_TOMATO_FILE}」的 ${SELECTED_ILLU_COUNT} 张概念插图与作者有话说已生成完毕！`);
-                    });
+                    showToast(`🎨 插图工坊任务已派发！正在原地实时生成 ${SELECTED_ILLU_COUNT} 张海报...`);
+                    
+                    // 原地轮询任务状态 (杜绝强制跳转 Tab，原地无缝更新)
+                    const taskId = res.task_id;
+                    const pollTimer = setInterval(async () => {
+                        try {
+                            const st = await fetchAPI(`${API}/task_status?id=${taskId}`);
+                            if (st) {
+                                if (st.progress_log && st.progress_log.length > 0) {
+                                    const latestLog = st.progress_log[st.progress_log.length - 1];
+                                    const cleanLog = latestLog.replace(/^\[\d+:\d+:\d+\]\s*/, '');
+                                    if (badge) badge.innerText = cleanLog;
+                                }
+                                if (st.status === "completed") {
+                                    clearInterval(pollTimer);
+                                    if (btn) {
+                                        btn.disabled = false;
+                                        btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
+                                        btn.style.opacity = "1";
+                                    }
+                                    await loadChapterExtras(CURRENT_TOMATO_FILE);
+                                    showToast(`🎉 恭喜！当前章节【${SELECTED_ILLU_COUNT}张概念插图】与「作者有话说」已生成！`, 3500);
+                                } else if (st.status === "failed") {
+                                    clearInterval(pollTimer);
+                                    if (btn) {
+                                        btn.disabled = false;
+                                        btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
+                                        btn.style.opacity = "1";
+                                    }
+                                    if (badge) badge.innerText = "❌ 生成失败";
+                                    alert("插图生成失败: " + (st.log || "未知错误"));
+                                }
+                            }
+                        } catch (e) {}
+                    }, 1500);
                 } else {
                     alert("任务分发失败: " + (res.error || "未知错误"));
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
+                        btn.style.opacity = "1";
+                    }
                     if (badge) badge.innerText = "❌ 任务派发失败";
                 }
             } catch (e) {
                 alert("请求异常: " + e.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
+                    btn.style.opacity = "1";
+                }
                 if (badge) badge.innerText = "❌ 网络异常";
             }
         }
@@ -3230,10 +3308,12 @@
 
             try {
                 const res = await fetchAPI(`${API}/chapter_extras?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
-                if (res && res.ok && res.meta) {
+                if (res && res.ok && res.has_extras && res.meta) {
                     CURRENT_EXTRAS_DATA = res.meta;
-                    renderChapterExtras(res.meta);
-                    if (badge) badge.innerText = `✓ 已生成 ${res.meta.image_count || (res.meta.images ? res.meta.images.length : 0)} 张插图`;
+                    const chapFolder = res.chap_dir || res.chapter_code || (res.meta ? res.meta.chapter_code : "");
+                    renderChapterExtras(res.meta, chapFolder);
+                    const illuCount = (res.meta.illustrations || res.meta.images || []).length;
+                    if (badge) badge.innerText = `✓ 已就绪 ${illuCount} 张海报`;
                 } else {
                     CURRENT_EXTRAS_DATA = null;
                     if (gallery) {
@@ -3255,7 +3335,7 @@
             }
         }
 
-        function renderChapterExtras(meta) {
+        function renderChapterExtras(meta, folderHint = "") {
             const gallery = document.getElementById("illustrations-gallery-container");
             const authorNoteText = document.getElementById("author-note-text");
             if (!meta) return;
@@ -3265,30 +3345,43 @@
             }
 
             if (!gallery) return;
-            const images = meta.images || [];
+            const images = meta.illustrations || meta.images || [];
             if (images.length === 0) {
                 gallery.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-dim); font-size:12px;">暂无生成插图</div>';
                 return;
             }
 
-            const chapFolder = meta.chapter_folder || "";
+            const chapFolder = folderHint || meta.chapter_code || meta.chapter_folder || "";
+            const zipUrl = `${API}/export_chapter_illustrations_zip?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(CURRENT_TOMATO_FILE)}&token=${encodeURIComponent(TOKEN)}`;
+
             gallery.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 2px;">
+                    <div style="font-size:12px; font-weight:800; color:#fde047; display:flex; align-items:center; gap:6px;">
+                        <span>🎬 本章官方宽屏概念海报 (已就绪 ${images.length} 张大片)</span>
+                    </div>
+                    <a href="${zipUrl}" class="btn-card-action" style="font-size:11px; padding:4px 12px; background:rgba(234, 179, 8, 0.2); color:#fde047; border:1px solid rgba(234, 179, 8, 0.45); text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-weight:800; border-radius:4px;">
+                        📦 一键打包下载全部插图 (ZIP)
+                    </a>
+                </div>
                 <div class="illustrations-gallery-grid">
                     ${images.map((img, idx) => {
                         const imgUrl = `${API}/illustration?book=${encodeURIComponent(CURRENT_BOOK)}&chap=${encodeURIComponent(chapFolder)}&img=${encodeURIComponent(img.filename)}&token=${encodeURIComponent(TOKEN)}`;
+                        const sceneTitle = img.title || img.scene_title || `分镜 #${idx + 1}`;
+                        const sceneDesc = img.quote || img.desc || img.prompt || "";
+                        const sceneTag = img.tag || `分镜 #${idx + 1} / 共 ${images.length} 张`;
                         return `
                             <div class="illustration-card">
-                                <div class="illustration-img-box" onclick="openLightbox('${imgUrl}', '${escapeHtml(img.scene_title)}')">
-                                    <img src="${imgUrl}" alt="${escapeHtml(img.scene_title)}" loading="lazy">
-                                    <div style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,0.7); color:#fef08a; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; border:1px solid rgba(234,179,8,0.4);">🔍 点击全屏</div>
+                                <div class="illustration-img-box" onclick="openLightbox('${imgUrl}', '${escapeHtml(sceneTitle)}')">
+                                    <img src="${imgUrl}" alt="${escapeHtml(sceneTitle)}" loading="lazy">
+                                    <div style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,0.75); color:#fef08a; font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; border:1px solid rgba(234,179,8,0.4);">🔍 点击全屏</div>
                                 </div>
                                 <div class="illustration-info">
                                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                                        <span class="meta-tag" style="background:rgba(234,179,8,0.15); color:#fde047; font-size:10px; font-weight:700;">第 ${idx + 1} 张 / 共 ${images.length} 张</span>
-                                        <a href="${imgUrl}" download="${img.filename}" class="btn-card-action" style="font-size:10px; padding:2px 6px; text-decoration:none;">💾 下载</a>
+                                        <span class="meta-tag" style="background:rgba(234,179,8,0.15); color:#fde047; font-size:10px; font-weight:700;">${escapeHtml(sceneTag)}</span>
+                                        <a href="${imgUrl}" download="${img.filename}" class="btn-card-action" style="font-size:10px; padding:3px 8px; text-decoration:none; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);">💾 下载原图</a>
                                     </div>
-                                    <div style="font-size:12px; font-weight:700; color:var(--text-main); margin-top:2px;">${escapeHtml(img.scene_title)}</div>
-                                    <div style="font-size:11px; color:var(--text-dim); line-height:1.4;">${escapeHtml(img.prompt)}</div>
+                                    <div style="font-size:12px; font-weight:800; color:var(--text-main); margin-top:4px;">${escapeHtml(sceneTitle)}</div>
+                                    <div style="font-size:11px; color:var(--text-dim); line-height:1.4; margin-top:2px;">${escapeHtml(sceneDesc)}</div>
                                 </div>
                             </div>
                         `;
@@ -3300,10 +3393,14 @@
         function copyAuthorNote() {
             const textEl = document.getElementById("author-note-text");
             if (!textEl || !textEl.innerText) return alert("暂无可复制的作者有话说！");
-            navigator.clipboard.writeText(textEl.innerText).then(() => {
-                alert("📋 本章「作者有话说」已复制到剪贴板！\n可直接粘贴至番茄后台「作者有话说」发布框中。");
+            const rawText = textEl.innerText.trim();
+            if (rawText.includes("暂无作者有话说") || rawText.includes("点击上方「🚀 唤醒 AI 绘制插图」")) {
+                return alert("⚠️ 本章尚未生成「作者有话说」！\n请先点击上方「🚀 唤醒 AI 绘制插图」一键生成。");
+            }
+            navigator.clipboard.writeText(rawText).then(() => {
+                showToast("📋 本章「作者有话说」已成功复制到剪贴板！可直接粘贴至番茄作家助手。");
             }).catch(() => {
-                alert("复制失败，请在文本框内长按复制！");
+                alert("复制失败，请在文本框内长按全选复制！");
             });
         }
 

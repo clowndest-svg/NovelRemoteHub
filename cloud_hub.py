@@ -18,6 +18,7 @@ import uuid
 import glob
 import shutil
 import gzip
+import re
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -430,6 +431,20 @@ class HubHandler(BaseHTTPRequestHandler):
             self.wfile.write(zip_bytes)
             return
 
+        # 导出单章全套高清概念插图 zip 包
+        if path in ["/api/export_chapter_illustrations_zip", "/novel/api/export_chapter_illustrations_zip"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            fname = qs.get("file", [""])[0]
+            zip_bytes, zip_name = novel_manager.export_chapter_illustrations_zip(book_id, fname, BOOKS_DIR)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            encoded_name = urllib.parse.quote(zip_name)
+            self.send_header("Content-Disposition", f'attachment; filename="{encoded_name}"; filename*=UTF-8\'\'{encoded_name}')
+            self.send_header("Content-Length", str(len(zip_bytes)))
+            self.end_headers()
+            self.wfile.write(zip_bytes)
+            return
+
         # 获取章节的「作者有话说」与插画集元数据
         if path in ["/api/chapter_extras", "/novel/api/chapter_extras"]:
             book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
@@ -701,10 +716,19 @@ class HubHandler(BaseHTTPRequestHandler):
                 return
             action = body.get("action", "creative_instruction")
             prompt = body.get("prompt", "")
-            book_id = body.get("book_id", "给政哥讲量子力学，他竟肉身硬抗二向箔")
+            book_id = body.get("book_id") or body.get("book") or "给政哥讲量子力学，他竟肉身硬抗二向箔"
             engine_mode = body.get("engine_mode", "antigravity_pro")
             sub_action = body.get("sub_action", "")
-            extra_data = body.get("extra_data", {})
+            extra_data = body.get("extra_data") or {}
+
+            # 智能平铺兼容：无论前端是嵌套在 extra_data 里，还是直接平铺在 body 顶层，全部自动合并到 extra_data
+            for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "instructions"]:
+                if k in body and k not in extra_data:
+                    extra_data[k] = body[k]
+
+            # 别名字段规范化
+            if "target_chapter" in extra_data and "chapter_file" not in extra_data:
+                extra_data["chapter_file"] = extra_data["target_chapter"]
 
             tid = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
             task = {

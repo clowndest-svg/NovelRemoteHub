@@ -501,6 +501,26 @@ def get_chapter_extras(book_id, fname, root_dir):
         "meta": None
     }
 
+def export_chapter_illustrations_zip(book_id, fname, root_dir):
+    """
+    打包指定章节的全部高清插图为 ZIP
+    """
+    bpath, btitle = get_book_path(book_id, root_dir)
+    m = re.search(r"第(\d+)章", fname)
+    chap_code = f"第{m.group(1)}章" if m else fname.replace(".md", "")
+    chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
+    illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
+    
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        if os.path.exists(illu_dir):
+            for f in sorted(glob.glob(os.path.join(illu_dir, "*"))):
+                if os.path.isfile(f):
+                    zf.write(f, arcname=os.path.basename(f))
+    zip_buffer.seek(0)
+    zip_name = f"【概念插图大片】《{btitle}》_{chap_clean_name}.zip"
+    return zip_buffer.getvalue(), zip_name
+
 # ----------------- 7. 打包导出 -----------------
 
 def export_tomato_zip(book_id=None, root_dir=None):
