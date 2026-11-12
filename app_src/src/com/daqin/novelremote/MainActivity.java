@@ -33,8 +33,8 @@ import javax.net.ssl.X509TrustManager;
 
 public class MainActivity extends Activity {
 
-    public static final String HOME_URL = "https://124.220.54.64/novel/";
-    public static final String CHECK_UPDATE_URL = "https://124.220.54.64/novel/api/version";
+    public static final String HOME_URL = "https://scientificexploration.art/novel/";
+    public static final String CHECK_UPDATE_URL = "https://scientificexploration.art/novel/api/version";
 
     private WebView webView;
     private Handler mainHandler = new Handler(Looper.getMainLooper());

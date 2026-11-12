@@ -48,8 +48,8 @@ LOCAL_STATUS = {
 APP_VERSION_INFO = {
     "versionCode": 4,
     "versionName": "1.3.0",
-    "apkUrl": "https://124.220.54.64/novel/download/NovelRemoteHub.apk",
-    "changelog": "1. 【全新功能】支持一键建立全新小说架构、分章构思与全套设定集生成！\n2. 【全新功能】「智谱工坊」上线：支持新增、润色扩展已有设定集并进行全书逻辑排查！\n3. 【UI重构】深度适配原生 App 体验，优化手机端排版，杜绝标题截断与底部悬浮遮挡！\n4. 【修复】动态读取本地版本，彻底修复误报更新问题。",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk",
+    "changelog": "1. 【全面升级】所有接口、服务与下载链接全量接入官方域名 scientificexploration.art！\n2. 【模型透明化】实时显影底层 AI 模型（Gemini 2.0 Pro / Flash）与会员算力状态！\n3. 【AI指挥中心】重构4大专业网文创作模式：自动续写、单章精修、大纲推演与自由定制！\n4. 【架构增强】强化功能间联动，多书架切换数据严密一致！",
     "forceUpdate": False
 }
 
@@ -143,21 +143,35 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(APP_VERSION_INFO)
             return
 
-        # 引擎说明接口 (公网免密)
+        # 引擎与模型详细说明接口 (公网免密)
         if path == "/api/engines" or path == "/novel/api/engines":
             self.send_json({
-                "antigravity_pro": {
-                    "name": "🌟 Antigravity 智能体模式 (推荐)",
-                    "model": "Gemini Pro (Google 官方深度推理模型)",
-                    "desc": "直接唤醒电脑上的 Antigravity 桌面环境，拥有完整的上下文、自主检索大纲与工具读写权限，并在 IDE 永久留存会话树。",
-                    "tag": "全能留痕 · 推荐"
+                "active_model": {
+                    "name": "Gemini 2.0 Pro",
+                    "full_name": "Google Gemini 2.0 Pro (深度推理旗舰模型)",
+                    "tier": "pro",
+                    "provider": "Google DeepMind 官方顶级大模型",
+                    "auth": "Google Gemini Pro 会员订阅直通已激活",
+                    "proxy": "Clash Verge 全局 TUN 虚拟网卡专属高速直连",
+                    "workspace": "D:\\小说",
+                    "features": "支持超长上下文记忆链、分章细纲精准推演、复杂网文世界观逻辑闭环与正文创作"
                 },
-                "gemini_pro_direct": {
-                    "name": "⚡ Gemini Pro 极速流式引擎",
-                    "model": "Gemini 1.5 Pro (通过电脑 TUN 代理直连)",
-                    "desc": "利用本电脑连接的节点秒级直连 Google 官方大模型 API，逐字打字机流式回显，极速排版并双端落盘。",
-                    "tag": "毫秒响应 · 极速"
-                }
+                "models": [
+                    {
+                        "id": "gemini_2_0_pro",
+                        "tier": "pro",
+                        "name": "🌟 Gemini 2.0 Pro (深度思考 · 推荐)",
+                        "desc": "Google 官方旗舰深度推理模型，适合长篇正文创作、大纲总谱推演、设定集构建，具备高严密逻辑与反转能力。",
+                        "recommended": True
+                    },
+                    {
+                        "id": "gemini_2_0_flash",
+                        "tier": "flash",
+                        "name": "⚡ Gemini 2.0 Flash (极速响应)",
+                        "desc": "毫秒级响应，适合临时剧情灵感脑洞发散、单段落语法润色、错别字校对。",
+                        "recommended": False
+                    }
+                ]
             })
             return
 

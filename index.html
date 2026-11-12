@@ -87,13 +87,8 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* 隐藏原生滚动条，更具原生 App 质感 */
-        ::-webkit-scrollbar {
-            display: none;
-        }
-        * {
-            scrollbar-width: none;
-        }
+        ::-webkit-scrollbar { display: none; }
+        * { scrollbar-width: none; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -109,7 +104,6 @@
             -webkit-user-select: none;
         }
 
-        /* 顶部原生 App 状态栏 */
         header {
             position: sticky;
             top: 0;
@@ -149,7 +143,6 @@
             white-space: nowrap;
         }
 
-        /* 右上角原生动作区 (紧凑、零截断) */
         .header-actions {
             display: flex;
             align-items: center;
@@ -198,7 +191,6 @@
             100% { transform: scale(0.95); opacity: 0.8; }
         }
 
-        /* 网页端显示的紧凑下载按钮 (App 内自动隐藏) */
         .btn-apk-pill {
             display: inline-flex;
             align-items: center;
@@ -213,7 +205,6 @@
             white-space: nowrap;
         }
 
-        /* 多书架导航条 (自适应防折断) */
         .shelf-strip {
             background: var(--bg-primary);
             border-bottom: 1px solid var(--border);
@@ -263,7 +254,6 @@
             flex-shrink: 0;
         }
 
-        /* 主体布局 */
         main {
             flex: 1;
             max-width: 960px;
@@ -287,22 +277,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* App 风格概览卡片 */
-        .app-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 14px;
-            margin-bottom: 12px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-        }
-
-        .app-card.highlight {
-            border-color: var(--border-highlight);
-            background: linear-gradient(135deg, rgba(226, 183, 64, 0.08), rgba(23, 34, 51, 0.95));
-        }
-
-        /* 章节目录看板 */
         .catalog-hero-box {
             background: linear-gradient(135deg, #131c2d, #1a253c);
             border: 1px solid var(--border-highlight);
@@ -394,7 +368,6 @@
             color: var(--accent);
         }
 
-        /* 搜索栏 */
         .catalog-toolbar {
             display: flex;
             align-items: center;
@@ -443,7 +416,6 @@
             white-space: nowrap;
         }
 
-        /* 章节卡片列表 (增加底部外边距，彻底解决底部悬浮遮挡) */
         .chapter-cards-list {
             display: flex;
             flex-direction: column;
@@ -540,7 +512,6 @@
             border-color: rgba(239, 68, 68, 0.3);
         }
 
-        /* 阅读器 */
         .reader-toolbar {
             display: flex;
             justify-content: space-between;
@@ -631,52 +602,144 @@
             text-align: center;
         }
 
-        /* 操控 Antigravity 控制面板 */
-        .control-hub-panel {
-            background: var(--bg-card);
-            border: 1px solid var(--border-highlight);
-            border-radius: var(--radius-lg);
-            padding: 16px;
-            margin-bottom: 40px;
-            box-shadow: 0 4px 20px var(--accent-glow);
+        /* 操控 Antigravity 控制中心全新视觉规范 */
+        .ai-intel-card {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.95));
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            margin-bottom: 12px;
         }
 
-        .engine-switch-grid {
+        .ai-intel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .ai-intel-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--cyan);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ai-model-tag {
+            background: rgba(56, 189, 248, 0.2);
+            color: #7dd3fc;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 12px;
+        }
+
+        .ai-meta-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin: 10px 0;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-sub);
         }
 
-        .engine-card {
+        .meta-line {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* 模型能级切换条 */
+        .model-tier-switcher {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed rgba(56, 189, 248, 0.25);
+        }
+
+        .model-tier-btn {
+            flex: 1;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+            padding: 6px 8px;
+            border-radius: var(--radius-sm);
+            font-size: 11px;
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .model-tier-btn.active {
+            border-color: var(--cyan);
+            color: #fff;
+            background: rgba(56, 189, 248, 0.25);
+        }
+
+        /* 创作模式 4 大工坊选项卡 */
+        .workflow-tabs-strip {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            overflow-x: auto;
+        }
+
+        .wf-tab-btn {
+            flex: 1;
+            min-width: 80px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+            padding: 8px 6px;
+            border-radius: var(--radius-sm);
+            font-size: 11px;
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .wf-tab-btn.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(226, 183, 64, 0.12);
+        }
+
+        /* 悬念钩子折叠盒子 */
+        .hook-box-toggle {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            padding: 10px;
+            padding: 8px 10px;
+            font-size: 11px;
+            color: var(--text-sub);
+            margin-bottom: 10px;
             cursor: pointer;
         }
 
-        .engine-card.active {
-            border-color: var(--accent);
-            background: rgba(226, 183, 64, 0.1);
+        .hook-preview-text {
+            display: none;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px dashed var(--border);
+            color: var(--text-dim);
+            line-height: 1.5;
+            font-style: italic;
         }
 
-        .engine-title {
-            font-size: 12px;
-            font-weight: 800;
-            color: var(--accent);
-            margin-bottom: 2px;
-        }
-
-        .engine-desc {
-            font-size: 10px;
-            color: var(--text-sub);
-            line-height: 1.3;
+        .hook-preview-text.show {
+            display: block;
         }
 
         .prompt-textarea {
             width: 100%;
-            height: 100px;
+            height: 95px;
             background: var(--bg-primary);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
@@ -747,7 +810,6 @@
             -webkit-user-select: text;
         }
 
-        /* 设定大典 & 智谱工坊 */
         .settings-studio-box {
             background: var(--bg-card);
             border: 1px solid var(--purple);
@@ -757,7 +819,6 @@
             box-shadow: 0 4px 20px rgba(168, 85, 247, 0.15);
         }
 
-        /* 底部原生悬浮 Dock 导航栏 */
         .dock-bar {
             position: fixed;
             bottom: 0;
@@ -815,7 +876,6 @@
             color: #06080d;
         }
 
-        /* Modal 抽屉 */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -902,7 +962,6 @@
     <!-- 顶部原生 App 状态栏 -->
     <header>
         <div class="brand-box" onclick="switchTab('catalog')">
-            <!-- 纯矢量内联 SVG Logo (零闪烁 · 原生渲染) -->
             <svg class="brand-logo-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect width="100" height="100" rx="20" fill="#0d1424"/>
                 <circle cx="50" cy="50" r="40" stroke="#e2b740" stroke-width="2.5" opacity="0.8"/>
@@ -920,14 +979,14 @@
                 <span class="pulse-dot"></span>
                 <span id="status-text">检测中</span>
             </div>
-            <!-- 网页端展示下载按钮，App 内自动隐藏 -->
-            <a id="btn-apk-header" href="/novel/download/NovelRemoteHub.apk" class="btn-apk-pill" download>
+            <!-- 官方域名下载链接 (App 内自动隐藏) -->
+            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
         </div>
     </header>
 
-    <!-- 多书架作品切换条 (防溢出) -->
+    <!-- 多书架作品切换条 -->
     <div class="shelf-strip">
         <div class="active-book-wrapper" onclick="openBookDrawer()">
             <span>📚</span>
@@ -969,7 +1028,7 @@
             </div>
         </section>
 
-        <!-- 2. 章节卷宗目录面板 (底部空间充裕，绝无遮挡) -->
+        <!-- 2. 章节卷宗目录面板 -->
         <section id="panel-catalog" class="panel active">
             <div class="catalog-hero-box">
                 <div class="catalog-book-header">
@@ -1006,7 +1065,7 @@
                     <button class="btn-catalog-quick" onclick="exportTomatoZip()">
                         <span>📦 导出番茄ZIP</span>
                     </button>
-                    <button class="btn-catalog-quick" onclick="switchTab('antigravity'); fillActionPrompt('next')">
+                    <button class="btn-catalog-quick" onclick="switchTab('antigravity'); fillWorkflowPrompt('serial')">
                         <span>➕ 续写下一章</span>
                     </button>
                 </div>
@@ -1020,58 +1079,85 @@
                 <button id="sort-btn" class="sort-toggle-btn" onclick="toggleSort()">↕️ 倒序 (最新在前)</button>
             </div>
 
-            <!-- 章节卡片列表 -->
             <div id="chapters-cards-container" class="chapter-cards-list">
                 <div style="padding:20px; text-align:center; color:var(--text-sub);">正在加载章节...</div>
             </div>
         </section>
 
-        <!-- 3. 操控 Antigravity / Gemini Pro 中枢 -->
+        <!-- 3. 【全新升级】操控 Antigravity / Gemini 智脑指挥中心 -->
         <section id="panel-antigravity" class="panel">
-            <div class="control-hub-panel">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <div style="font-size:15px; font-weight:800; color:var(--accent);">🎮 远程唤醒办公室 Antigravity</div>
-                    <span style="font-size:10px; background:rgba(56,189,248,0.15); color:var(--cyan); padding:3px 6px; border-radius:10px;">Pro会员深度算力</span>
-                </div>
-
-                <div style="font-size:11px; color:var(--text-sub); line-height:1.4; margin-bottom:10px;">
-                    指挥目标：<strong id="ai-target-book" style="color:var(--accent);">《给政哥讲量子力学，他竟肉身硬抗二向箔》</strong><br>
-                    电脑将根据大纲细纲与前章钩子，全自动创作、写盘落盘并秒级同步！
-                </div>
-
-                <!-- 双引擎选择 -->
-                <div class="engine-switch-grid">
-                    <div id="eng-antigravity" class="engine-card active" onclick="selectEngine('antigravity_pro')">
-                        <div class="engine-title">🌟 Antigravity 智能体</div>
-                        <div class="engine-desc">官方桌面代理，自动检索大纲/写盘，IDE永久留痕。</div>
+            <!-- 智脑底座与算力透明显影卡片 -->
+            <div class="ai-intel-card">
+                <div class="ai-intel-header">
+                    <div class="ai-intel-title">
+                        <span>🤖 底座智脑</span>
+                        <span id="active-model-name" class="ai-model-tag">Gemini 2.0 Pro</span>
                     </div>
-                    <div id="eng-gemini" class="engine-card" onclick="selectEngine('gemini_pro_direct')">
-                        <div class="engine-title">⚡ Gemini Pro 极速流</div>
-                        <div class="engine-desc">通过电脑 TUN 网卡直连 Google API，毫秒打字机回显。</div>
+                    <span style="font-size:11px; color:#4ade80;">● 专线连通</span>
+                </div>
+                <div class="ai-meta-grid">
+                    <div class="meta-line"><span>👑 算力：</span><span style="color:#fcd34d;">Google Gemini Pro 会员权益</span></div>
+                    <div class="meta-line"><span>🌐 通道：</span><span style="color:#7dd3fc;">Clash Verge 全局 TUN 专线</span></div>
+                    <div class="meta-line"><span>💻 终端：</span><span style="color:#e2e8f0;">办公室 Antigravity 桌面 IDE</span></div>
+                    <div class="meta-line"><span>📚 根区：</span><span style="color:#e2e8f0;">D:\小说 (严格C盘0占用)</span></div>
+                </div>
+
+                <!-- 模型能级自由切换 -->
+                <div class="model-tier-switcher">
+                    <div id="btn-model-pro" class="model-tier-btn active" onclick="switchModelTier('pro')">
+                        🌟 Gemini 2.0 Pro (深度推理旗舰 · 推荐)
+                    </div>
+                    <div id="btn-model-flash" class="model-tier-btn" onclick="switchModelTier('flash')">
+                        ⚡ Gemini 2.0 Flash (毫秒响应极速流)
+                    </div>
+                </div>
+            </div>
+
+            <div class="catalog-hero-box" style="margin-bottom:12px;">
+                <div style="font-size:12px; color:var(--text-sub); display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div>目标作品：<strong id="ai-target-book" style="color:var(--accent);">《给政哥讲量子力学，他竟肉身硬抗二向箔》</strong></div>
+                    <span id="ai-next-target-tag" style="background:#1e293b; color:var(--accent); font-weight:700; padding:2px 6px; border-radius:4px; font-size:10px;">待写第 012 章</span>
+                </div>
+
+                <!-- 上一章悬念钩子折叠卡片 (让作者清晰知晓接续哪段) -->
+                <div class="hook-box-toggle" onclick="toggleHookPreview()">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>📌 上一章末尾悬念钩子 (点击展开查看)</span>
+                        <span id="hook-arrow">▼</span>
+                    </div>
+                    <div id="hook-preview-content" class="hook-preview-text">
+                        正在提取上一章结尾断章锚点...
                     </div>
                 </div>
 
-                <!-- 快捷指令 -->
-                <div class="quick-chips-row">
-                    <div class="chip" onclick="fillActionPrompt('next')">➕ 续写下一章 (分章大纲+悬念)</div>
-                    <div class="chip" onclick="fillActionPrompt('polish')">✨ 精修润色最新章</div>
-                    <div class="chip" onclick="fillActionPrompt('check')">🔍 设定集与正文一致性质检</div>
-                    <div class="chip purple" onclick="openNewBookModal()">🚀 构思新小说架构</div>
+                <!-- 专业创作模式选项卡 -->
+                <div class="workflow-tabs-strip">
+                    <div id="wf-tab-serial" class="wf-tab-btn active" onclick="switchWorkflowTab('serial')">✍️ 自动续写</div>
+                    <div id="wf-tab-polish" class="wf-tab-btn" onclick="switchWorkflowTab('polish')">✨ 单章精修</div>
+                    <div id="wf-tab-plot" class="wf-tab-btn" onclick="switchWorkflowTab('plot')">🗺️ 大纲推演</div>
+                    <div id="wf-tab-custom" class="wf-tab-btn" onclick="switchWorkflowTab('custom')">🛠️ 自由指令</div>
+                </div>
+
+                <!-- 模式快捷辅助芯片 -->
+                <div id="workflow-chips-container" class="quick-chips-row">
+                    <!-- 动态注入 -->
                 </div>
 
                 <textarea id="prompt-box" class="prompt-textarea" placeholder="在此输入具体创作指令..."></textarea>
 
                 <button id="dispatch-btn" class="btn-launch-big" onclick="launchTask()">
-                    🔥 唤醒电脑端 Antigravity 立即执行
+                    🔥 唤醒办公室 Antigravity 立即执行
                 </button>
 
+                <!-- 动态执行流水线与日志视窗 -->
                 <div id="term-container" class="term-container" style="display:none;">
-                    <div id="task-terminal">等待任务指令...</div>
+                    <div style="color:var(--accent); font-weight:700; margin-bottom:4px;" id="pipeline-status-text">⚡ 正在调度 Gemini Pro 执行任务...</div>
+                    <div id="task-terminal">等待指令下发...</div>
                 </div>
             </div>
         </section>
 
-        <!-- 4. 设定大典 & 智谱工坊 (支持新增、润色扩展与冲突排查) -->
+        <!-- 4. 设定大典 & 智谱工坊 -->
         <section id="panel-settings" class="panel">
             <div class="catalog-hero-box">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -1081,10 +1167,7 @@
                     </div>
                     <button class="tool-btn" onclick="loadSettings()">🔄 刷新</button>
                 </div>
-                <!-- 设定标签切换 -->
-                <div id="settings-tabs" style="display:flex; gap:6px; overflow-x:auto; margin-bottom:10px; padding-bottom:4px;">
-                    <!-- 动态生成 -->
-                </div>
+                <div id="settings-tabs" style="display:flex; gap:6px; overflow-x:auto; margin-bottom:10px; padding-bottom:4px;"></div>
                 <div class="reader-container" style="padding:14px; margin-bottom:14px; max-height:360px; overflow-y:auto;">
                     <div id="setting-content" class="chapter-body-text" style="font-size:14px; line-height:1.7;">
                         请选择上方设定文档阅读。
@@ -1092,14 +1175,14 @@
                 </div>
             </div>
 
-            <!-- 智谱工坊：设定文案演进控制器 -->
+            <!-- 智谱工坊 -->
             <div class="settings-studio-box">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <div style="font-size:14px; font-weight:800; color:#d8b4fe;">✨ 智谱工坊 · 设定演化与质检</div>
-                    <span style="font-size:10px; color:var(--text-dim);">直接更新 D:\小说 设定集</span>
+                    <span style="font-size:10px; color:var(--text-dim);">直接落盘 D:\小说</span>
                 </div>
                 <div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">
-                    选择模式后输入指令，Antigravity 将自动扩充细节并更新写入设定文档！
+                    选择模式后输入指令，Antigravity 将自动扩充细节并落盘至设定集！
                 </div>
 
                 <div class="quick-chips-row">
@@ -1109,7 +1192,7 @@
                 </div>
 
                 <input type="text" id="setting-target-input" class="input-text" style="margin-bottom:8px;" placeholder="目标文档名 (如: 04_大秦歼星舰队编制与反物质灵石规范.md)">
-                <textarea id="setting-prompt-box" class="prompt-textarea" style="height:80px;" placeholder="输入设定演化要求，例如：扩展太上量子混元造化经第13-18重登天境细节，融合超弦理论与高维拓扑展开..."></textarea>
+                <textarea id="setting-prompt-box" class="prompt-textarea" style="height:80px;" placeholder="输入设定演化需求..."></textarea>
 
                 <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="launchSettingEvolution()">
                     ⚡ 唤醒 Antigravity 执行设定演进
@@ -1184,7 +1267,7 @@
         </div>
     </div>
 
-    <!-- 🚀 新书架构向导 Modal (核心新功能) -->
+    <!-- 新书架构向导 Modal -->
     <div id="new-book-modal" class="modal-overlay" onclick="closeNewBookModal(event)">
         <div class="modal-box" onclick="event.stopPropagation()">
             <div class="modal-header">
@@ -1217,7 +1300,9 @@
     </div>
 
     <script>
-        const API = "/novel/api";
+        // 全站统一官方域名基准
+        const OFFICIAL_DOMAIN = "https://scientificexploration.art";
+        const API = `${OFFICIAL_DOMAIN}/novel/api`;
         let TOKEN = localStorage.getItem("novel_token") || "daqin_authorized";
         let BOOKS = [];
         let CURRENT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔";
@@ -1225,14 +1310,16 @@
         let FILTERED_CHAPTERS = [];
         let CURRENT_INDEX = 0;
         let CURRENT_ENGINE = "antigravity_pro";
+        let CURRENT_MODEL_TIER = "pro"; // 默认使用 Gemini 2.0 Pro
         let ACTIVE_TASK_ID = null;
         let TASK_POLL_TIMER = null;
         let SORT_DESC = true;
         let SETTING_MODE = "add";
         let CURRENT_SETTING_DOC = "";
+        let CURRENT_WORKFLOW = "serial";
+        let LAST_CHAPTER_HOOK = "";
 
         window.addEventListener("DOMContentLoaded", () => {
-            // 原生 App 环境检测：若在 Android App 内部则自动隐藏下载按钮
             if (navigator.userAgent.includes("NovelRemoteHubApp")) {
                 const apkBtn = document.getElementById("btn-apk-header");
                 if (apkBtn) apkBtn.style.display = "none";
@@ -1245,6 +1332,7 @@
             setInterval(checkStatus, 10000);
             await loadBooks();
             await loadChapters();
+            switchWorkflowTab('serial');
         }
 
         async function fetchAPI(url, opts = {}) {
@@ -1299,6 +1387,21 @@
             }
         }
 
+        // 模型能级切换
+        function switchModelTier(tier) {
+            CURRENT_MODEL_TIER = tier;
+            document.getElementById("btn-model-pro").classList.toggle("active", tier === "pro");
+            document.getElementById("btn-model-flash").classList.toggle("active", tier === "flash");
+            const tag = document.getElementById("active-model-name");
+            if (tier === "pro") {
+                tag.innerText = "Gemini 2.0 Pro";
+                tag.style.background = "rgba(56, 189, 248, 0.2)";
+            } else {
+                tag.innerText = "Gemini 2.0 Flash";
+                tag.style.background = "rgba(226, 183, 64, 0.2)";
+            }
+        }
+
         // 加载书架
         async function loadBooks() {
             const data = await fetchAPI(`${API}/books`);
@@ -1343,9 +1446,11 @@
             updateBookLabels();
             closeBookDrawer();
             await loadChapters();
+            if (document.getElementById("panel-settings").classList.contains("active")) {
+                loadSettings();
+            }
         }
 
-        // 新书架构向导 Modal
         function openNewBookModal() {
             document.getElementById("new-book-modal").classList.add("show");
         }
@@ -1366,7 +1471,7 @@
             switchTab('antigravity');
 
             document.getElementById("term-container").style.display = "block";
-            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发新小说架构指令《${title}》...\n正在唤醒办公室电脑 Antigravity (Gemini Pro)...`;
+            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发新小说架构指令《${title}》...\n正在唤醒办公室电脑 Antigravity (${CURRENT_MODEL_TIER.toUpperCase()})...`;
 
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
@@ -1379,7 +1484,8 @@
                         extra_data: {
                             title: title,
                             genre: genre,
-                            concept: concept
+                            concept: concept,
+                            model_tier: CURRENT_MODEL_TIER
                         }
                     })
                 });
@@ -1411,7 +1517,7 @@
 
             if (mode === 'add') {
                 tinput.value = "04_新设定文档.md";
-                pbox.value = "请新增一个关于反派核心组织/新法宝体系的详尽设定，包含背景起源、能力评级与关键人物。";
+                pbox.value = "请新增一个关于核心阵营势力/法宝拓扑体系的详尽设定，包含背景起源、能力评级与关键人物。";
             } else if (mode === 'expand') {
                 tinput.value = CURRENT_SETTING_DOC || "01_世界观核心设定与科技修炼体系.md";
                 pbox.value = "请深入扩充该设定中的核心法则细节，强化硬核物理理论与科修境界的严密推导，增强质感。";
@@ -1440,7 +1546,8 @@
                         prompt: prompt,
                         engine_mode: CURRENT_ENGINE,
                         extra_data: {
-                            target_doc: targetDoc
+                            target_doc: targetDoc,
+                            model_tier: CURRENT_MODEL_TIER
                         }
                     })
                 });
@@ -1459,7 +1566,7 @@
             }
         }
 
-        // 加载章节
+        // 加载章节与前章钩子
         async function loadChapters() {
             try {
                 const data = await fetchAPI(`${API}/chapters?book=${encodeURIComponent(CURRENT_BOOK)}`);
@@ -1476,20 +1583,50 @@
                     renderCatalogCards();
                     updateNextLabel();
 
-                    if (CHAPTERS.length > 0 && !window.hasLoadedFirst) {
-                        window.hasLoadedFirst = true;
-                        openChapter(CHAPTERS.length - 1, false);
+                    if (CHAPTERS.length > 0) {
+                        fetchLastHook(CHAPTERS[CHAPTERS.length - 1].filename);
+                        if (!window.hasLoadedFirst) {
+                            window.hasLoadedFirst = true;
+                            openChapter(CHAPTERS.length - 1, false);
+                        }
                     }
                 }
             } catch (err) {}
         }
 
+        async function fetchLastHook(filename) {
+            try {
+                const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
+                if (res && res.content) {
+                    const lines = res.content.trim().split("\n");
+                    const tail = lines.slice(-8).join("\n");
+                    LAST_CHAPTER_HOOK = tail;
+                    const preview = document.getElementById("hook-preview-content");
+                    if (preview) preview.innerText = tail;
+                }
+            } catch (e) {}
+        }
+
+        function toggleHookPreview() {
+            const el = document.getElementById("hook-preview-content");
+            const arr = document.getElementById("hook-arrow");
+            if (el.classList.contains("show")) {
+                el.classList.remove("show");
+                arr.innerText = "▼";
+            } else {
+                el.classList.add("show");
+                arr.innerText = "▲";
+            }
+        }
+
         function updateNextLabel() {
             const nextNum = CHAPTERS.length + 1;
             const padNum = String(nextNum).padStart(3, "0");
+            const tag = document.getElementById("ai-next-target-tag");
+            if (tag) tag.innerText = `待写第 ${padNum} 章`;
             const btn = document.getElementById("dispatch-btn");
             if (btn && !btn.disabled) {
-                btn.innerText = `🔥 唤醒电脑 Antigravity (创作第${padNum}章)`;
+                btn.innerText = `🔥 唤醒办公室 Antigravity (创作第${padNum}章)`;
             }
         }
 
@@ -1619,23 +1756,62 @@
             if (themeName !== 'dark') document.body.classList.add(`theme-${themeName}`);
         }
 
-        function selectEngine(mode) {
-            CURRENT_ENGINE = mode;
-            document.getElementById("eng-antigravity").classList.toggle("active", mode === 'antigravity_pro');
-            document.getElementById("eng-gemini").classList.toggle("active", mode === 'gemini_pro_direct');
+        // 4 大专业创作工坊选项卡切换
+        function switchWorkflowTab(wf) {
+            CURRENT_WORKFLOW = wf;
+            document.getElementById("wf-tab-serial").classList.toggle("active", wf === "serial");
+            document.getElementById("wf-tab-polish").classList.toggle("active", wf === "polish");
+            document.getElementById("wf-tab-plot").classList.toggle("active", wf === "plot");
+            document.getElementById("wf-tab-custom").classList.toggle("active", wf === "custom");
+
+            fillWorkflowPrompt(wf);
         }
 
-        function fillActionPrompt(type) {
-            const box = document.getElementById("prompt-box");
+        function fillWorkflowPrompt(wf) {
+            const chips = document.getElementById("workflow-chips-container");
+            const pbox = document.getElementById("prompt-box");
             const nextNum = CHAPTERS.length + 1;
             const padNum = String(nextNum).padStart(3, "0");
-            if (type === "next") {
-                box.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，检索分章细纲中第${padNum}章规划，无缝承接上一章末尾悬念钩子，开始创作【第${padNum}章】正文（4000-5000字，番茄移动端短段落排版，戏带设定）。`;
-            } else if (type === "polish") {
-                box.value = `请对最新章节进行全篇精修润色：强化剧情反差戏剧张力，深化硬科幻/未来物理与修仙融合细节，确保中文全角双引号“”规范。`;
-            } else if (type === "check") {
-                box.value = `请全面对比全部章节正文与【00_设定集】文档，检查角色人设、战力体系、科技进展是否存在任何冲突或逻辑断层。`;
+
+            if (wf === "serial") {
+                chips.innerHTML = `
+                    <div class="chip active" onclick="applyPromptTag('标准4000字')">🎯 标准篇幅 (4000-5000字)</div>
+                    <div class="chip" onclick="applyPromptTag('长篇爆发')">🔥 爆发长章 (6000-8000字)</div>
+                    <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化始皇李斯反差笑点</div>
+                    <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 强化物理微波科技修仙</div>
+                `;
+                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，检索分章细纲中第${padNum}章规划，无缝承接上一章末尾悬念钩子，开始创作【第${padNum}章】正文（4000-5000字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
+            } else if (wf === "polish") {
+                chips.innerHTML = `
+                    <div class="chip active" onclick="applyPromptTag('黄金留存')">🔥 黄金留存率爆改 (前3章优化)</div>
+                    <div class="chip" onclick="applyPromptTag('笑点加量')">😂 强化喜剧冲突</div>
+                    <div class="chip" onclick="applyPromptTag('重塑钩子')">🎣 重塑章末王炸悬念钩子</div>
+                    <div class="chip" onclick="applyPromptTag('标点纠偏')">🔍 全角标点与错别字排查</div>
+                `;
+                pbox.value = `请对最新章节进行全篇精修润色：强化李斯与政哥的反差喜剧效果，加深高阶物理学法则在修仙战斗中的具象化呈现，确保中文全角双引号“”规范与移动端短段落排版。`;
+            } else if (wf === "plot") {
+                chips.innerHTML = `
+                    <div class="chip active" onclick="applyPromptTag('主线高潮')">🌌 推演后20章大主线走向</div>
+                    <div class="chip" onclick="applyPromptTag('伏笔暗线')">🔍 设计外星矿产局观察者伏笔</div>
+                    <div class="chip" onclick="applyPromptTag('战力推演')">⚖️ 境界能级与科技生产力推演</div>
+                `;
+                pbox.value = `请基于《${CURRENT_BOOK}》的 00_设定集，推演后续 20-30 章的主线走向与剧情大高潮，重点设计核心反转、外部星际势力的降临线索以及大秦帝国全疆域工业化修仙的生产力爆发点！`;
+            } else if (wf === "custom") {
+                chips.innerHTML = `
+                    <div class="chip" onclick="applyPromptTag('清空')">🧹 清空输入框</div>
+                `;
+                pbox.value = "";
+                pbox.placeholder = "请输入你的自定义自由指令，Antigravity (Gemini Pro) 将全权自主理解并执行...";
             }
+        }
+
+        function applyPromptTag(tag) {
+            const pbox = document.getElementById("prompt-box");
+            if (tag === '清空') {
+                pbox.value = "";
+                return;
+            }
+            pbox.value += ` 【特别要求：${tag}】`;
         }
 
         async function launchTask() {
@@ -1644,7 +1820,7 @@
 
             const btn = document.getElementById("dispatch-btn");
             btn.disabled = true;
-            btn.innerText = "⏳ 正在唤醒电脑端 Antigravity...";
+            btn.innerText = `⏳ 正在调度 ${CURRENT_MODEL_TIER.toUpperCase()} 唤醒电脑...`;
 
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
@@ -1653,14 +1829,19 @@
                         action: "creative_instruction",
                         prompt: prompt,
                         book_id: CURRENT_BOOK,
-                        engine_mode: CURRENT_ENGINE
+                        engine_mode: CURRENT_ENGINE,
+                        extra_data: {
+                            model_tier: CURRENT_MODEL_TIER,
+                            workflow: CURRENT_WORKFLOW
+                        }
                     })
                 });
 
                 if (res.ok) {
                     ACTIVE_TASK_ID = res.task.id;
                     document.getElementById("term-container").style.display = "block";
-                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在通知公司电脑端 Antigravity (Gemini Pro)...`;
+                    document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 Gemini ${CURRENT_MODEL_TIER==='pro'?'2.0 Pro (深度推理)':'2.0 Flash'} 执行任务...`;
+                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在连接公司电脑 Antigravity IDE...`;
                     startPolling(async () => {
                         await loadChapters();
                         alert("🎉 Antigravity 创作完成！新章节已同步，快去阅读吧！");
@@ -1688,10 +1869,12 @@
 
                     if (data.status === "completed") {
                         clearInterval(TASK_POLL_TIMER);
+                        document.getElementById("pipeline-status-text").innerText = `✅ 任务执行完毕！落盘文件已双端同步！`;
                         term.innerText += `\n\n🎉 任务执行完毕！落盘文件已同步！`;
                         if (onSuccess) await onSuccess();
                     } else if (data.status === "failed") {
                         clearInterval(TASK_POLL_TIMER);
+                        document.getElementById("pipeline-status-text").innerText = `❌ 任务中断`;
                         term.innerText += `\n\n❌ 任务中断，请检查公司电脑执行端`;
                     }
                 } catch (e) {}

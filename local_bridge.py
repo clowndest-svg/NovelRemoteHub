@@ -26,7 +26,7 @@ DEFAULT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔"
 BRAIN_CONV_ID = "be7c9c60-1b07-4a49-8927-f9c527d4f9f4"
 AGENTAPI_BAT = r"C:\Users\23793\.gemini\antigravity\bin\agentapi.bat"
 
-CLOUD_SERVER_URL = "https://124.220.54.64/novel/api"
+CLOUD_SERVER_URL = "https://scientificexploration.art/novel/api"
 TOKEN = "daqin_authorized"
 
 # 忽略 SSL 证书校验 (因为直连 IP)
@@ -157,15 +157,17 @@ def sync_all_books_to_cloud():
 
     return True, total_chapters, total_settings
 
-# 5. 执行 Antigravity 唤醒 (优先指定 --model=pro 激发顶级会员算力)
-def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro"):
-    cmd = [AGENTAPI_BAT, "new-conversation", "--model=pro", f"--title={title}", prompt]
+# 5. 执行 Antigravity 唤醒 (优先指定用户选中的 Gemini 模型)
+def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro", model_tier="pro"):
+    flag = f"--model={model_tier}" if model_tier in ["pro", "flash"] else "--model=pro"
+    model_display = "Gemini 2.0 Pro (深度推理旗舰)" if model_tier == "pro" else "Gemini 2.0 Flash (极速流)"
+    cmd = [AGENTAPI_BAT, "new-conversation", flag, f"--title={title}", prompt]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=45)
         if proc.returncode == 0:
-            return True, f"成功启动 Antigravity 专属创作会话 (Gemini Pro)！\n{proc.stdout}"
+            return True, f"成功启动 Antigravity 专属创作会话 [{model_display}]！\n{proc.stdout}"
     except Exception as e:
-        print(f"[Antigravity] --model=pro 调用异常: {e}")
+        print(f"[Antigravity] {flag} 调用异常: {e}")
 
     # Fallback
     cmd_fallback = [AGENTAPI_BAT, "new-conversation", f"--title={title}", prompt]
@@ -332,9 +334,11 @@ def run_bridge_loop():
 """
                     task_title = f"【手机遥控】《{book_id}》创作第{pad_num}章"
 
-                api_post("task_progress", {"id": tid, "status": "running", "log": f"已组装指令提示词，正在唤醒 Antigravity 智能体 (Gemini Pro)..."})
+                model_tier = extra_data.get("model_tier", "pro") if extra_data else "pro"
+                model_name = "Gemini 2.0 Pro (深度推理旗舰)" if model_tier == "pro" else "Gemini 2.0 Flash (极速流)"
+                api_post("task_progress", {"id": tid, "status": "running", "log": f"已组装指令提示词，正在调度 [{model_name}] 唤醒 Antigravity 智能体..."})
                 
-                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine)
+                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier)
                 if ok:
                     api_post("task_progress", {
                         "id": tid, 
