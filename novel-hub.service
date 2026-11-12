@@ -9,7 +9,8 @@ WorkingDirectory=/opt/novel_hub
 ExecStart=/usr/bin/python3 /opt/novel_hub/cloud_hub.py
 Restart=always
 RestartSec=3
-Environment=NOVEL_HUB_PASSWORD=daqin666
+EnvironmentFile=-/etc/novel-hub.env
+Environment=NOVEL_HUB_BIND=172.17.0.1
 
 [Install]
 WantedBy=multi-user.target

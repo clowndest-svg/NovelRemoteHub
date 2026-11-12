@@ -17,6 +17,7 @@ import json
 import zipfile
 import io
 import datetime
+from storage import within, safe_component
 
 # 自动判断当前是在本地 Windows 还是云端 Linux
 if os.name == "nt":
@@ -50,19 +51,34 @@ def list_books(root_dir=None):
 
 def get_book_path(book_id=None, root_dir=None):
     base = root_dir or DEFAULT_ROOT
-    books = list_books(base)
     if not book_id:
-        if books:
-            return books[0]["path"], books[0]["title"]
-        def_path = os.path.join(base, "给政哥讲量子力学，他竟肉身硬抗二向箔")
-        return def_path, "给政哥讲量子力学，他竟肉身硬抗二向箔"
-    
-    bpath = os.path.join(base, book_id)
-    if os.path.exists(bpath):
-        return bpath, book_id
-    if books:
-        return books[0]["path"], books[0]["title"]
-    return os.path.join(base, book_id), book_id
+        books = list_books(base)
+        if not books:
+            raise FileNotFoundError("书架暂无作品")
+        book_id = books[0]["id"]
+    path = within(base, book_id)
+    if not os.path.isdir(path):
+        raise FileNotFoundError("作品不存在")
+    return path, book_id
+
+
+def chapter_files(book_path):
+    files = glob.glob(os.path.join(book_path, "01_正文", "**", "*.md"), recursive=True)
+    def order(path):
+        match = re.search(r"第(\d+)章", os.path.basename(path))
+        return (int(match.group(1)) if match else 0, path)
+    return sorted(files, key=order)
+
+
+def read_chapter(book_id, filename, root_dir=None):
+    safe_component(filename)
+    book_path, _ = get_book_path(book_id, root_dir)
+    matches = [path for path in chapter_files(book_path) if os.path.basename(path) == filename]
+    if len(matches) != 1:
+        raise FileNotFoundError("章节不存在或文件名重复，请检查分卷章节名称")
+    with open(matches[0], encoding="utf-8") as stream:
+        return stream.read()
+
 
 # ----------------- 2. 核心敏感词与易错字词库 -----------------
 
@@ -94,7 +110,6 @@ TYPOS_DICTIONARY = {
     "针炙": "针灸",
     "幅员广阔": "幅员辽阔",
     "幅员辽宽": "幅员辽阔",
-    "叹为观止": "叹为观止",
     "默守成规": "墨守成规",
     "走头无路": "走投无路",
     "名信片": "明信片",
@@ -104,13 +119,11 @@ TYPOS_DICTIONARY = {
     "即然": "既然",
     "即然如此": "既然如此",
     "既使": "即使",
-    "制订计划": "制定计划",
     "订制": "定制",
     "以候": "以后",
     "时后": "时候",
     "帐号": "账号",
     "登录帐号": "登录账号",
-    "账单": "账单",
     "相形见拙": "相形见绌",
     "鬼鬼崇崇": "鬼鬼祟祟",
     "滥芋充数": "滥竽充数",
@@ -122,10 +135,8 @@ TYPOS_DICTIONARY = {
     "变本加利": "变本加厉",
     "趋之若骛": "趋之若鹜",
     "一愁莫展": "一筹莫展",
-    "滥加": "滥施",
     "重蹈复辙": "重蹈覆辙",
     "精兵减政": "精兵简政",
-    "甘拜下风": "甘败下风",
     "出奇致胜": "出奇制胜"
 }
 
@@ -415,9 +426,9 @@ def audit_for_tomato(cleaned_result):
         "status": status,
         "word_status": word_status,
         "char_count": char_count,
-        "dialogue_ratio": f"{dialogue_ratio}%",
+        "dialogue_ratio": dialogue_ratio,
         "paragraph_count": len(paragraphs),
-        "est_read_time": f"{round(char_count / 400, 1)} 分钟",
+        "est_read_time": round(char_count / 400, 1),
         "issues": issues,
         "issues_count": len(issues),
         "ready_to_publish": (status != "danger")
@@ -436,11 +447,11 @@ def auto_fix_tomato_content(content):
     replaced_count = 0
 
     # 1. 错别字替换
-    for wrong, right in TYPOS_DICTIONARY.items():
-        if wrong in fixed:
-            count = fixed.count(wrong)
-            fixed = fixed.replace(wrong, right)
-            replaced_count += count
+    def replace_typo(match):
+        nonlocal replaced_count
+        replaced_count += 1
+        return TYPOS_DICTIONARY[match.group(0)]
+    fixed = _TYPOS_RE.sub(replace_typo, fixed)
 
     # 2. 半角标点替换
     punct_map = {
@@ -472,6 +483,7 @@ def get_chapter_extras(book_id, fname, root_dir):
     读取指定章节的「作者有话说」与插图元数据
     """
     bpath, btitle = get_book_path(book_id, root_dir)
+    read_chapter(book_id, fname, root_dir)
     m = re.search(r"第(\d+)章", fname)
     chap_code = f"第{m.group(1)}章" if m else fname.replace(".md", "")
     chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
@@ -483,6 +495,8 @@ def get_chapter_extras(book_id, fname, root_dir):
         try:
             with open(meta_path, "r", encoding="utf-8", errors="ignore") as fp:
                 meta = json.load(fp)
+            if meta.get("chapter_filename") and meta["chapter_filename"] != fname:
+                raise ValueError("素材所属章节与当前章节不符")
             return {
                 "ok": True,
                 "has_extras": True,
@@ -506,20 +520,32 @@ def export_chapter_illustrations_zip(book_id, fname, root_dir):
     打包指定章节的全部高清插图为 ZIP
     """
     bpath, btitle = get_book_path(book_id, root_dir)
+    read_chapter(book_id, fname, root_dir)
     m = re.search(r"第(\d+)章", fname)
     chap_code = f"第{m.group(1)}章" if m else fname.replace(".md", "")
     chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
     illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
     
+    extras = get_chapter_extras(book_id, fname, root_dir)
+    meta = extras.get("meta")
+    if not meta:
+        raise FileNotFoundError("本章暂无可导出的素材")
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        if os.path.exists(illu_dir):
-            for f in sorted(glob.glob(os.path.join(illu_dir, "*"))):
-                if os.path.isfile(f):
-                    zf.write(f, arcname=os.path.basename(f))
-    zip_buffer.seek(0)
-    zip_name = f"【概念插图大片】《{btitle}》_{chap_clean_name}.zip"
-    return zip_buffer.getvalue(), zip_name
+        write_extras_zip(zf, illu_dir, meta)
+    return zip_buffer.getvalue(), f"《{btitle}》_{chap_clean_name}_章节素材.zip"
+
+
+def write_extras_zip(archive, directory, meta, prefix=""):
+    archive.writestr(prefix + "作者有话说.txt", meta.get("author_note", ""))
+    archive.writestr(prefix + "章节评论.txt", "\n\n".join(meta.get("chapter_comments", [])))
+    archive.writestr(prefix + "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
+    for item in meta.get("illustrations", meta.get("images", [])):
+        filename = safe_component(item["filename"])
+        path = within(directory, filename)
+        if os.path.isfile(path):
+            archive.write(path, arcname=prefix + filename)
+
 
 # ----------------- 7. 打包导出 -----------------
 
@@ -527,7 +553,7 @@ def export_tomato_zip(book_id=None, root_dir=None):
     """打包生成番茄小说批量发布专用的分章 TXT 压缩包，含随章插图与作者有话说"""
     bpath, btitle = get_book_path(book_id, root_dir)
     chapters_dir = os.path.join(bpath, "01_正文")
-    files = sorted(glob.glob(os.path.join(chapters_dir, "**", "*.md"), recursive=True))
+    files = chapter_files(bpath)
 
     mem_zip = io.BytesIO()
     with zipfile.ZipFile(mem_zip, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -553,12 +579,9 @@ def export_tomato_zip(book_id=None, root_dir=None):
             chap_code = f"第{m.group(1)}章" if m else os.path.basename(f).replace(".md", "")
             chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
             illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
-            if os.path.exists(illu_dir):
-                for ifile in os.listdir(illu_dir):
-                    ifile_path = os.path.join(illu_dir, ifile)
-                    if os.path.isfile(ifile_path):
-                        with open(ifile_path, "rb") as ifp:
-                            zf.writestr(f"02_随章插图与作者有话说/{chap_clean_name}/{ifile}", ifp.read())
+            extras = get_chapter_extras(book_id, os.path.basename(f), root_dir)
+            if extras.get("meta"):
+                write_extras_zip(zf, illu_dir, extras["meta"], f"02_随章插图与作者有话说/{chap_clean_name}/")
 
     mem_zip.seek(0)
     return mem_zip.getvalue(), f"{btitle}_番茄发布包.zip"

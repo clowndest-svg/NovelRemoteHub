@@ -23,6 +23,12 @@ import ssl
 import subprocess
 import ctypes
 import socket
+import threading
+import uuid
+from pathlib import Path
+from storage import atomic_json, atomic_write, within, safe_component
+import agent_client
+import novel_manager
 
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
 class SafeDaemonLogStream:
@@ -73,12 +79,14 @@ AGENTAPI_BAT = r"C:\Users\23793\.gemini\antigravity\bin\agentapi.bat"
 ANTIGRAVITY_EXE = r"C:\Users\23793\AppData\Local\Programs\antigravity\Antigravity.exe"
 
 CLOUD_SERVER_URL = "https://scientificexploration.art/novel/api"
-TOKEN = "daqin_authorized"
+CONFIG_PATH = Path(__file__).with_name(".bridge-config.json")
+CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) if CONFIG_PATH.exists() else {}
+TOKEN = os.environ.get("NOVEL_HUB_TOKEN") or CONFIG.get("token", "")
+ACTIVE_TASK = None
 
 # 忽略 SSL 证书校验 (安全直连)
 SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False
-SSL_CTX.verify_mode = ssl.CERT_NONE
+
 
 # 0. 单实例互斥守护 (端口锁)
 _LOCK_SOCKET = None
@@ -114,7 +122,7 @@ def api_post(endpoint, data):
         "X-Novel-Token": TOKEN
     })
     try:
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=10) as resp:
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=60 if len(body) > 1024 * 1024 else 15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         return None
@@ -167,7 +175,7 @@ def ensure_antigravity_running(progress_cb=None):
             if progress_cb and (i + 1) % 3 == 0:
                 progress_cb(f"正在等待 Antigravity 客户端完成启动初始化 ({i+1}/15秒)...")
 
-        return True, "已成功发送拉起指令，正在尝试连接 Antigravity 任务通道..."
+        return False, "Antigravity 语言服务在等待时间内尚未就绪，请稍后重试"
     except Exception as e:
         return False, f"进程拉起与检测异常: {e}"
 
@@ -185,9 +193,9 @@ def check_proxy_health():
 
 # 5. 扫描本地多书架数据
 def collect_book_data(book_dir_name):
-    book_path = os.path.join(BOOKS_ROOT, book_dir_name)
+    book_path = within(BOOKS_ROOT, book_dir_name)
     chapters = []
-    c_files = sorted(glob.glob(os.path.join(book_path, "01_正文", "**", "*.md"), recursive=True))
+    c_files = novel_manager.chapter_files(book_path)
     for f in c_files:
         with open(f, "r", encoding="utf-8", errors="ignore") as fp:
             chapters.append({
@@ -207,7 +215,13 @@ def collect_book_data(book_dir_name):
 
 def collect_all_conversations():
     conversations = []
-    logs_candidates = glob.glob(r"C:\Users\23793\.gemini\antigravity\brain\*\.system_generated\logs\transcript.jsonl")
+    conversation_id = CONFIG.get("conversation_id")
+    logs_candidates = []
+    if conversation_id:
+        safe_component(conversation_id)
+        path = agent_client.BRAIN / conversation_id / ".system_generated/logs/transcript.jsonl"
+        if path.is_file():
+            logs_candidates = [str(path)]
     if logs_candidates:
         logs_candidates.sort(key=os.path.getmtime, reverse=True)
         active_log = logs_candidates[0]
@@ -251,6 +265,7 @@ def sync_all_books_to_cloud():
     total_chapters = 0
     total_settings = 0
     convs = collect_all_conversations()
+    all_ok = True
 
     if os.path.exists(BOOKS_ROOT):
         for entry in os.scandir(BOOKS_ROOT):
@@ -267,114 +282,58 @@ def sync_all_books_to_cloud():
                 if res and res.get("ok"):
                     total_chapters += len(chapters)
                     total_settings += len(settings)
+                else:
+                    all_ok = False
 
-    return True, total_chapters, total_settings
+    return all_ok, total_chapters, total_settings
 
 # 7. 执行 Antigravity 唤醒 (具备网络代理自愈重试 + 额度熔断自动降级机制)
-def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro", model_tier="gemini-3.8-flash-high", progress_cb=None):
-    # 先做健康检测与智能拉起唤醒
-    ensure_antigravity_running(progress_cb=progress_cb)
-
-    # 规范化模型选择 (默认主力: gemini-3.8-flash-high)
-    model_map = {
-        "gemini-3.8-flash-high": {"flag": "--model=gemini-3.8-flash-high", "display": "Gemini 3.8 Flash High (主力 · 量大管饱)", "fallback": "flash"},
-        "claude-sonnet-4-6": {"flag": "--model=claude-sonnet-4-6", "display": "Claude Sonnet 4.6 (深度构思)", "fallback": "gemini-3.8-flash-high"},
-        "flash": {"flag": "--model=flash", "display": "Gemini Flash (标准极速)", "fallback": "pro"},
-        "pro": {"flag": "--model=pro", "display": "Gemini Pro (高维推理)", "fallback": "gemini-3.8-flash-high"}
-    }
-
-    tier_key = model_tier if model_tier in model_map else "gemini-3.8-flash-high"
-    selected = model_map[tier_key]
-    primary_flag = selected["flag"]
-    primary_display = selected["display"]
-    fallback_tier = selected["fallback"]
-
-    # 判定错误类型辅助函数
-    def is_quota_error(text):
-        lower = text.lower()
-        return any(k in lower for k in ["quota", "rate limit", "resource exhausted", "429", "capacity", "exhausted", "resource_exhausted"])
-
-    def is_network_error(text):
-        lower = text.lower()
-        return any(k in lower for k in ["timeout", "timed out", "connect", "connection refused", "proxy", "socket", "winerror 10061", "eof", "dial tcp", "reset by peer"])
-
-    # 循环尝试执行 (最多重试 3 次，并在遇到额度问题时降级)
-    max_retries = 3
-    current_flag = primary_flag
-    current_display = primary_display
-    has_fallback = False
-
-    for attempt in range(1, max_retries + 1):
-        cmd = [AGENTAPI_BAT, "new-conversation", current_flag, f"--title={title}", prompt]
-        print(f"[Antigravity] 尝试调用 (第 {attempt} 次): {current_flag} -> {title}")
-        
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=60)
-            stdout = proc.stdout or ""
-            stderr = proc.stderr or ""
-            combined = f"{stdout}\n{stderr}"
-
-            if proc.returncode == 0:
-                success_msg = f"✅ 成功唤醒 Antigravity 专属创作会话 [{current_display}]！"
-                if has_fallback:
-                    success_msg += "\n(注：已自动熔断切换至备用模型平滑完成)"
-                return True, f"{success_msg}\n{stdout}"
-
-            # 如果失败，分析错误根因
-            print(f"[Antigravity] 执行返回非零码 ({proc.returncode}): {stderr.strip()[:200]}")
-
-            # 1. 额度耗尽 (Quota / Rate Limit) -> 自动熔断切换备用模型
-            if is_quota_error(combined) and not has_fallback:
-                fb_info = model_map.get(fallback_tier, model_map["flash"])
-                current_flag = fb_info["flag"]
-                current_display = fb_info["display"]
-                has_fallback = True
-                msg = f"⚠️ 检测到 {primary_display} 额度达到上限，已自动熔断切换至备用模型 [{current_display}] 继续重试..."
-                print(f"[Antigravity Fallback] {msg}")
-                if progress_cb:
-                    progress_cb(msg)
-                time.sleep(2)
-                continue
-
-            # 2. 网络代理超时 (Proxy / Network Failure) -> 等待并重试
-            if is_network_error(combined):
-                proxy_ok, proxy_msg = check_proxy_health()
-                msg = f"⚠️ 本电脑网络代理握手超时 ({proxy_msg})，正在进行第 {attempt}/{max_retries} 次自动重试..."
-                print(f"[Antigravity Retry] {msg}")
-                if progress_cb:
-                    progress_cb(msg)
-                time.sleep(3)
-                continue
-
-            # 其他常规错误，短暂重试
-            time.sleep(2)
-
-        except subprocess.TimeoutExpired:
-            msg = f"⚠️ 进程响应超时 (60秒)，正在尝试第 {attempt}/{max_retries} 次重试..."
-            print(f"[Antigravity Timeout] {msg}")
-            if progress_cb:
-                progress_cb(msg)
-            time.sleep(2)
-        except Exception as e:
-            msg = f"⚠️ 调用异常 ({e})，正在重试..."
-            print(f"[Antigravity Exception] {msg}")
-            if progress_cb:
-                progress_cb(msg)
-            time.sleep(2)
-
-    # 如果所有重试都失败，最后尝试一次无参数极简唤醒保底
-    cmd_minimal = [AGENTAPI_BAT, "new-conversation", f"--title={title}", prompt]
+def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro",
+                     model_tier="gemini-3.8-flash-high", progress_cb=None):
+    ready, message = ensure_antigravity_running(progress_cb)
+    if not ready:
+        return False, message
+    receipt = Path(BOOKS_ROOT) / ".hub-results" / (uuid.uuid4().hex + ".json")
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    prompt += f"""\n完成所有操作后，最后一步将 UTF-8 JSON 回执写入 {receipt}。
+结构为 {{"summary":"实际完成内容","files":["实际写入文件的绝对路径"]}}。
+如果执行失败，写入 {{"error":"具体失败原因"}}。回执必须在全部操作完成后才写入。
+"""
+    models = [model_tier, "flash"] if model_tier != "flash" else ["flash", "pro"]
     try:
-        proc = subprocess.run(cmd_minimal, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=45)
-        if proc.returncode == 0:
-            return True, f"✅ 成功唤醒 Antigravity 默认极简会话！\n{proc.stdout}"
-        return False, f"❌ 调用失败：{proc.stderr or proc.stdout}\n[诊断建议] 请检查办公室电脑 Clash Verge TUN 代理节点与网络连接。"
-    except Exception as e:
-        return False, f"❌ 执行异常: {e}\n[诊断建议] 请检查办公室电脑 Clash Verge TUN 代理节点状态。"
+        conversation = None
+        for model in models:
+            try:
+                conversation = agent_client.new_conversation(prompt, title, model)
+                break
+            except RuntimeError as error:
+                if not any(word in str(error).lower() for word in ("quota", "429", "resource_exhausted", "capacity")):
+                    raise
+                if progress_cb:
+                    progress_cb("所选模型额度不足，尝试备用模型")
+        if not conversation:
+            raise RuntimeError("所选模型与备用模型均不可用")
+        result = agent_client.wait_for_receipt(receipt, conversation, progress_cb)
+        for filename in result.get("files", []):
+            target = Path(filename).resolve()
+            if not target.is_relative_to(Path(BOOKS_ROOT).resolve()) or not target.is_file():
+                raise ValueError("AI 回执中包含无效成果路径")
+        return True, f"会话 {conversation} 已返回完成回执。\n{result.get('summary', '')}"
+    except Exception as error:
+        return False, str(error)
+
+
+def heartbeat_loop():
+    while True:
+        api_post("heartbeat", {"id": ACTIVE_TASK})
+        time.sleep(10)
+
 
 # 8. 任务调度主循环
 def run_bridge_loop():
+    global ACTIVE_TASK
     ensure_single_instance()
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
     prevent_sleep()
     ensure_antigravity_running()
     ok, c_cnt, s_cnt = sync_all_books_to_cloud()
@@ -402,11 +361,12 @@ def run_bridge_loop():
             if data and data.get("task"):
                 task = data["task"]
                 tid = task["id"]
+                ACTIVE_TASK = tid
                 action = task.get("action", "creative_instruction")
                 sub_action = task.get("sub_action", "")
                 extra_data = task.get("extra_data", {})
                 user_prompt = task.get("prompt", "")
-                book_id = task.get("book_id", DEFAULT_BOOK)
+                book_id = safe_component(task.get("book_id", DEFAULT_BOOK))
                 engine = task.get("engine_mode", "antigravity_pro")
                 model_tier = extra_data.get("model_tier", "gemini-3.8-flash-high") if extra_data else "gemini-3.8-flash-high"
 
@@ -428,7 +388,7 @@ def run_bridge_loop():
 
                 # B. 构思创建全新小说架构
                 elif action == "create_new_novel":
-                    book_title = extra_data.get("title") or book_id
+                    book_title = safe_component(extra_data.get("title") or book_id)
                     genre = extra_data.get("genre", "科幻修真 / 网文")
                     concept = extra_data.get("concept", user_prompt)
                     book_root = os.path.join(BOOKS_ROOT, book_title)
@@ -458,6 +418,8 @@ def run_bridge_loop():
                 elif action == "evolve_settings":
                     book_root = os.path.join(BOOKS_ROOT, book_id)
                     target_doc = extra_data.get("target_doc", "")
+                    if target_doc:
+                        safe_component(target_doc)
                     doc_path = os.path.join(book_root, "00_设定集", target_doc) if target_doc else ""
 
                     report_progress(f"正在分析《{book_id}》设定集，准备执行【{sub_action}】...")
@@ -482,7 +444,7 @@ def run_bridge_loop():
 {user_prompt}
 \"\"\"
 
-请严格遵循本书宏观世界观逻辑与科技修仙/生产力演化原则：
+请严格遵循本书宏观世界观与既有创作规范：
 1. 深入推演细节，丰富规则、人物、法宝、势力或逻辑推导；
 2. 直接调用 write_file 或 edit_file 更新落盘到 `D:\\小说\\{book_id}\\00_设定集\\` 对应文件；
 3. 完成后返回更新总结！
@@ -490,83 +452,42 @@ def run_bridge_loop():
                     task_title = f"【手机遥控】《{book_id}》设定演进"
 
                 # D. 番茄发布专属：为章节绘制概念插图与生成作者有话说
-                elif action == "generate_chapter_illustrations":
-                    chapter_filename = extra_data.get("chapter_file") or extra_data.get("target_chapter") or ""
+                elif action in ("generate_chapter_illustrations", "generate_chapter_notes"):
+                    filename = safe_component(extra_data.get("chapter_file") or extra_data.get("target_chapter"))
                     image_count = int(extra_data.get("image_count", 4))
-                    custom_prompt = extra_data.get("custom_prompt", user_prompt)
-                    
-                    bpath = os.path.join(BOOKS_ROOT, book_id)
-                    all_c_files = sorted(glob.glob(os.path.join(bpath, "01_正文", "**", "*.md"), recursive=True))
-
-                    # 自动健全校验：若未指定章节，兜底取最新章节
-                    if not chapter_filename and all_c_files:
-                        chapter_filename = os.path.basename(all_c_files[-1])
-
-                    report_progress(f"正在分析《{book_id}》【{chapter_filename}】剧情，准备提炼高潮分镜并绘制 {image_count} 张专属概念原画海报...")
-                    
-                    # 精准查找只匹配文件，杜绝匹配到目录
-                    chapter_text = ""
-                    base_name = os.path.basename(chapter_filename)
-                    if base_name:
-                        for cf in all_c_files:
-                            if os.path.basename(cf) == base_name and os.path.isfile(cf):
-                                with open(cf, "r", encoding="utf-8", errors="ignore") as fp:
-                                    chapter_text = fp.read()
-                                break
-                    
-                    if not chapter_text:
-                        api_post("task_progress", {"id": tid, "status": "failed", "log": f"未找到对应章节正文文件: {chapter_filename}"})
-                        continue
-
-                    # 1. 调用 illustration_generator 本地引擎渲染
-                    report_progress(f"正在进行场景张力分析，绘制 {image_count} 张 16:9 高清电影级仙秦赛博概念插图...")
+                    notes_only = action == "generate_chapter_notes"
+                    bpath, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
+                    chapter_text = novel_manager.read_chapter(book_id, filename, BOOKS_ROOT)
+                    query = urllib.parse.urlencode({"book": book_id, "file": filename})
+                    previous = api_get("chapter_extras?" + query)
+                    if not previous or not previous.get("ok"):
+                        raise RuntimeError("读取云端章节素材版本失败，请重试")
+                    base_revision = (previous.get("meta") or {}).get("revision", "")
                     import illustration_generator
-                    try:
-                        meta_res = illustration_generator.generate_chapter_visual_bundle(
-                            book_root=bpath,
-                            chapter_filename=chapter_filename,
-                            chapter_text=chapter_text,
-                            count=image_count,
-                            custom_prompt=custom_prompt
-                        )
-                    except Exception as err:
-                        api_post("task_progress", {"id": tid, "status": "failed", "log": f"插图生成异常: {err}"})
-                        continue
-                    
-                    chap_code = meta_res["chapter_code"]
-                    chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_code)
-                    illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
-                    
-                    # 2. 读取图片并转为 base64 上传云端
-                    report_progress(f"插图与「作者有话说」已生成落盘，正在双端同步至云枢服务器...")
+                    ready, message = ensure_antigravity_running(report_progress)
+                    if not ready:
+                        raise RuntimeError(message)
+                    meta_res = illustration_generator.generate_chapter_visual_bundle(
+                        bpath, filename, chapter_text, image_count,
+                        extra_data.get("custom_prompt", user_prompt), report_progress,
+                        notes_only=notes_only, model=model_tier)
                     import base64
-                    b64_images = {}
-                    for img_item in meta_res["illustrations"]:
-                        fname = img_item["filename"]
-                        fpath = os.path.join(illu_dir, fname)
-                        if os.path.exists(fpath):
-                            with open(fpath, "rb") as ifp:
-                                b64_images[fname] = base64.b64encode(ifp.read()).decode("utf-8")
-                                
-                    api_post("sync_illustrations", {
-                        "book_id": book_id,
-                        "chapter_code": chap_clean_name,
-                        "meta": meta_res,
-                        "images": b64_images
-                    })
-                    
-                    log_text = f"🎉 恭喜！《{book_id}》【{chap_code}】已成功生成 {len(b64_images)} 张电影级概念插图及番茄专属「作者有话说」！\n插图已落盘并同步至云端，可在番茄发布工作台即刻查看、复制与打包下载！"
-                    api_post("task_progress", {"id": tid, "status": "completed", "log": log_text})
-                    print(f"[Task] 插图与作者有话说生成成功: {chap_code}")
-
-                    # 3. 唤醒 Antigravity 沉淀为会话记录 (后台非阻塞)
-                    try:
-                        ag_prompt = f"【《{book_id}》随章插图与作者有话说生成报告】\n目标章节：{chapter_filename}\n已为本章绘制 {len(b64_images)} 张高清概念插图，并生成专属读者互动评述。请查阅确认。"
-                        execute_agentapi(ag_prompt, title=f"【插图工坊】《{book_id}》{chap_code}", model_tier=model_tier)
-                    except Exception:
-                        pass
-                    
-                    time.sleep(1)
+                    illu_dir = Path(bpath) / "02_插图" / meta_res["chapter_code"]
+                    images = {item["filename"]: base64.b64encode((illu_dir / item["filename"]).read_bytes()).decode()
+                              for item in meta_res["illustrations"]}
+                    report_progress("素材已生成，正在验证云端保存回执")
+                    uploaded = api_post("sync_illustrations", {
+                        "book_id": book_id, "chapter_code": meta_res["chapter_code"],
+                        "meta": meta_res, "images": images, "notes_only": notes_only,
+                        "base_revision": base_revision})
+                    if not uploaded or not uploaded.get("ok") or uploaded.get("saved_images") != len(images):
+                        raise RuntimeError((uploaded or {}).get("error") or "云端未确认完整保存，本地生成文件已保留，可重试同步")
+                    latest = api_get("chapter_extras?" + query)
+                    if latest and latest.get("meta"):
+                        atomic_json(illu_dir / "meta.json", latest["meta"])
+                    api_post("task_progress", {"id": tid, "status": "completed",
+                        "log": "章节文案已生成并保存" if notes_only else f"已生成并同步 {len(images)} 张二维水墨场景插画与互动文案",
+                        "result": {"conversation_id": meta_res["conversation_id"]}})
                     continue
 
                 # E. 番茄驳回/存量章节定点重塑修复
@@ -579,7 +500,7 @@ def run_bridge_loop():
                     report_progress(f"正在调阅《{book_id}》【{chapter_filename}】，准备进行定点重塑修复...")
 
                     bpath = os.path.join(BOOKS_ROOT, book_id)
-                    all_c_files = sorted(glob.glob(os.path.join(bpath, "01_正文", "**", "*.md"), recursive=True))
+                    all_c_files = novel_manager.chapter_files(bpath)
                     
                     target_file_path = None
                     target_idx = -1
@@ -645,7 +566,7 @@ def run_bridge_loop():
 1. 步骤1：调用 read_file 读取本章原正文（路径：`{target_file_path}`）{f'以及上一章全文（路径：`{prev_chapter_path}`）' if prev_chapter_path else ''}，吃透前文承接与人物言行质感；
 2. 步骤2：检索并查阅 `D:\\小说\\{book_id}\\00_设定集\\` 目录下全部设定：
 {setting_file_list_str}
-   确保重写后的情节、战力能级、大秦朝廷政治与微观物理修真设定严密自洽，润物细无声展现生产力跃迁；
+   确保重写后的情节、人物关系和能力体系严密自洽，润物细无声展现生产力跃迁；
 3. 步骤3：遵循番茄小说行文规范（中文全角双引号“”、移动端短段落排版、戏带设定、每章必留抓人点击下一章的强力断章钩子）；
 4. 步骤4：将重塑后的完整正文直接调用 write_file 覆盖写入目标章节路径：
    `{target_file_path}`！
@@ -655,8 +576,8 @@ def run_bridge_loop():
                 # F. 正文创作与章节续写精修 / 大纲总谱推演
                 else:
                     book_root = os.path.join(BOOKS_ROOT, book_id)
-                    c_files = sorted(glob.glob(os.path.join(book_root, "01_正文", "**", "*.md"), recursive=True))
-                    next_chapter_num = len(c_files) + 1
+                    c_files = novel_manager.chapter_files(book_root)
+                    next_chapter_num = max((int(m.group(1)) for f in c_files if (m := re.search(r"第(\d+)章", os.path.basename(f)))), default=0) + 1
                     pad_num = f"{next_chapter_num:03d}"
 
                     prev_chapter_file = c_files[-1] if c_files else None
@@ -674,12 +595,17 @@ def run_bridge_loop():
                     if outline_candidates:
                         with open(outline_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
                             outline_text = fp.read()
-                            pattern = r"(第" + pad_num + r"章[^\n]*\n(?:(?!\n###|\n##第|\n\* \*\*第).)*)"
+                            pattern = rf"(第0*{next_chapter_num}章[^\n]*\n.*?)(?=\n[^\n]*第\d+章|\Z)"
                             m = re.search(pattern, outline_text, re.DOTALL)
                             if m:
                                 chapter_outline = m.group(1).strip()
 
-                    is_write_chapter = any(kw in user_prompt for kw in ["第", "章", "创作", "续写", "开始写作"]) or not user_prompt
+                    workflow = extra_data.get("workflow")
+                    is_write_chapter = workflow == "serial" or (not workflow and (not user_prompt or "续写" in user_prompt or "开始写作" in user_prompt))
+                    if workflow == "polish" and prev_chapter_file:
+                        backup = Path(book_root) / "01_正文/.backup" / (Path(prev_chapter_file).name + ".bak_" + uuid.uuid4().hex)
+                        atomic_write(backup, Path(prev_chapter_file).read_bytes())
+                        user_prompt += f"\n本次只精修现有章节 {prev_chapter_file}，原稿已备份到 {backup}。"
 
                     if is_write_chapter:
                         prompt = f"""【《{book_id}》小说新章节创作指令 · 第{pad_num}章】
@@ -707,7 +633,7 @@ def run_bridge_loop():
 
 【必须执行的工作流 SOP（铁律执行）】：
 1. 步骤1：调用 read_file 读取上一章正文（路径：`{prev_chapter_file}`），确保剧情节奏、人物台词对白与章末悬念钩子无缝衔接，逻辑严密！
-2. 步骤2：检索并查阅 `D:\\小说\\{book_id}\\00_设定集\\` 目录下全部设定文档（特别是《00_AI长期记忆与创作铁律.md》、《全书设定集与二十四重登天境总纲.md》与《设定大典_第三部分_文明跃迁篇》），确保生产力决定生产关系、科技与修真深度自洽；
+2. 步骤2：检索并查阅 `D:\\小说\\{book_id}\\00_设定集\\` 目录下全部设定文档，并读取本书根目录存在的 GEMINI.md，确保严格遵循本书既有世界观、人物设定和创作规范；
 3. 步骤3：遵循番茄小说行文规范（中文全角双引号“”、移动端短段落排版、戏带设定、每章必留抓人点击下一章的强力断章钩子）；
 4. 步骤4：篇幅要求：4000-5000字，情节饱满，节奏极度紧凑；
 5. 步骤5：创作完成后直接调用 write_file 写入对应文件路径：
@@ -734,6 +660,9 @@ def run_bridge_loop():
                 ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier, progress_cb=report_progress)
                 
                 if ok:
+                    synced, _, _ = sync_all_books_to_cloud()
+                    if not synced:
+                        raise RuntimeError("AI 已执行完成，但云端同步失败，请检查网络后重试同步")
                     api_post("task_progress", {
                         "id": tid, 
                         "status": "completed", 
@@ -741,7 +670,6 @@ def run_bridge_loop():
                     })
                     print(f"[Task] 成功执行任务: {task_title}")
                     # 立即全量同步最新生成的文件
-                    sync_all_books_to_cloud()
                 else:
                     api_post("task_progress", {
                         "id": tid, 
@@ -764,6 +692,10 @@ def run_bridge_loop():
 
         except Exception as e:
             print(f"[Loop Exception] {e}")
+            if ACTIVE_TASK:
+                api_post("task_progress", {"id": ACTIVE_TASK, "status": "failed", "log": str(e)})
+        finally:
+            ACTIVE_TASK = None
 
         time.sleep(3)
 

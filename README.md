@@ -1,224 +1,70 @@
 # NovelRemoteHub · 智笔云枢
 
-<div align="center">
+通过浏览器或 Android App 管理本地多部小说、阅读正文与设定、远程调度 Antigravity、整理番茄发布素材。
 
-![NovelRemoteHub Logo](app_logo_512.png)
+线上入口为 https://scientificexploration.art/novel/ 。Android 安装包可在页面右上角下载。
 
-### 🌟 面向多书架的 AI 协同创作、远程遥控中枢与番茄小说自动化发布平台
+## 已实现功能
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Android](https://img.shields.io/badge/Android-5.0%2B%20(API%2021%2B)-green.svg)](https://developer.android.com/)
-[![Engine](https://img.shields.io/badge/AI%20Engine-Gemini%20Pro%20%7C%20Antigravity-orange.svg)](https://deepmind.google/technologies/gemini/)
-[![Publish](https://img.shields.io/badge/Publish-番茄小说%20Tomato%20Ready-red.svg)](https://fanqienovel.com/)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+- 多书架与章节搜索、排序、阅读主题、字号调节、前后章切换。
+- 浏览设定集，新建作品架构，新增或演进设定，推演大纲与检查设定一致性。
+- 本地守护进程轮询任务，远程唤醒 Antigravity，通过已安装的 agentapi 调用用户选择的模型。
+- 续写、现有章节精修、平台驳回修复。覆盖原稿的修复会先在本地保存备份。
+- 番茄格式清洗、错字与关键词规则预检、问题筛选、正文复制和整书 ZIP 导出。
+- 1–4 张二维水墨场景插画。实际调用 Antigravity 图像工具，校验图片、章节依据及云端上传回执后更新画廊。
+- 独立生成作者有话说与章节互动问题，可分别编辑、复制、保存，并随章节素材导出。
+- Android WebView 外壳、在线版本检查、原图与 ZIP 下载转系统浏览器。
 
-[功能特性](#-核心特性) • [系统架构](#-系统架构) • [快速启动](#-快速启动指南) • [番茄发布工作流](#-番茄小说自动化发布工作流) • [安卓App构建](#-安卓-app-原生构建) • [API 文档](#-api-接口清单)
+章节评论功能生成供作者使用的互动文案，发布由作者在番茄作家后台完成。规则预检提供本地参考，平台最终审核结果需在平台查看。创作模型名称来自客户端所选配置，实际可用性取决于 Antigravity 账号和客户端。AI 创作需要作者审阅人物、剧情和设定一致性。
 
-</div>
+## 架构
 
----
+云端 `cloud_hub.py` 提供 HTTP API、带鉴权的文件读取、任务队列和缓存。本地 `local_bridge.py` 同步 `D:/小说` 的章节与设定，接收任务并运行 Antigravity。`agent_client.py` 自动发现当前语言服务地址和 CSRF，直接调用执行程序，完整传递多行指令。完成回执写入后再同步并确认任务结果。
 
-## 📖 项目简介
+云端继续使用文件存储及可选 Redis。缓存只操作 `novel:cache:*` 前缀。HTTP 并发限制为 16，写请求串行化，JSON 和文本使用原子替换。任务持久化在 `tasks.json`，领取、进度及终态更新使用同一写锁。
 
-**NovelRemoteHub（智笔云枢）** 是一套专为网文作家、硬核小说创作者打造的高性能**多书架 AI 协同创作与自动化发布工作流系统**。
+生成图片采用独立任务目录与唯一文件名。元数据最后发布，旧成果仍保留在磁盘，导出只包含当前元数据引用的图片和当前互动文案。作者编辑具有版本冲突检查。
 
-它彻底打破了传统“人在工位才能让 AI 写书、下班回家电脑关机无法操作”的局限。无论身在何处，通过手机浏览器或专用的**安卓 App**，即可公网远程调阅公司电脑中的小说正文与设定集，并跨公网一键唤醒办公室电脑中的 **Google Antigravity** 与 **Gemini Pro** 深度推理智能体，全自动根据分章细纲、前章悬念断章钩子与 SOP 创作规范继续推进剧情！
+## 使用
 
----
+1. 在书架选择作品，在章节卷宗点击阅读或番茄。
+2. 在操控 AI 页面选择续写、精修、大纲推演或自定义指令，再选择模型并提交。
+3. 番茄页面上方选择章节。互动文案可直接输入后保存，也可点击“生成本章互动文案”。
+4. 选择 1–4 张后点击“绘制二维水墨插画”。进度在当前页显示，完成后可打开大图或下载本章素材 ZIP。
+5. 页面会保留当前浏览期间跨章切换的未保存文案。刷新页面前请保存编辑。进行中的素材任务可在刷新后恢复查询。
 
-## ✨ 核心特性
+旧版本文字模板图会标明历史素材，可重新绘制。生成失败或云端版本冲突会显示原因，本地任务目录中的已生成文件可用于恢复上传。
 
-### 1. 📚 通用多书架与新书架构体系 (Multi-Novel & Worldbuilding)
-- **🚀 Antigravity 新书架构工坊**：支持在手机端一键下发全新小说构想，Antigravity 自动完成世界观构思、战力修炼体系、主要人物小传与前30章分章细纲，并在 `D:\小说\<书名>` 初始化落盘。
-- **✨ 智谱工坊 · 设定大典演进**：支持在线查阅 `00_设定集`，支持一键【➕ 新增设定文档】、【✨ 深度润色扩展】与【🔍 全书正文与设定冲突排查】，设定更新即时回传落盘。
-- **多作品无缝切换**：原生支持同时连载与管理多部不同题材的小说，动态递归索引正文与大纲，支持分卷折叠与全书字数看板。
+## 本地启动
 
-### 2. 🤖 Gemini 3.8 Flash High 主力引擎与多模型容灾自愈
-- **主力引擎：Google Gemini 3.8 Flash High**：
-  - 默认调度 Google DeepMind 最新高性能旗舰大模型，超大上下文与高并发吞吐，专为长篇网络小说大章节创作打造，量大管饱、生成极速。
-- **4大模型能级自由切换矩阵**：
-  - 🚀 **Gemini 3.8 Flash High**：主力首选，大篇幅连载正文生成；
-  - 🧠 **Claude Sonnet 4.6 (Thinking)**：长链条深度思考，全书大纲总谱推演与战力伏笔设计；
-  - ⚡ **Gemini Flash**：轻量极速模型，用于灵感短评与校对；
-  - 🏛️ **Gemini Pro**：高维宏观推理，文明跃迁与宏观法则架构。
-- **额度熔断自动降级保护 (Quota Resilient Fallback)**：
-  - 若调用时遇到模型额度达到上限（Quota Exceeded / HTTP 429），系统自动熔断无缝降级至备用模型梯队继续执行，确保创作永不中断、内容绝不丢失。
-- **代理网络波动自愈重试 (Clash Verge Proxy Self-Healing)**：
-  - 针对 Windows 电脑端本地代理波动握手超时，内置自动 3 次重试与代理端口连通性健康探测机制，实时将详细诊断状态反馈至移动端。
-- **客户端常驻唤醒与健康检测 (Remote Client Wake-Up)**：
-  - 即使电脑端 Antigravity 界面意外关闭或电脑重启，本地守护程序可在接收手机指令时自动重新拉起并唤醒客户端，语言服务后台常驻待命。
-- **4 大专业网文创作工坊矩阵**：
-  - ✍️ **正文自动连载续写**：目标字数（4000-8000字）与剧情基调调节，自动组装大纲与断章悬念。
-  - ✨ **单章精修与留存率优化**：黄金前三章留存率爆改、喜剧笑点加深、章末王炸钩子重塑。
-  - 🗺️ **大纲总谱推演与伏笔设计**：推演后续20-30章主线高潮，设计势力暗线。
-  - 🛠️ **自由定制创作指令**：开放式自然语言指挥。
+需要 Windows、Python 3.10+、Pillow，以及已登录且具备所需模型和图像工具的 Antigravity。
 
-### 3. 🍅 番茄发布智审工作台 4.0 (Tomato Studio & Quality Assurance)
-- **🎨 随章概念插图工坊 (AI 视觉衍生)**：
-  - **自定义生成张数 (1~4 张)**：自由选择生成 1 张、2 张、3 张或 4 张全套大片，智能锁定当前章节不同高潮名场面（如咸阳宫李斯解构算符、渭水工地下挖史前核聚变遗迹、九百重暗能防御阵列等）。
-  - **1280×720 电影级宽屏概念海报**：赛博仙秦金石篆刻暗黑风格，融合动态径向暗紫粒子波纹、金色阵法圆环、剧情台词戏剧对白与大秦官方红印。
-  - **自定义运镜与氛围提示词**：支持在输入框自由补充镜头特写、色调运镜或直接由 AI 自动提炼。
-  - **全屏电影灯箱与多端下载**：点击图片即刻唤起高画质全屏灯箱查看器，支持保存单张原图。
-- **✍️ 本章「作者有话说」与读者章评互动话题**：
-  - **三维一体互动文案**：根据当前章节自动生成「本章硬核科修设定彩蛋（量子物理/微积分/相对论）」、「下一章高能剧情伏笔预告」与「读者互动打卡话题与章评引导」。
-  - **一键复制**：独立复制按钮，点击即刻复制符合番茄作家助手格式的作者有话说文本。
-- **综合体检得分看板**：实时评估章节综合健康度（0-100分与番茄黄金过审级徽章）。
-- **4 大微指标穿透分析**：
-  - 📏 **正文字数达标检测**（3000-6000字黄金篇幅，过长建议拆章）；
-  - 💬 **对白比例计算**（标准 20%-50%，保障网文快节奏爽感）；
-  - 🟣 **标点符号合规度**（智能检查中文全角双引号“”配对、多余感叹号问号压缩）；
-  - ⏱️ **预估读者阅读耗时**。
-- **智能缺陷检出与精准分类抽屉**：
-  - 🔴 **高危风控**：涉政、严重暴力、违禁敏感词精准标记并给出合规代指避讳建议；
-  - 🔵 **错别字排查**：精准定位常见网文错别字并提供上下文与替换建议；
-  - 🟣 **标点排版**：中英文标点混杂、未闭合引号、超长单段压抑排查；
-  - 📏 **篇幅字数**：精准分析字数偏长或偏短，指导拆章与完读率优化；
-  - **多分类即时穿透筛选**：支持按类别单选过滤，告别空白与标签混淆。
-- **🛠️ 章节定点重构与番茄驳回修复工坊 (Surgical Chapter Repair)**：
-  - **针对审核驳回精准下药**：支持一键提取当前章节机审检出问题，或直接输入番茄作家助手平台驳回意见；
-  - **双重修复执行能级**：
-    - `🛡️ 合规脱敏精修`：保持剧情原骨架不变，精准替换违规违禁描写，艺术化表达；
-    - `⚡ 深度剧情重构`：结合前后章节主线与细纲，全盘重写本章高潮冲突与断章悬念；
-  - **自动安全备份防丢机制**：Antigravity 在动笔前自动将原正文备份至 `01_正文/.backup/{chapter}.bak`，绝不遗失任何历史稿件；
-  - **全套设定集与上下文双向互锁**：Antigravity 自动调用 `read_file` 通读上一章、当前章以及 `00_设定集` 全套文档，严格遵循生产力跃迁与科技修仙铁律完成闭环重写。
+在项目目录创建被 Git 忽略的 `.bridge-config.json`，写入私有 `token`。该令牌由服务器登录接口返回。可选 `conversation_id` 用于指定同步到云端的小说历史会话，省略时同步正文和设定。
 
-### 4. 📱 移动端与原生安卓 APP (智笔云枢 v1.7.0)
-- **全站统一黑金暗黑美学**：彻底消除 Android 系统级原生白色刺眼下拉框，自定义高阶黑金玻璃质感与金色箭头，统一全站视觉调性。
-- **Redis + SWR 双层极速缓存**：云端接入 Redis 内存级数据库，前端搭载 Stale-While-Revalidate 机制，页面与章节切换 0 毫秒即刻呈现，告别白屏与虚假暂无数据提示。
-- **纯内联矢量 Logo**：告别外部图片加载延迟与闪烁，60fps 毫秒级原生渲染。
-- **优雅响应式排版**：顶部状态栏与下载按钮横向自适应对齐，移动端底部悬浮 Dock 导航栏。
-- **4 套沉浸式阅读主题**：玄黑夜读、古风羊皮、竹青护眼、晨光皓白，字号行距实时微调。
-- **工业级安卓 APK**：
-  - 内置 AAPT2、D8 原生编译，4 字节对齐（Zipalign）。
-  - 完整注入 **v1 + v2 + v3** 现代安卓多重签名方案，完美兼容 Android 11/12/13/14+。
-  - 启动自动对比服务端版本并提示一键增量更新。
-
-### 5. 🛡️ 严格 C 盘零占用与电源常驻守护
-- **零占用原则**：所有构建工具、依赖、编译临时文件、运行脚本全部限制在 `D:\RuanJian\NovelRemoteHub` 与 `D:\小说`，绝不污染或占用 C 盘系统盘空间。
-- **系统防休眠**：桥接端通过 Windows Kernel `SetThreadExecutionState` 调用和电源方案常驻守护，即使办公室电脑锁屏离人，系统网络与 AI 进程依旧持续待命。
-
----
-
-## 🏗️ 系统架构
-
-```mermaid
-graph TD
-    UserMobile["📱 手机端 (安卓APP / 移动Web)"] -->|HTTPS / WSS| NginxTls["🛡️ 云端 Nginx (443 / SSL)"]
-    NginxTls -->|反向代理| CloudHub["☁️ 云端中枢 Cloud Hub (Python + Redis)"]
-    
-    subgraph OfficePC ["🏢 办公室电脑 (Windows / 严格D盘运行)"]
-        LocalBridge["📡 本地桥接器 (local_bridge.py)"] <-->|长轮询 / 任务派发| CloudHub
-        LocalBridge -->|防休眠守护| WinPower["⚡ Kernel32 Keep-Awake"]
-        LocalBridge -->|TUN代理直连| ClashVerge["🌐 Clash Verge TUN 网卡"]
-        ClashVerge -->|Google官方模型| GeminiProAPI["🤖 Gemini Pro"]
-        LocalBridge -->|agentapi CLI| Antigravity["💻 Antigravity IDE (Gemini Pro)"]
-        
-        Antigravity -->|读取设定集/细纲| NovelDir["📚 D:\\小说\\*\\00_设定集"]
-        Antigravity -->|自主写盘正文| NovelChapters["📝 D:\\小说\\*\\01_正文"]
-        NovelChapters -->|自动全量同步| CloudHub
-    end
-    
-    CloudHub -->|发布前清洗 & 质检| TomatoEngine["🍅 番茄发布工作流引擎"]
-    TomatoEngine -->|格式化分章纯文本| FanQieExport["📦 全本番茄发布包 (ZIP)"]
+```powershell
+python local_bridge.py
 ```
 
----
+`start_daemon.vbs` 提供隐藏后台启动，端口互斥确保单实例。生成任务期间独立线程持续回传心跳。客户端退出后可由桥接器重新启动，重新启动电脑后仍需 Windows 登录并启动守护进程。
 
-## 🚀 快速启动指南
+## 云端部署
 
-### 1. 云端服务器部署 (Linux)
+核心文件包含 `cloud_hub.py`、`storage.py`、`novel_manager.py`、`illustration_generator.py`、`agent_client.py`、`index.html` 和 `assets/`。
 
-服务器环境需安装 Python 3.8+ 及可选的 Redis。
+脚本默认监听 `127.0.0.1:8899`。本机生产 service 通过 `NOVEL_HUB_BIND=172.17.0.1` 适配现有 Docker HTTPS 反向代理，转发 `/novel/`。数据默认保存于 `/root/novel_hub_data`，下载目录为 `/opt/novel_hub/download`。
 
-```bash
-# 1. 登录服务器并创建服务目录
-mkdir -p /opt/novel_hub/download /root/novel_hub_data/books
+支持环境变量 `NOVEL_HUB_DATA_DIR`、`NOVEL_HUB_DOWNLOAD_DIR`、`NOVEL_HUB_PORT`、`NOVEL_HUB_BIND` 与 `NOVEL_HUB_PASSWORD`。首次启动在数据目录生成 `auth_token`，本地桥接配置需与该服务器令牌对应。重新登录网页获取当前令牌。
 
-# 2. 将项目核心代码上传至 /opt/novel_hub
-# cloud_hub.py, novel_manager.py, engine_router.py, index.html, novel-hub.service
+发布前备份 `/opt/novel_hub`、数据目录和 service 文件，记录正文及设定摘要。先在隔离端口运行回归，再替换本项目文件并重启 `novel-hub`。验证 HTTPS 页面、授权读取、未授权写入、桥接心跳、下载版本及业务数据摘要。失败时恢复备份文件并重启本项目服务。
 
-# 3. 安装 systemd 服务
-cp /opt/novel_hub/novel-hub.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable novel-hub
-systemctl restart novel-hub
+## 验证与构建
 
-# 4. 配置 Nginx 反向代理 (/novel/)
-# location /novel/ {
-#     proxy_pass http://127.0.0.1:8899/;
-#     proxy_set_header Host $host;
-#     proxy_set_header X-Real-IP $remote_addr;
-# }
-```
-
-### 2. 办公室本地电脑运行 (Windows)
-
-在办公室电脑的 `D:\RuanJian\NovelRemoteHub` 目录下：
-
-```bat
-:: 双击运行 start_bridge.bat 即可一键启动
-start_bridge.bat
-```
-
-* 如需后台静默常驻，可运行 `start_silent.vbs`。
-* 停止服务可双击 `stop_bridge.bat`。
-
----
-
-## 🍅 番茄小说自动化发布工作流
-
-1. **进入控制台**：在手机或 PC 浏览器打开 `https://<你的服务器IP>/novel/`。
-2. **选择章节**：在**【章节卷宗】**列表点击任意章节的 **`[番茄]`** 按钮。
-3. **机审与质检**：
-   - 系统自动对文章进行深度清洗，段首缩进两全角空格。
-   - 自动扫描敏感词与字数偏离指标。
-4. **一键复制/导出**：
-   - 点击 **`[📋 一键复制番茄纯净正文]`**，直接到作家助手后台粘贴。
-   - 或点击 **`[📦 导出全本番茄ZIP]`** 批量导入整本分章。
-
----
-
-## 📱 安卓 App 原生构建
-
-本项目无需庞大笨重的 Android Studio，直接利用内置精简工具链在 Windows 下 5 秒完成极速原生构建与签名：
-
-```bash
-# 执行本地免装构建脚本 (绝不触碰 C 盘)
+```powershell
+python -m unittest discover -s tests -v
+python -m py_compile cloud_hub.py local_bridge.py novel_manager.py illustration_generator.py agent_client.py storage.py
 python build_apk.py
 ```
 
-构建流水线会自动执行：
-1. `aapt2 compile & link`：编译 AndroidManifest 与矢量资材。
-2. `javac`：编译原生交互 WebView Activity。
-3. `d8`：将 Java 字节码优化转换为 classes.dex。
-4. `uber-apk-signer`：执行 **4-byte Zipalign** 并注入 **v1 + v2 + v3** 现代签名。
-5. 输出生产环境正式包：`NovelRemoteHub.apk`。
+前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实 Antigravity 绘图需要可用账号及图像工具。Android 构建继续使用原签名文件，版本 1.8.0，versionCode 10。实体手机安装、后台限制和系统下载行为需在实际设备验证。
 
----
-
-## 📡 API 接口清单
-
-| 请求方式 | 路由路径 | 说明 | 权限 |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/novel/api/version` | 获取 App 最新版本号、下载地址与更新日志 | 公网免密 |
-| `GET` | `/novel/api/status` | 查询本地办公室电脑在线心跳与状态 | 公网免密 |
-| `GET` | `/novel/download/NovelRemoteHub.apk` | 下载官方已签名安卓正式版 APK | 公网免密 |
-| `POST` | `/novel/api/login` | 身份凭证口令核验 | 公网 |
-| `GET` | `/novel/api/books` | 获取多书架所有小说列表 | 需要 Token |
-| `GET` | `/novel/api/chapters?book=<id>` | 获取指定作品的所有章节元信息与字数 | 需要 Token |
-| `GET` | `/novel/api/tomato_clean?book=<id>&file=<file>` | 对单章执行番茄规范清洗与风控质检 | 需要 Token |
-| `GET` | `/novel/api/export_tomato_zip?book=<id>` | 打包导出全本番茄分章纯文本 ZIP 压缩包 | 需要 Token |
-| `POST` | `/novel/api/dispatch_task` | 手机端下发创作/润色指令唤醒本地电脑 | 需要 Token |
-
----
-
-## 🔒 安全与隐私
-
-- **密钥隔离**：公网 Git 仓库严格通过 `.gitignore` 剔除了 `*.pem`、`*.keystore` 以及服务器密钥，确保代码仓库开源安全。
-- **访问鉴权**：接口全量搭载 Header Token 鉴权，防御未授权访问。
-
----
-
-<div align="center">
-<b>NovelRemoteHub · 让灵感自由跃迁，万卷星海皆在指尖</b>
-</div>
+详细审查、修复方案和本次验收记录见 [修复与优化方案](docs/repair-plan-2026-11-12.md)。

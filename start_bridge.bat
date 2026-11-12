@@ -17,7 +17,7 @@ powercfg -change -hibernate-timeout-ac 0 >nul 2>&1
 echo [3/3] 启动本地执行桥接器 (Local Agent Bridge)...
 echo -------------------------------------------------------------
 echo  本程序正在运行中，已连接云服务器 124.220.54.64
-echo  手机端访问: https://124.220.54.64/novel/ (口令: daqin666)
+echo  手机端访问: https://scientificexploration.art/novel/ (口令: daqin666)
 echo  请勿关闭此窗口（最小化即可，下班电脑锁屏不影响后台运行）
 echo -------------------------------------------------------------
 python "D:\RuanJian\NovelRemoteHub\local_bridge.py"

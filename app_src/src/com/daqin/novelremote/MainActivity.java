@@ -6,30 +6,21 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.net.Uri;
-import android.net.http.SslError;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
-import android.webkit.SslErrorHandler;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.DownloadListener;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 public class MainActivity extends Activity {
 
@@ -38,8 +29,8 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
-    private int myVersionCode = 9;
-    private String myVersionName = "1.7.0";
+    private int myVersionCode = 10;
+    private String myVersionName = "1.8.0";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,9 +42,6 @@ public class MainActivity extends Activity {
             myVersionCode = pInfo.versionCode;
             myVersionName = pInfo.versionName;
         } catch (Exception ignored) {}
-
-        // 信任证书
-        trustAllCertificates();
 
         webView = new WebView(this);
         setContentView(webView);
@@ -73,20 +61,24 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.proceed();
-            }
-
-            @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url.startsWith("http://") || url.startsWith("https://")) {
-                    view.loadUrl(url);
-                    return true;
+                Uri uri = Uri.parse(url);
+                if ("https".equals(uri.getScheme()) && "scientificexploration.art".equals(uri.getHost())) {
+                    return false;
                 }
-                return false;
+                if ("https".equals(uri.getScheme()) || "http".equals(uri.getScheme())) {
+                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                }
+                return true;
             }
         });
 
+        webView.setDownloadListener(new DownloadListener() {
+            @Override
+            public void onDownloadStart(String url, String userAgent, String disposition, String mimetype, long length) {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            }
+        });
         webView.loadUrl(HOME_URL);
 
         // 启动时自动检查线上版本
@@ -118,6 +110,7 @@ public class MainActivity extends Activity {
                         final String remoteVersionName = extractString(jsonStr, "versionName", myVersionName);
                         final String downloadUrl = extractString(jsonStr, "apkUrl", HOME_URL + "download/NovelRemoteHub.apk");
                         final String changelog = extractString(jsonStr, "changelog", "有最新版本可用");
+                        conn.disconnect();
 
                         // 只有服务端版本严格大于当前安装的本地版本时才提示更新
                         if (remoteVersionCode > myVersionCode) {
@@ -164,26 +157,6 @@ public class MainActivity extends Activity {
                 .setNegativeButton("稍后提醒", null)
                 .setCancelable(true)
                 .show();
-    }
-
-    private void trustAllCertificates() {
-        try {
-            TrustManager[] trustAllCerts = new TrustManager[]{
-                    new X509TrustManager() {
-                        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                        public void checkClientTrusted(X509Certificate[] certs, String authType) {}
-                        public void checkServerTrusted(X509Certificate[] certs, String authType) {}
-                    }
-            };
-            SSLContext sc = SSLContext.getInstance("SSL");
-            sc.init(null, trustAllCerts, new SecureRandom());
-            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
-            HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier() {
-                public boolean verify(String hostname, SSLSession session) {
-                    return true;
-                }
-            });
-        } catch (Exception ignored) {}
     }
 
     @Override

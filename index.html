@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>NovelRemoteHub · 智笔云枢</title>
     <!-- Marked.js 极速轻量渲染器 -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="assets/marked.min.js"></script>
+    <script src="assets/purify.min.js"></script>
     <style>
         :root {
             --bg-base: #070a10;
@@ -753,6 +754,7 @@
 
         /* 全局通用暗黑下拉框样式 (解决移动端白色背景刺眼与样式不统一) */
         .select-box, select {
+            min-width: 0;
             appearance: none;
             -webkit-appearance: none;
             -moz-appearance: none;
@@ -1053,7 +1055,8 @@
         .illustration-img-box {
             position: relative;
             width: 100%;
-            padding-top: 56.25%; /* 16:9 ratio */
+            aspect-ratio: 16 / 9;
+            flex-shrink: 0;
             background: #000;
             cursor: zoom-in;
             overflow: hidden;
@@ -1074,6 +1077,8 @@
         }
 
         .illustration-info {
+            font-size: 12px;
+            line-height: 1.6;
             padding: 10px 12px;
             display: flex;
             flex-direction: column;
@@ -1405,6 +1410,20 @@
 
         .input-text:focus {
             border-color: var(--accent);
+        }
+        .notes-editor { display:block; box-sizing:border-box; width:100%; color:var(--text-main); background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:12px; resize:vertical; font:inherit; line-height:1.7; margin:10px 0; }
+        .notes-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+        .notes-actions span { color:var(--text-sub); font-size:12px; }
+        .gallery-toolbar { display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; align-items:center; margin-bottom:12px; }
+        .illustration-info > div { flex-wrap:wrap; gap:8px; }
+        #author-note-wrapper > div:first-child { flex-wrap:wrap; gap:10px; }
+        #custom-illu-prompt { min-width:0; flex:1; }
+        #extras-status-badge { overflow-wrap:anywhere; }
+        @media(max-width:600px) {
+            #custom-illu-prompt { width:100%; flex-basis:100%; }
+            #custom-illu-prompt + button { width:100%; }
+            div:has(> #custom-illu-prompt) { flex-wrap:wrap; }
+            .illustrations-gallery-grid { grid-template-columns:minmax(0,1fr); }
         }
     </style>
 </head>
@@ -1778,11 +1797,11 @@
                     <div class="extras-header">
                         <div>
                             <div style="font-size:15px; font-weight:800; color:#fef08a; display:flex; align-items:center; gap:6px;">
-                                <span>🎨 随章插图工坊 & 作者有话说</span>
+                                <span>🎨 随章水墨插画与互动文案</span>
                                 <span id="extras-chap-tag" class="meta-tag" style="background:rgba(234, 179, 8, 0.2); color:#fef08a; border:1px solid rgba(234, 179, 8, 0.4);">第011章</span>
                             </div>
                             <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">
-                                番茄小说章评/段评专属高燃宽屏概念海报 (1280×720 电影画质)，附带作者有话说伏笔与互动章评
+                                番茄小说章评/段评专属二维水墨场景插画 (二维水墨 · 16:9 横向场景)，附带作者有话说伏笔与互动章评
                             </div>
                         </div>
                         <div id="extras-status-badge" style="font-size:11px; color:var(--accent); font-weight:700;">
@@ -1799,7 +1818,7 @@
                                     <button class="count-chip" id="chip-cnt-1" onclick="selectIllustrationCount(1)">1 张</button>
                                     <button class="count-chip" id="chip-cnt-2" onclick="selectIllustrationCount(2)">2 张</button>
                                     <button class="count-chip" id="chip-cnt-3" onclick="selectIllustrationCount(3)">3 张</button>
-                                    <button class="count-chip active" id="chip-cnt-4" onclick="selectIllustrationCount(4)">🔥 4 张 (全套大片)</button>
+                                    <button class="count-chip active" id="chip-cnt-4" onclick="selectIllustrationCount(4)">4 张</button>
                                 </div>
                             </div>
                             <span style="font-size:11px; color:var(--text-dim);">支持生成 1~4 张对应不同高潮名场面</span>
@@ -1822,15 +1841,22 @@
                     <div class="author-note-box" id="author-note-wrapper">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <div style="font-size:13px; font-weight:800; color:#fef08a; display:flex; align-items:center; gap:6px;">
-                                <span>✍️ 本章「作者有话说」与读者章评互动话题</span>
+                                <span>✍️ 作者有话说</span>
                             </div>
                             <button class="btn-card-action" style="font-size:11px; padding:3px 10px; background:rgba(234, 179, 8, 0.2); color:#fef08a; border:1px solid rgba(234, 179, 8, 0.4);" onclick="copyAuthorNote()">
                                 📋 一键复制作者有话说
                             </button>
                         </div>
-                        <div class="author-note-content" id="author-note-text">
-                            点击「唤醒 AI 绘制插图」即可同步生成契合本章剧情的作者有话说与读者互动话题！
+                        <textarea class="author-note-content notes-editor" id="author-note-text" rows="6" placeholder="本章作者有话说" oninput="rememberNotesDraft()"></textarea>
+                        <label for="chapter-comments-text">章节评论与互动问题</label>
+                        <textarea class="author-note-content notes-editor" id="chapter-comments-text" rows="4" placeholder="每行一条章节互动问题" oninput="rememberNotesDraft()"></textarea>
+                        <div class="notes-actions">
+                            <button class="tool-btn" id="btn-generate-notes" onclick="launchIllustrationGeneration(true)">生成本章互动文案</button>
+                            <button class="tool-btn" id="btn-save-notes" onclick="saveChapterNotes()">保存文案</button>
+                            <button class="tool-btn" onclick="copyChapterComments()">复制章节评论</button>
+                            <span id="notes-save-status" role="status"></span>
                         </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -1961,9 +1987,9 @@
     <script>
         // 全站统一官方域名基准
         const OFFICIAL_DOMAIN = "https://scientificexploration.art";
-        const API = `${OFFICIAL_DOMAIN}/novel/api`;
-        let TOKEN = localStorage.getItem("novel_token") || "daqin_authorized";
-        try { document.cookie = "novel_token=" + encodeURIComponent(TOKEN) + "; path=/; max-age=31536000; SameSite=Lax"; } catch(e){}
+        const API = `${location.origin}/novel/api`;
+        let TOKEN = localStorage.getItem("novel_token") || "";
+        try { document.cookie = "novel_token=" + encodeURIComponent(TOKEN) + "; path=/; max-age=31536000; SameSite=Strict; Secure"; } catch(e){}
         let BOOKS = [];
         let CURRENT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔";
         let CHAPTERS = [];
@@ -2003,38 +2029,56 @@
             await loadBooks();
             await loadChapters();
             switchWorkflowTab('serial');
+            restoreExtrasTasks();
         }
 
+        const INFLIGHT_GETS = new Map();
+        let LOGIN_PROMISE = null;
+
         async function fetchAPI(url, opts = {}) {
-            opts.headers = opts.headers || {};
-            opts.headers["X-Novel-Token"] = TOKEN;
-            if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
-                opts.headers["Content-Type"] = "application/json";
-            }
-            try {
-                const res = await fetch(url, opts);
-                if (res.status === 401) {
-                    const pwd = prompt("请输入大秦云端访问口令：", "daqin666");
-                    if (pwd) {
-                        const lres = await fetch(`${API}/login`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ password: pwd })
-                        });
-                        const ldata = await lres.json();
-                        if (ldata.ok) {
-                            TOKEN = ldata.token;
-                            localStorage.setItem("novel_token", TOKEN);
-                            return fetchAPI(url, opts);
-                        } else {
-                            alert("口令错误！");
+            const isGet = !opts.method || opts.method === "GET";
+            if (isGet && INFLIGHT_GETS.has(url)) return INFLIGHT_GETS.get(url);
+            const request = async () => {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 20000);
+                try {
+                    const headers = { ...opts.headers, "X-Novel-Token": TOKEN };
+                    if (opts.body) headers["Content-Type"] = "application/json";
+                    const response = await fetch(url, { ...opts, headers, signal: controller.signal });
+                    if (response.status === 401) {
+                        if (!LOGIN_PROMISE) {
+                            LOGIN_PROMISE = (async () => {
+                                const password = prompt("请输入智笔云枢访问口令");
+                                if (!password) return false;
+                                const login = await fetch(`${API}/login`, {
+                                    method: "POST", headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ password }), signal: controller.signal
+                                });
+                                const data = await login.json();
+                                if (!data.ok) { showToast(data.error || "登录失败"); return false; }
+                                TOKEN = data.token;
+                                localStorage.setItem("novel_token", TOKEN);
+                                document.cookie = `novel_token=${encodeURIComponent(TOKEN)}; path=/novel/; SameSite=Strict; Secure`;
+                                return true;
+                            })();
                         }
+                        const loggedIn = await LOGIN_PROMISE;
+                        LOGIN_PROMISE = null;
+                        if (!loggedIn) return { error: "请登录后重试" };
+                        const retry = await fetch(url, { ...opts, headers: { ...headers, "X-Novel-Token": TOKEN }, signal: controller.signal });
+                        return await retry.json();
                     }
+                    return await response.json();
+                } catch (error) {
+                    return { error: error.name === "AbortError" ? "请求超时，请重试" : error.message };
+                } finally {
+                    clearTimeout(timeout);
                 }
-                return await res.json();
-            } catch (e) {
-                return { error: e.message };
-            }
+            };
+            const pending = request();
+            if (isGet) INFLIGHT_GETS.set(url, pending);
+            try { return await pending; }
+            finally { if (isGet) INFLIGHT_GETS.delete(url); }
         }
 
         async function checkStatus() {
@@ -2136,7 +2180,7 @@
 
         function applyBooksData(booksList) {
             BOOKS = booksList;
-            if (BOOKS.length > 0 && !CURRENT_BOOK) {
+            if (BOOKS.length > 0 && !BOOKS.some(book => book.id === CURRENT_BOOK)) {
                 CURRENT_BOOK = BOOKS[0].id;
             }
             updateBookLabels();
@@ -2154,9 +2198,9 @@
         function openBookDrawer() {
             const container = document.getElementById("books-list-container");
             container.innerHTML = BOOKS.map(b => `
-                <div style="background:var(--bg-secondary); border:1px solid ${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--border)'}; border-radius:var(--radius-sm); padding:10px; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectBook('${b.id}')">
+                <div style="background:var(--bg-secondary); border:1px solid ${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--border)'}; border-radius:var(--radius-sm); padding:10px; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectBook(${htmlArgument(b.id)})">
                     <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">
-                        <div style="font-size:13px; font-weight:800; color:${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--text-main)'}; overflow:hidden; text-overflow:ellipsis;">📖 《${b.title}》</div>
+                        <div style="font-size:13px; font-weight:800; color:${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--text-main)'}; overflow:hidden; text-overflow:ellipsis;">📖 《${escapeHtml(b.title)}》</div>
                         <div style="font-size:10px; color:var(--text-dim); margin-top:2px;">共 ${b.chapter_count || 0} 章 · 设定卷宗 ${b.settings_count || 0} 篇</div>
                     </div>
                     <span style="color:var(--accent); font-size:11px; white-space:nowrap; margin-left:8px;">${b.id === CURRENT_BOOK ? '● 当前' : '➔ 切换'}</span>
@@ -2170,10 +2214,22 @@
         }
 
         async function selectBook(bookId) {
+            rememberNotesDraft();
             CURRENT_BOOK = bookId;
+            CURRENT_INDEX = 0;
+            CURRENT_TOMATO_FILE = "";
+            CURRENT_TOMATO_DATA = null;
+            CURRENT_SETTING_DOC = "";
+            CURRENT_EXTRAS_DATA = null;
+            window.hasLoadedFirst = false;
+            LAST_CHAPTER_HOOK = "";
+            document.getElementById("chapter-content").innerText = "正在调阅正文…";
             updateBookLabels();
             closeBookDrawer();
             await loadChapters();
+            if (document.getElementById("panel-tomato").classList.contains("active") && CHAPTERS.length) {
+                openTomatoAudit(CHAPTERS.length - 1);
+            }
             if (document.getElementById("panel-settings").classList.contains("active")) {
                 loadSettings();
             }
@@ -2296,21 +2352,33 @@
 
         // 加载章节与前章钩子 (SWR极速秒级渲染)
         async function loadChapters() {
+            const book = CURRENT_BOOK;
             try {
                 if (CLIENT_CACHE.chapters[CURRENT_BOOK] && CLIENT_CACHE.chapters[CURRENT_BOOK].length > 0) {
                     applyChaptersData(CLIENT_CACHE.chapters[CURRENT_BOOK]);
                 }
                 const data = await fetchAPI(`${API}/chapters?book=${encodeURIComponent(CURRENT_BOOK)}`);
                 if (data && data.chapters) {
-                    CLIENT_CACHE.chapters[CURRENT_BOOK] = data.chapters;
-                    applyChaptersData(data.chapters);
+                    CLIENT_CACHE.chapters[book] = data.chapters;
+                    if (book === CURRENT_BOOK) applyChaptersData(data.chapters);
                 }
             } catch (err) {}
         }
 
         function applyChaptersData(chaptersList) {
+            const previous = CLIENT_CACHE.chapterVersions || (CLIENT_CACHE.chapterVersions = {});
+            for (const chapter of chaptersList) {
+                const key = `${CURRENT_BOOK}_${chapter.filename}`;
+                const version = `${chapter.mtime}:${chapter.size}`;
+                if (previous[key] !== version) {
+                    delete CLIENT_CACHE.chapterContent[key];
+                    delete CLIENT_CACHE.tomatoAudit[key];
+                }
+                previous[key] = version;
+            }
             CHAPTERS = chaptersList;
-            FILTERED_CHAPTERS = [...CHAPTERS];
+            const search = document.getElementById("catalog-search").value.trim().toLowerCase();
+            FILTERED_CHAPTERS = CHAPTERS.filter(chapter => !search || `${chapter.title} ${chapter.filename}`.toLowerCase().includes(search));
             
             let totalWords = 0;
             CHAPTERS.forEach(c => totalWords += (c.char_count || 0));
@@ -2339,9 +2407,11 @@
         }
 
         async function fetchLastHook(filename) {
+            const book = CURRENT_BOOK;
             try {
                 const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
                 if (res && res.content) {
+                    if (book !== CURRENT_BOOK) return;
                     const lines = res.content.trim().split("\n");
                     const tail = lines.slice(-8).join("\n");
                     LAST_CHAPTER_HOOK = tail;
@@ -2364,7 +2434,7 @@
         }
 
         function updateNextLabel() {
-            const nextNum = CHAPTERS.length + 1;
+            const nextNum = Math.max(0, ...CHAPTERS.map(chapter => Number((chapter.filename.match(/第(\d+)章/) || [0, 0])[1]))) + 1;
             const padNum = String(nextNum).padStart(3, "0");
             const tag = document.getElementById("ai-next-target-tag");
             if (tag) tag.innerText = `待写第 ${padNum} 章`;
@@ -2398,17 +2468,17 @@
                         <div class="chapter-card-left">
                             <span class="chapter-index-pill">${chapterTag}</span>
                             <div class="chapter-card-content">
-                                <div class="chapter-card-title">${c.title || c.raw_title}</div>
+                                <div class="chapter-card-title">${escapeHtml(c.title || c.raw_title)}</div>
                                 <div class="chapter-card-meta">
                                     <span class="meta-tag chars">📏 ${c.char_count} 字</span>
                                     <span class="meta-tag">🕒 ${dateStr}</span>
-                                    <span class="meta-tag status">✓ 番茄达标</span>
+                                    <span class="meta-tag status">${c.char_count >= 2000 ? "字数已达参考线" : "字数待补充"}</span>
                                 </div>
                             </div>
                         </div>
                         <div class="chapter-card-actions" onclick="event.stopPropagation()">
                             <button class="btn-card-action" onclick="openChapter(${origIndex})">阅读</button>
-                            <button class="btn-card-action tomato" onclick="openTomatoAuditByFile('${c.filename}')">番茄</button>
+                            <button class="btn-card-action tomato" onclick="openTomatoAuditByFile(${htmlArgument(c.filename)})">番茄</button>
                         </div>
                     </div>
                 `;
@@ -2443,6 +2513,7 @@
             if (index < 0 || index >= CHAPTERS.length) return;
             CURRENT_INDEX = index;
             const c = CHAPTERS[index];
+            const book = CURRENT_BOOK;
 
             if (doSwitch) switchTab('reader');
 
@@ -2457,9 +2528,11 @@
             }
 
             try {
-                const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(c.filename)}`);
+                const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(book)}&file=${encodeURIComponent(c.filename)}`);
+                if (CURRENT_BOOK !== book || CHAPTERS[CURRENT_INDEX]?.filename !== c.filename) return;
                 if (res && res.content) {
                     CLIENT_CACHE.chapterContent[cacheKey] = res.content;
+                    if (CURRENT_BOOK !== book || CHAPTERS[CURRENT_INDEX]?.filename !== c.filename) return;
                     document.getElementById("chapter-content").innerText = res.content;
                 } else if (!CLIENT_CACHE.chapterContent[cacheKey]) {
                     document.getElementById("chapter-content").innerText = "正文读取失败";
@@ -2537,15 +2610,15 @@
         function fillWorkflowPrompt(wf) {
             const chips = document.getElementById("workflow-chips-container");
             const pbox = document.getElementById("prompt-box");
-            const nextNum = CHAPTERS.length + 1;
+            const nextNum = Math.max(0, ...CHAPTERS.map(chapter => Number((chapter.filename.match(/第(\d+)章/) || [0, 0])[1]))) + 1;
             const padNum = String(nextNum).padStart(3, "0");
 
             if (wf === "serial") {
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('标准4000字')">🎯 标准篇幅 (4000-5000字)</div>
                     <div class="chip" onclick="applyPromptTag('长篇爆发')">🔥 爆发长章 (6000-8000字)</div>
-                    <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化始皇李斯反差笑点</div>
-                    <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 强化物理微波科技修仙</div>
+                    <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
+                    <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
                 `;
                 pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，检索分章细纲中第${padNum}章规划，无缝承接上一章末尾悬念钩子，开始创作【第${padNum}章】正文（4000-5000字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
             } else if (wf === "polish") {
@@ -2555,7 +2628,7 @@
                     <div class="chip" onclick="applyPromptTag('重塑钩子')">🎣 重塑章末王炸悬念钩子</div>
                     <div class="chip" onclick="applyPromptTag('标点纠偏')">🔍 全角标点与错别字排查</div>
                 `;
-                pbox.value = `请对最新章节进行全篇精修润色：强化李斯与政哥的反差喜剧效果，加深高阶物理学法则在修仙战斗中的具象化呈现，确保中文全角双引号“”规范与移动端短段落排版。`;
+                pbox.value = `请对最新章节进行全篇精修润色：强化当前作品人物的情绪与冲突，深化本书核心设定在剧情中的呈现，确保中文全角双引号“”规范与移动端短段落排版。`;
             } else if (wf === "plot") {
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('主线高潮')">🌌 推演后20章大主线走向</div>
@@ -2665,9 +2738,9 @@
             sel.innerHTML = CHAPTERS.map((c, i) => {
                 const m = c.filename.match(/第(\d+)章/);
                 const tag = m ? `第${m[1]}章` : `#${i + 1}`;
-                const title = c.title ? `${tag} ${c.title}` : c.filename.replace(".md", "");
+                const title = c.title ? c.title : c.filename.replace(".md", "");
                 const isSelected = (c.filename === CURRENT_TOMATO_FILE || (!CURRENT_TOMATO_FILE && i === CURRENT_INDEX));
-                return `<option value="${c.filename}" ${isSelected ? 'selected' : ''}>${title} (${c.char_count}字)</option>`;
+                return `<option value="${escapeHtml(c.filename)}" ${isSelected ? 'selected' : ''}>${escapeHtml(title)} (${c.char_count}字)</option>`;
             }).join("");
         }
 
@@ -2712,8 +2785,11 @@
         }
 
         async function openTomatoAuditByFile(filename, switchUi = true) {
+            rememberNotesDraft();
             if (switchUi) switchTab('tomato', { force: false });
+            const book = CURRENT_BOOK;
             CURRENT_TOMATO_FILE = filename;
+            CURRENT_TOMATO_DATA = null;
             populateTomatoChapterSelect();
             loadChapterExtras(filename);
 
@@ -2723,13 +2799,14 @@
             if (CLIENT_CACHE.tomatoAudit[cacheKey]) {
                 renderTomatoStudio(CLIENT_CACHE.tomatoAudit[cacheKey]);
                 prefetchAdjacentTomatoChapters(CURRENT_INDEX);
-                return;
             }
 
             // 2. 无缓存时，若有阅读正文缓存，优先展示纯文本排版，绝不让用户干等白屏
             const preview = document.getElementById("tomato-preview-box");
             const issuesList = document.getElementById("tomato-issues-list");
-            if (CLIENT_CACHE.chapterContent[cacheKey]) {
+            if (CLIENT_CACHE.tomatoAudit[cacheKey]) {
+                // Keep the already rendered result while revalidating.
+            } else if (CLIENT_CACHE.chapterContent[cacheKey]) {
                 const rawLines = CLIENT_CACHE.chapterContent[cacheKey].split('\n').filter(l => l.trim().length > 0);
                 const titleLine = rawLines.length > 0 ? rawLines[0].replace(/^[#\s]+/, '') : filename.replace('.md', '');
                 const bodyText = rawLines.slice(1).map(l => '\u3000\u3000' + l.trim()).join('\n\n');
@@ -2737,21 +2814,21 @@
             } else {
                 if (preview) preview.innerText = "正在调阅章节正文并执行番茄机审预检...";
             }
-            if (issuesList) issuesList.innerHTML = '<div style="padding:10px; text-align:center; color:var(--text-dim); font-size:12px;">⚡ 正在调阅机审指标与字典扫描...</div>';
+            if (issuesList && !CLIENT_CACHE.tomatoAudit[cacheKey]) issuesList.innerHTML = '<div style="padding:10px; text-align:center; color:var(--text-dim); font-size:12px;">⚡ 正在调阅机审指标与字典扫描...</div>';
 
             try {
                 const res = await fetchAPI(`${API}/tomato_clean?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
                 if (res && res.ok) {
                     CLIENT_CACHE.tomatoAudit[cacheKey] = res;
-                    if (CURRENT_TOMATO_FILE === filename) {
+                    if (CURRENT_BOOK === book && CURRENT_TOMATO_FILE === filename) {
                         renderTomatoStudio(res);
                         prefetchAdjacentTomatoChapters(CURRENT_INDEX);
                     }
-                } else if (preview && CURRENT_TOMATO_FILE === filename) {
+                } else if (preview && CURRENT_BOOK === book && CURRENT_TOMATO_FILE === filename) {
                     preview.innerText = "机审解析失败: " + (res.error || "未知异常");
                 }
             } catch (e) {
-                if (!CLIENT_CACHE.tomatoAudit[cacheKey] && preview && CURRENT_TOMATO_FILE === filename) {
+                if (!CLIENT_CACHE.tomatoAudit[cacheKey] && preview && CURRENT_BOOK === book && CURRENT_TOMATO_FILE === filename) {
                     preview.innerText = "网络超时，无法获取机审结果: " + e.message;
                 }
             }
@@ -2785,7 +2862,8 @@
             window.currentTomatoText = `${data.title}\n\n${data.content}`;
 
             // 1. 得分与评级徽章
-            const score = typeof data.score === 'number' ? data.score : 95;
+            const audit = data.audit || {};
+            const score = typeof audit.score === 'number' ? audit.score : 0;
             const badge = document.getElementById("tomato-score-badge");
             const badgeTitle = document.getElementById("tomato-score-title");
             if (badge) {
@@ -2793,7 +2871,7 @@
                 if (score >= 90) {
                     badge.style.background = "linear-gradient(135deg, #10b981, #059669)";
                     if (badgeTitle) {
-                        badgeTitle.innerText = "番茄黄金过审级 (可直接发布)";
+                        badgeTitle.innerText = "本地预检良好 · 发布前请复核";
                         badgeTitle.style.color = "#a7f3d0";
                     }
                 } else if (score >= 75) {
@@ -2819,8 +2897,8 @@
             }
             const statDialogue = document.getElementById("stat-dialogue-ratio");
             if (statDialogue) {
-                statDialogue.innerText = `${data.dialogue_ratio || 0}%`;
-                statDialogue.style.color = (data.dialogue_ratio >= 20 && data.dialogue_ratio <= 60) ? "#4ade80" : "#facc15";
+                statDialogue.innerText = `${audit.dialogue_ratio || 0}%`;
+                statDialogue.style.color = (audit.dialogue_ratio >= 20 && audit.dialogue_ratio <= 60) ? "#4ade80" : "#facc15";
             }
             const statPunct = document.getElementById("stat-punct-status");
             if (statPunct) {
@@ -2830,7 +2908,7 @@
             }
             const statTime = document.getElementById("stat-read-time");
             if (statTime) {
-                statTime.innerText = `${data.est_read_time || Math.round((data.char_count||0)/500)} 分钟`;
+                statTime.innerText = `${audit.est_read_time || Math.round((data.char_count||0)/500)} 分钟`;
             }
 
             // 3. 渲染问题清单
@@ -3021,6 +3099,8 @@
             renderTomatoPreviewText();
         }
 
+        function htmlArgument(value) { return escapeHtml(JSON.stringify(value)); }
+
         function escapeHtml(str) {
             if (!str) return "";
             return String(str)
@@ -3168,7 +3248,7 @@
             window.location.href = `${API}/export_tomato_zip?book=${encodeURIComponent(CURRENT_BOOK)}`;
         }
 
-        // ================= 🎨 随章插图工坊 & 作者有话说 (AI 视觉衍生) =================
+        // ================= 🎨 随章水墨插画与互动文案 (AI 视觉衍生) =================
         let SELECTED_ILLU_COUNT = 4;
         let CURRENT_EXTRAS_DATA = null;
 
@@ -3196,213 +3276,250 @@
             }, duration);
         }
 
-        async function launchIllustrationGeneration() {
-            if (!CURRENT_TOMATO_FILE) return alert("请先在上方选择或阅读一个章节！");
-            const customPrompt = document.getElementById("custom-illu-prompt") ? document.getElementById("custom-illu-prompt").value.trim() : "";
-            const badge = document.getElementById("extras-status-badge");
-            const btn = document.getElementById("btn-launch-illu");
-            const gallery = document.getElementById("illustrations-gallery-container");
+        const NOTES_DRAFTS = new Map();
+        const EXTRAS_TASKS = new Map();
+        let EXTRAS_CONTEXT = null;
 
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = `<span style="display:inline-block; animation:spin 1s linear infinite;">⚡</span> 正在提炼名场面并绘制大片...`;
-                btn.style.opacity = "0.75";
-            }
-            if (badge) badge.innerText = "⏳ 正在调度 Antigravity 构思视觉概念...";
+        function extrasKey(book, file) { return JSON.stringify([book, file]); }
+        function extrasMatch(book, file) { return CURRENT_BOOK === book && CURRENT_TOMATO_FILE === file; }
 
-            // 原地展示高科技脉冲骨架屏 (不跳转页面，原地无缝沉浸式体验)
-            if (gallery) {
-                gallery.innerHTML = `
-                    <div class="illustrations-gallery-grid">
-                        ${[1, 2, 3, 4].slice(0, SELECTED_ILLU_COUNT).map(i => `
-                            <div class="illustration-card" style="min-height:160px; display:flex; flex-direction:column; justify-content:center; align-items:center; background:rgba(15,23,42,0.7); border:1px dashed rgba(234,179,8,0.35); border-radius:var(--radius-sm); padding:20px; text-align:center;">
-                                <div style="font-size:26px; margin-bottom:8px; animation:spin 2s linear infinite;">🎨</div>
-                                <div style="font-size:12px; font-weight:700; color:#fef08a;">正在分析分镜 #${i}</div>
-                                <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">1280x720 电影海报合成中...</div>
-                            </div>
-                        `).join("")}
-                    </div>
-                `;
-            }
-
-            try {
-                const res = await fetchAPI(`${API}/dispatch_task`, {
-                    method: "POST",
-                    body: JSON.stringify({
-                        action: "generate_chapter_illustrations",
-                        book: CURRENT_BOOK,
-                        book_id: CURRENT_BOOK,
-                        target_chapter: CURRENT_TOMATO_FILE,
-                        chapter_file: CURRENT_TOMATO_FILE,
-                        image_count: SELECTED_ILLU_COUNT,
-                        custom_prompt: customPrompt,
-                        instructions: `针对当前章节「${CURRENT_TOMATO_FILE}」绘制 ${SELECTED_ILLU_COUNT} 张高燃宽屏概念插图，并生成作者有话说`
-                    })
+        function rememberNotesDraft() {
+            if (!EXTRAS_CONTEXT) return;
+            const note = document.getElementById("author-note-text").value;
+            const comments = document.getElementById("chapter-comments-text").value;
+            const original = EXTRAS_CONTEXT.meta || {};
+            const originalComments = (original.chapter_comments || []).join("\n");
+            if (note !== (original.author_note || "") || comments !== originalComments) {
+                NOTES_DRAFTS.set(extrasKey(EXTRAS_CONTEXT.book, EXTRAS_CONTEXT.file), {
+                    author_note: note, comments, revision: original.revision || ""
                 });
-
-                if (res && res.task_id) {
-                    showToast(`🎨 插图工坊任务已派发！正在原地实时生成 ${SELECTED_ILLU_COUNT} 张海报...`);
-                    
-                    // 原地轮询任务状态 (杜绝强制跳转 Tab，原地无缝更新)
-                    const taskId = res.task_id;
-                    const pollTimer = setInterval(async () => {
-                        try {
-                            const st = await fetchAPI(`${API}/task_status?id=${taskId}`);
-                            if (st) {
-                                if (st.progress_log && st.progress_log.length > 0) {
-                                    const latestLog = st.progress_log[st.progress_log.length - 1];
-                                    const cleanLog = latestLog.replace(/^\[\d+:\d+:\d+\]\s*/, '');
-                                    if (badge) badge.innerText = cleanLog;
-                                }
-                                if (st.status === "completed") {
-                                    clearInterval(pollTimer);
-                                    if (btn) {
-                                        btn.disabled = false;
-                                        btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
-                                        btn.style.opacity = "1";
-                                    }
-                                    await loadChapterExtras(CURRENT_TOMATO_FILE);
-                                    showToast(`🎉 恭喜！当前章节【${SELECTED_ILLU_COUNT}张概念插图】与「作者有话说」已生成！`, 3500);
-                                } else if (st.status === "failed") {
-                                    clearInterval(pollTimer);
-                                    if (btn) {
-                                        btn.disabled = false;
-                                        btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
-                                        btn.style.opacity = "1";
-                                    }
-                                    if (badge) badge.innerText = "❌ 生成失败";
-                                    alert("插图生成失败: " + (st.log || "未知错误"));
-                                }
-                            }
-                        } catch (e) {}
-                    }, 1500);
-                } else {
-                    alert("任务分发失败: " + (res.error || "未知错误"));
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
-                        btn.style.opacity = "1";
-                    }
-                    if (badge) badge.innerText = "❌ 任务派发失败";
-                }
-            } catch (e) {
-                alert("请求异常: " + e.message);
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = `🚀 唤醒 AI 绘制插图`;
-                    btn.style.opacity = "1";
-                }
-                if (badge) badge.innerText = "❌ 网络异常";
+                document.getElementById("notes-save-status").innerText = "尚未保存";
+            } else {
+                NOTES_DRAFTS.delete(extrasKey(EXTRAS_CONTEXT.book, EXTRAS_CONTEXT.file));
+                document.getElementById("notes-save-status").innerText = "";
             }
+        }
+
+        function refreshExtrasTaskUI() {
+            const task = EXTRAS_TASKS.get(extrasKey(CURRENT_BOOK, CURRENT_TOMATO_FILE));
+            const imageButton = document.getElementById("btn-launch-illu");
+            const notesButton = document.getElementById("btn-generate-notes");
+            imageButton.disabled = !!task;
+            notesButton.disabled = !!task;
+            imageButton.innerText = task ? "素材生成中…" : "绘制二维水墨插画";
+            if (task) document.getElementById("extras-status-badge").innerText = task.message || "等待本地电脑接收…";
+        }
+
+        async function launchIllustrationGeneration(notesOnly = false) {
+            if (!CURRENT_TOMATO_FILE) return showToast("请先选择章节");
+            rememberNotesDraft();
+            const book = CURRENT_BOOK;
+            const file = CURRENT_TOMATO_FILE;
+            const key = extrasKey(book, file);
+            if (EXTRAS_TASKS.has(key)) return;
+            if (NOTES_DRAFTS.has(key)) return showToast("请先保存正在编辑的文案，再生成新素材");
+            const task = { book, file, message: "正在提交任务…", started: Date.now(), errors: 0 };
+            EXTRAS_TASKS.set(key, task);
+            refreshExtrasTaskUI();
+            const result = await fetchAPI(`${API}/dispatch_task`, {
+                method: "POST", body: JSON.stringify({
+                    action: notesOnly ? "generate_chapter_notes" : "generate_chapter_illustrations",
+                    book_id: book, chapter_file: file, image_count: SELECTED_ILLU_COUNT,
+                    model_tier: CURRENT_MODEL_TIER,
+                    request_id: crypto.randomUUID(),
+                    custom_prompt: document.getElementById("custom-illu-prompt").value.trim()
+                })
+            });
+            if (!result.task_id) {
+                EXTRAS_TASKS.delete(key);
+                refreshExtrasTaskUI();
+                showToast(result.error || "任务提交失败", 5000);
+                return;
+            }
+            task.id = result.task_id;
+            localStorage.setItem("novel_extras_tasks", JSON.stringify([...EXTRAS_TASKS.values()].filter(item => item.id)));
+            pollExtrasTask(task);
+        }
+
+        async function pollExtrasTask(task) {
+            const key = extrasKey(task.book, task.file);
+            const result = await fetchAPI(`${API}/task_status?id=${encodeURIComponent(task.id)}`);
+            if (result.error) {
+                task.errors = (task.errors || 0) + 1;
+                task.message = `暂时无法查询进度，正在重试（${task.errors}）`;
+            } else {
+                task.errors = 0;
+                task.message = (result.progress_log || []).slice(-1)[0] || "等待本地电脑接收…";
+            }
+            if (["completed", "failed"].includes(result.status)) {
+                EXTRAS_TASKS.delete(key);
+                localStorage.setItem("novel_extras_tasks", JSON.stringify([...EXTRAS_TASKS.values()]));
+                if (extrasMatch(task.book, task.file)) {
+                    await loadChapterExtras(task.file);
+                    refreshExtrasTaskUI();
+                    if (result.status === "failed") document.getElementById("extras-status-badge").innerText = task.message;
+                }
+                showToast(result.status === "completed" ? "章节素材已保存，可预览与下载" : task.message, 5000);
+                return;
+            }
+            if (Date.now() - task.started > 25 * 60 * 1000 || task.errors >= 12) {
+                EXTRAS_TASKS.delete(key);
+                if (extrasMatch(task.book, task.file)) {
+                    refreshExtrasTaskUI();
+                    document.getElementById("extras-status-badge").innerText = "进度查询已暂停，刷新页面可恢复查询";
+                }
+                return;
+            }
+            if (extrasMatch(task.book, task.file)) refreshExtrasTaskUI();
+            setTimeout(() => pollExtrasTask(task), 2500);
+        }
+
+        function restoreExtrasTasks() {
+            try {
+                for (const task of JSON.parse(localStorage.getItem("novel_extras_tasks") || "[]")) {
+                    task.started = Date.now();
+                    EXTRAS_TASKS.set(extrasKey(task.book, task.file), task);
+                    pollExtrasTask(task);
+                }
+            } catch (error) { localStorage.removeItem("novel_extras_tasks"); }
         }
 
         async function loadChapterExtras(filename) {
             if (!filename) return;
-            const chapTag = document.getElementById("extras-chap-tag");
-            const chapNum = filename.match(/第(\d+)章/);
-            if (chapTag) chapTag.innerText = chapNum ? `第${chapNum[1]}章` : filename.replace('.md', '');
-
-            const gallery = document.getElementById("illustrations-gallery-container");
-            const authorNoteText = document.getElementById("author-note-text");
-            const badge = document.getElementById("extras-status-badge");
-
-            try {
-                const res = await fetchAPI(`${API}/chapter_extras?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
-                if (res && res.ok && res.has_extras && res.meta) {
-                    CURRENT_EXTRAS_DATA = res.meta;
-                    const chapFolder = res.chap_dir || res.chapter_code || (res.meta ? res.meta.chapter_code : "");
-                    renderChapterExtras(res.meta, chapFolder);
-                    const illuCount = (res.meta.illustrations || res.meta.images || []).length;
-                    if (badge) badge.innerText = `✓ 已就绪 ${illuCount} 张海报`;
-                } else {
-                    CURRENT_EXTRAS_DATA = null;
-                    if (gallery) {
-                        gallery.innerHTML = `
-                            <div style="padding:24px 16px; text-align:center; background:var(--bg-secondary); border-radius:var(--radius-sm); border:1px dashed var(--border);">
-                                <div style="font-size:28px; margin-bottom:8px;">🎨</div>
-                                <div style="font-size:13px; font-weight:700; color:var(--text-main); margin-bottom:4px;">本章暂无插图与作者有话说</div>
-                                <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px;">设置上方生成张数 (1~4张)，点击「🚀 唤醒 AI 绘制插图」一键生成宽屏电影级概念海报与互动章评！</div>
-                            </div>
-                        `;
-                    }
-                    if (authorNoteText) {
-                        authorNoteText.innerText = "暂无作者有话说。点击上方「🚀 唤醒 AI 绘制插图」即可一键生成！";
-                    }
-                    if (badge) badge.innerText = "⚪ 待生成";
-                }
-            } catch (e) {
-                if (badge) badge.innerText = "⚪ 待生成";
+            const book = CURRENT_BOOK;
+            const key = extrasKey(book, filename);
+            EXTRAS_CONTEXT = null;
+            CURRENT_EXTRAS_DATA = null;
+            document.getElementById("author-note-text").value = "";
+            document.getElementById("chapter-comments-text").value = "";
+            document.getElementById("notes-save-status").innerText = "";
+            document.getElementById("extras-chap-tag").innerText = (filename.match(/第\d+章/) || [filename])[0];
+            document.getElementById("extras-status-badge").innerText = "正在读取章节素材…";
+            document.getElementById("illustrations-gallery-container").innerText = "正在读取…";
+            refreshExtrasTaskUI();
+            const result = await fetchAPI(`${API}/chapter_extras?book=${encodeURIComponent(book)}&file=${encodeURIComponent(filename)}`);
+            if (!extrasMatch(book, filename)) return;
+            if (!result.ok) {
+                document.getElementById("extras-status-badge").innerText = result.error || "素材读取失败，请重试";
+                return;
             }
+            CURRENT_EXTRAS_DATA = result.meta || {};
+            EXTRAS_CONTEXT = { book, file: filename, meta: CURRENT_EXTRAS_DATA };
+            renderChapterExtras(CURRENT_EXTRAS_DATA, result.chap_dir);
+            const draft = NOTES_DRAFTS.get(key);
+            if (draft) {
+                document.getElementById("author-note-text").value = draft.author_note;
+                document.getElementById("chapter-comments-text").value = draft.comments;
+                document.getElementById("notes-save-status").innerText = "已恢复未保存的编辑内容";
+            }
+            refreshExtrasTaskUI();
         }
 
         function renderChapterExtras(meta, folderHint = "") {
+            document.getElementById("author-note-text").value = meta.author_note || "";
+            document.getElementById("chapter-comments-text").value = (meta.chapter_comments || []).join("\n");
             const gallery = document.getElementById("illustrations-gallery-container");
-            const authorNoteText = document.getElementById("author-note-text");
-            if (!meta) return;
-
-            if (authorNoteText) {
-                authorNoteText.innerText = meta.author_note || "暂无作者有话说";
-            }
-
-            if (!gallery) return;
             const images = meta.illustrations || meta.images || [];
-            if (images.length === 0) {
-                gallery.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-dim); font-size:12px;">暂无生成插图</div>';
+            const legacy = images.length && meta.style !== "2d-ink";
+            document.getElementById("extras-status-badge").innerText = legacy ? "历史模板图，可重新绘制水墨插画" : (images.length ? `${images.length} 张水墨插画已就绪` : "可独立生成互动文案或绘制插画");
+            gallery.replaceChildren();
+            if (!images.length) {
+                gallery.innerText = "本章暂无插画。可先生成互动文案，或选择 1–4 张绘制水墨场景。";
                 return;
             }
-
-            const chapFolder = folderHint || meta.chapter_code || meta.chapter_folder || "";
-            const zipUrl = `${API}/export_chapter_illustrations_zip?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(CURRENT_TOMATO_FILE)}&token=${encodeURIComponent(TOKEN)}`;
-
-            gallery.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 2px;">
-                    <div style="font-size:12px; font-weight:800; color:#fde047; display:flex; align-items:center; gap:6px;">
-                        <span>🎬 本章官方宽屏概念海报 (已就绪 ${images.length} 张大片)</span>
-                    </div>
-                    <a href="${zipUrl}" class="btn-card-action" style="font-size:11px; padding:4px 12px; background:rgba(234, 179, 8, 0.2); color:#fde047; border:1px solid rgba(234, 179, 8, 0.45); text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-weight:800; border-radius:4px;">
-                        📦 一键打包下载全部插图 (ZIP)
-                    </a>
-                </div>
-                <div class="illustrations-gallery-grid">
-                    ${images.map((img, idx) => {
-                        const imgUrl = `${API}/illustration?book=${encodeURIComponent(CURRENT_BOOK)}&chap=${encodeURIComponent(chapFolder)}&img=${encodeURIComponent(img.filename)}&token=${encodeURIComponent(TOKEN)}`;
-                        const sceneTitle = img.title || img.scene_title || `分镜 #${idx + 1}`;
-                        const sceneDesc = img.quote || img.desc || img.prompt || "";
-                        const sceneTag = img.tag || `分镜 #${idx + 1} / 共 ${images.length} 张`;
-                        return `
-                            <div class="illustration-card">
-                                <div class="illustration-img-box" onclick="openLightbox('${imgUrl}', '${escapeHtml(sceneTitle)}')">
-                                    <img src="${imgUrl}" alt="${escapeHtml(sceneTitle)}" loading="lazy">
-                                    <div style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,0.75); color:#fef08a; font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; border:1px solid rgba(234,179,8,0.4);">🔍 点击全屏</div>
-                                </div>
-                                <div class="illustration-info">
-                                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                                        <span class="meta-tag" style="background:rgba(234,179,8,0.15); color:#fde047; font-size:10px; font-weight:700;">${escapeHtml(sceneTag)}</span>
-                                        <a href="${imgUrl}" download="${img.filename}" class="btn-card-action" style="font-size:10px; padding:3px 8px; text-decoration:none; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);">💾 下载原图</a>
-                                    </div>
-                                    <div style="font-size:12px; font-weight:800; color:var(--text-main); margin-top:4px;">${escapeHtml(sceneTitle)}</div>
-                                    <div style="font-size:11px; color:var(--text-dim); line-height:1.4; margin-top:2px;">${escapeHtml(sceneDesc)}</div>
-                                </div>
-                            </div>
-                        `;
-                    }).join("")}
-                </div>
-            `;
-        }
-
-        function copyAuthorNote() {
-            const textEl = document.getElementById("author-note-text");
-            if (!textEl || !textEl.innerText) return alert("暂无可复制的作者有话说！");
-            const rawText = textEl.innerText.trim();
-            if (rawText.includes("暂无作者有话说") || rawText.includes("点击上方「🚀 唤醒 AI 绘制插图」")) {
-                return alert("⚠️ 本章尚未生成「作者有话说」！\n请先点击上方「🚀 唤醒 AI 绘制插图」一键生成。");
+            const query = new URLSearchParams({ book: CURRENT_BOOK, file: CURRENT_TOMATO_FILE, token: TOKEN });
+            const toolbar = document.createElement("div");
+            toolbar.className = "gallery-toolbar";
+            const caption = document.createElement("span");
+            caption.innerText = legacy ? "历史素材" : "本章二维水墨场景";
+            const zip = document.createElement("a");
+            zip.href = `${API}/export_chapter_illustrations_zip?${query}`;
+            zip.className = "tool-btn";
+            zip.innerText = "下载本章素材 ZIP";
+            toolbar.append(caption, zip);
+            gallery.append(toolbar);
+            const grid = document.createElement("div");
+            grid.className = "illustrations-gallery-grid";
+            for (const [index, item] of images.entries()) {
+                const imageQuery = new URLSearchParams({ book: CURRENT_BOOK, chap: folderHint || meta.chapter_code, img: item.filename, token: TOKEN, v: meta.revision || String(meta.generated_at || 0) });
+                const url = `${API}/illustration?${imageQuery}`;
+                const card = document.createElement("div");
+                card.className = "illustration-card";
+                const imageBox = document.createElement("button");
+                imageBox.className = "illustration-img-box";
+                imageBox.style.cssText = "display:block;width:100%;padding:0;border:0;cursor:zoom-in";
+                const image = document.createElement("img");
+                image.src = url;
+                image.alt = item.title || item.scene_title || `场景 ${index + 1}`;
+                image.loading = "lazy";
+                imageBox.append(image);
+                imageBox.addEventListener("click", () => openLightbox(url, image.alt));
+                const info = document.createElement("div");
+                info.className = "illustration-info";
+                const title = document.createElement("strong");
+                title.innerText = image.alt;
+                const description = document.createElement("p");
+                description.innerText = item.desc || item.quote || "";
+                const download = document.createElement("a");
+                download.href = `${url}&download=1`;
+                download.download = item.filename;
+                download.className = "tool-btn";
+                download.innerText = "下载原图";
+                info.append(title, description, download);
+                card.append(imageBox, info);
+                grid.append(card);
             }
-            navigator.clipboard.writeText(rawText).then(() => {
-                showToast("📋 本章「作者有话说」已成功复制到剪贴板！可直接粘贴至番茄作家助手。");
-            }).catch(() => {
-                alert("复制失败，请在文本框内长按全选复制！");
-            });
+            gallery.append(grid);
         }
+
+        async function saveChapterNotes() {
+            if (!EXTRAS_CONTEXT || !extrasMatch(EXTRAS_CONTEXT.book, EXTRAS_CONTEXT.file)) return showToast("请等待章节素材加载完成");
+            const context = EXTRAS_CONTEXT;
+            rememberNotesDraft();
+            const key = extrasKey(context.book, context.file);
+            const draft = NOTES_DRAFTS.get(key);
+            const payload = {
+                book: context.book, file: context.file,
+                revision: draft ? draft.revision : (context.meta.revision || ""),
+                author_note: document.getElementById("author-note-text").value.trim(),
+                chapter_comments: document.getElementById("chapter-comments-text").value.split("\n").map(line => line.trim()).filter(Boolean)
+            };
+            const button = document.getElementById("btn-save-notes");
+            button.disabled = true;
+            const result = await fetchAPI(`${API}/save_chapter_notes`, { method: "POST", body: JSON.stringify(payload) });
+            button.disabled = false;
+            if (!result.ok) return showToast(result.error || "保存失败", 5000);
+            const latestDraft = NOTES_DRAFTS.get(key);
+            if (latestDraft && (latestDraft.author_note.trim() !== payload.author_note || latestDraft.comments.split("\n").map(line => line.trim()).filter(Boolean).join("\n") !== payload.chapter_comments.join("\n"))) {
+                latestDraft.revision = result.meta.revision;
+            } else {
+                NOTES_DRAFTS.delete(key);
+            }
+            if (extrasMatch(context.book, context.file)) {
+                CURRENT_EXTRAS_DATA = result.meta;
+                EXTRAS_CONTEXT.meta = result.meta;
+                rememberNotesDraft();
+                document.getElementById("notes-save-status").innerText = NOTES_DRAFTS.has(key) ? "保存期间的新编辑尚未保存" : "已保存";
+            }
+            showToast("章节文案已保存");
+        }
+
+        async function copyText(text) {
+            if (!text.trim()) return showToast("暂无可复制内容，请先生成或输入文案");
+            try { await navigator.clipboard.writeText(text); }
+            catch (error) {
+                const temporary = document.createElement("textarea");
+                temporary.value = text;
+                document.body.append(temporary);
+                temporary.select();
+                const copied = document.execCommand("copy");
+                temporary.remove();
+                if (!copied) return showToast("请在文案框内长按全选复制");
+            }
+            showToast("已复制");
+        }
+        function copyAuthorNote() { return copyText(document.getElementById("author-note-text").value); }
+        function copyChapterComments() { return copyText(document.getElementById("chapter-comments-text").value); }
 
         function openLightbox(imgUrl, title) {
             const modal = document.getElementById("image-lightbox-modal");
@@ -3412,7 +3529,7 @@
             if (modal && img) {
                 img.src = imgUrl;
                 if (titleEl) titleEl.innerText = title || "概念插图原画";
-                if (downloadLink) downloadLink.href = imgUrl;
+                if (downloadLink) downloadLink.href = imgUrl + "&download=1";
                 modal.classList.add("active");
             }
         }
@@ -3428,6 +3545,7 @@
         let CACHED_SETTINGS = [];
 
         async function loadSettings() {
+            const book = CURRENT_BOOK;
             const tabs = document.getElementById("settings-tabs");
             const dropdown = document.getElementById("settings-select-dropdown");
 
@@ -3440,6 +3558,7 @@
 
             try {
                 const res = await fetchAPI(`${API}/settings?book=${encodeURIComponent(CURRENT_BOOK)}`);
+                if (book !== CURRENT_BOOK) return;
                 if (res && res.settings && res.settings.length > 0) {
                     CLIENT_CACHE.settings[CURRENT_BOOK] = res.settings;
                     renderSettingsPillsAndDropdown(res.settings);
@@ -3468,9 +3587,9 @@
                     const icon = getSettingIcon(s.filename);
                     const shortTitle = getSettingShortTitle(s.filename);
                     const isActive = (s.filename === CURRENT_SETTING_DOC);
-                    return `<button class="setting-pill ${isActive ? 'active' : ''}" data-file="${s.filename}" onclick="viewSetting('${s.filename}', this)">
+                    return `<button class="setting-pill ${isActive ? 'active' : ''}" data-file="${escapeHtml(s.filename)}" onclick="viewSetting(${htmlArgument(s.filename)}, this)">
                         <span class="pill-icon">${icon}</span>
-                        <span>${shortTitle}</span>
+                        <span>${escapeHtml(shortTitle)}</span>
                     </button>`;
                 }).join("");
             }
@@ -3478,7 +3597,7 @@
             // 2. 渲染快捷跳转下拉框 (完全同步当前激活项)
             if (dropdown) {
                 dropdown.innerHTML = settings.map(s => `
-                    <option value="${s.filename}" ${s.filename === CURRENT_SETTING_DOC ? 'selected' : ''}>${getSettingShortTitle(s.filename)}</option>
+                    <option value="${escapeHtml(s.filename)}" ${s.filename === CURRENT_SETTING_DOC ? 'selected' : ''}>${escapeHtml(getSettingShortTitle(s.filename))}</option>
                 `).join("");
                 dropdown.value = CURRENT_SETTING_DOC;
             }
@@ -3522,6 +3641,7 @@
 
         async function viewSetting(filename, btnEl) {
             if (!filename) return;
+            const book = CURRENT_BOOK;
             CURRENT_SETTING_DOC = filename;
             const tinput = document.getElementById("setting-target-input");
             if (tinput && (!tinput.value || tinput.value.endsWith(".md"))) {
@@ -3549,7 +3669,7 @@
             const cacheKey = `${CURRENT_BOOK}_${filename}`;
 
             if (CLIENT_CACHE.settingContent[cacheKey]) {
-                contentEl.innerHTML = marked.parse(CLIENT_CACHE.settingContent[cacheKey]);
+                contentEl.innerHTML = DOMPurify.sanitize(marked.parse(CLIENT_CACHE.settingContent[cacheKey]));
                 const statsEl = document.getElementById("setting-active-stats");
                 if (statsEl) statsEl.innerText = `约 ${CLIENT_CACHE.settingContent[cacheKey].length} 字`;
             } else {
@@ -3560,7 +3680,8 @@
                 const res = await fetchAPI(`${API}/setting?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
                 if (res && res.content) {
                     CLIENT_CACHE.settingContent[cacheKey] = res.content;
-                    contentEl.innerHTML = marked.parse(res.content);
+                    if (CURRENT_BOOK !== book || CURRENT_SETTING_DOC !== filename) return;
+                    contentEl.innerHTML = DOMPurify.sanitize(marked.parse(res.content));
                     const statsEl = document.getElementById("setting-active-stats");
                     if (statsEl) statsEl.innerText = `约 ${res.content.length} 字`;
                 }

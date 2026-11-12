@@ -31,24 +31,9 @@ def get_engine_descriptions():
     }
 
 def run_antigravity_engine(prompt, title="【手机遥控】小说创作"):
-    """
-    通过 Antigravity 官方 agentapi 发起会话。
-    由于用户的 Antigravity 绑定了 Gemini Pro 会员，传递 --model=pro 调用顶级会员算力！
-    """
-    cmd = [AGENTAPI_BAT, "new-conversation", "--model=pro", f"--title={title}", prompt]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=40)
-        if proc.returncode == 0:
-            return True, f"已唤醒 Antigravity 智能体 (Gemini Pro) 开始创作！\n{proc.stdout}"
-        else:
-            # fallback 不指定模型参数
-            cmd_fallback = [AGENTAPI_BAT, "new-conversation", f"--title={title}", prompt]
-            proc2 = subprocess.run(cmd_fallback, capture_output=True, text=True, encoding="utf-8", errors="ignore", timeout=40)
-            if proc2.returncode == 0:
-                return True, f"已唤醒 Antigravity 智能体开始创作！\n{proc2.stdout}"
-            return False, f"Antigravity 返回错误: {proc.stderr or proc.stdout}"
-    except Exception as e:
-        return False, f"调用异常: {e}"
+    from local_bridge import execute_agentapi
+    return execute_agentapi(prompt, title)
+
 
 def dispatch_engine(engine_mode, prompt, title):
     if engine_mode == "antigravity_pro" or engine_mode == "antigravity" or engine_mode == "sop_engine":

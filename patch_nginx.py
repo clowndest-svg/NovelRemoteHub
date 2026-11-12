@@ -3,7 +3,7 @@
 
 novel_block = """    # 大秦仙秦科技修仙远程中枢
     location /novel/ {
-        proxy_pass http://127.0.0.1:8899/;
+        proxy_pass http://172.17.0.1:8899/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

@@ -1,12 +1,11 @@
+"""Launch the local bridge independently from the calling console."""
 import subprocess
 import sys
-import os
+from pathlib import Path
 
-pythonw = r"C:\Python314\pythonw.exe"
-script = r"D:\RuanJian\NovelRemoteHub\local_bridge.py"
-
-# CREATE_BREAKAWAY_FROM_JOB = 0x01000000, DETACHED_PROCESS = 0x00000008
-flags = 0x01000000 | 0x00000008
-
-proc = subprocess.Popen([pythonw, script], creationflags=flags, close_fds=True)
-print(f"Launched detached NovelRemoteHub Daemon with PID: {proc.pid}")
+pythonw = Path(sys.executable).with_name("pythonw.exe")
+script = Path(__file__).with_name("local_bridge.py")
+flags = subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.DETACHED_PROCESS
+process = subprocess.Popen([str(pythonw), str(script)], cwd=script.parent,
+                           creationflags=flags, close_fds=True)
+print(f"Launched NovelRemoteHub daemon with PID {process.pid}")

@@ -20,7 +20,14 @@ import shutil
 import gzip
 import re
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+import threading
+import secrets
+import hmac
+import hashlib
+import base64
+import struct
+from storage import atomic_json, atomic_write, safe_component, within
 from urllib.parse import urlparse, parse_qs
 
 # 引入小说管理工作流
@@ -37,14 +44,24 @@ except Exception:
     REDIS_CLIENT = None
     HAS_REDIS = False
 
-DATA_DIR = "/root/novel_hub_data"
+DATA_DIR = os.environ.get("NOVEL_HUB_DATA_DIR", "/root/novel_hub_data")
 BOOKS_DIR = os.path.join(DATA_DIR, "books")
-DOWNLOAD_DIR = "/opt/novel_hub/download"
+DOWNLOAD_DIR = os.environ.get("NOVEL_HUB_DOWNLOAD_DIR", "/opt/novel_hub/download")
 PASSWORD = os.environ.get("NOVEL_HUB_PASSWORD", "daqin666")
 
 os.makedirs(BOOKS_DIR, exist_ok=True)
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+TOKEN_FILE = os.path.join(DATA_DIR, "auth_token")
+if os.path.exists(TOKEN_FILE):
+    with open(TOKEN_FILE, encoding="utf-8") as token_stream:
+        AUTH_TOKEN = token_stream.read().strip()
+else:
+    AUTH_TOKEN = secrets.token_urlsafe(48)
+    atomic_write(TOKEN_FILE, AUTH_TOKEN)
+    os.chmod(TOKEN_FILE, 0o600)
+WRITE_LOCK = threading.RLock()
+CACHE_LOCK = threading.RLock()
 TASKS = {}
 LOCAL_STATUS = {
     "online": False,
@@ -53,10 +70,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 9,
-    "versionName": "1.7.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.7.0",
-    "changelog": "1. 【番茄机审多分类筛选全面修复】彻底解决筛选类别空白问题，精准细分「🔴高危风控」、「🔵错别字」、「🟣标点排版」与「📏篇幅字数」，标签显影对齐！\n2. 【章节定点重构与番茄驳回修复工坊】全新上线！针对审核驳回或敏感词，唤醒 Antigravity 自动通读前后章与全套设定集，自动备份原章，支持合规脱敏精修与深度剧情重构！\n3. 【设定大典与创作 SOP 铁律双向互锁】续写新章节与大纲推演时，全量注入 00_设定集清单与必须调阅规范，严格保障战力法则、文明演进与剧情逻辑严密一致！",
+    "versionCode": 10,
+    "versionName": "1.8.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.8.0",
+    "changelog": "二维水墨场景插画，独立章节互动文案编辑与保存，查询加速，任务回执校验及同步安全修复。",
     "forceUpdate": False
 }
 
@@ -64,52 +81,46 @@ APP_VERSION_INFO = {
 MEMORY_CACHE = {}
 
 def get_cached(key):
-    # 先查内存 (0.01ms)
-    if key in MEMORY_CACHE:
-        expire_time, val = MEMORY_CACHE[key]
-        if time.time() < expire_time:
-            return val
-        else:
-            del MEMORY_CACHE[key]
-
-    # 再查 Redis (0.5ms)
+    with CACHE_LOCK:
+        entry = MEMORY_CACHE.get(key)
+        if entry and time.monotonic() < entry[0]:
+            return entry[1]
+        MEMORY_CACHE.pop(key, None)
     if HAS_REDIS and REDIS_CLIENT:
         try:
             raw = REDIS_CLIENT.get(key)
             if raw:
-                val = json.loads(raw)
-                MEMORY_CACHE[key] = (time.time() + 180, val)
-                return val
+                return json.loads(raw)
         except Exception:
             pass
     return None
 
+
 def set_cached(key, val, ttl=300):
-    MEMORY_CACHE[key] = (time.time() + ttl, val)
+    with CACHE_LOCK:
+        if len(MEMORY_CACHE) > 1024:
+            MEMORY_CACHE.clear()
+        MEMORY_CACHE[key] = (time.monotonic() + ttl, val)
     if HAS_REDIS and REDIS_CLIENT:
         try:
             REDIS_CLIENT.setex(key, ttl, json.dumps(val, ensure_ascii=False))
         except Exception:
             pass
 
+
 def invalidate_cache(pattern=None):
-    global MEMORY_CACHE
-    if not pattern:
-        MEMORY_CACHE.clear()
-        if HAS_REDIS and REDIS_CLIENT:
-            try:
-                REDIS_CLIENT.flushdb()
-            except Exception:
-                pass
-    else:
-        MEMORY_CACHE = {k: v for k, v in MEMORY_CACHE.items() if pattern not in k}
-        if HAS_REDIS and REDIS_CLIENT:
-            try:
-                keys = REDIS_CLIENT.keys(f"*{pattern}*")
-                if keys:
-                    REDIS_CLIENT.delete(*keys)
-            except Exception:
-                pass
+    with CACHE_LOCK:
+        for key in list(MEMORY_CACHE):
+            if pattern is None or pattern in key:
+                MEMORY_CACHE.pop(key, None)
+    if HAS_REDIS and REDIS_CLIENT:
+        try:
+            for key in REDIS_CLIENT.scan_iter(match="novel:cache:*", count=100):
+                if pattern is None or pattern in key:
+                    REDIS_CLIENT.delete(key)
+        except Exception:
+            pass
+
 
 def load_json_file(path, default=None):
     if os.path.exists(path):
@@ -121,8 +132,32 @@ def load_json_file(path, default=None):
     return default
 
 def save_json_file(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    atomic_json(path, data)
+
+
+class BoundedHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 32
+
+    def __init__(self, *args, **kwargs):
+        self.slots = threading.BoundedSemaphore(16)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, address):
+        self.slots.acquire()
+        try:
+            super().process_request(request, address)
+        except Exception:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, address):
+        try:
+            request.settimeout(20)
+            super().process_request_thread(request, address)
+        finally:
+            self.slots.release()
+
 
 class HubHandler(BaseHTTPRequestHandler):
     def end_headers(self):
@@ -139,6 +174,7 @@ class HubHandler(BaseHTTPRequestHandler):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         
         # 针对 >512 字节的数据自动启用 Gzip 压缩
         accept_enc = self.headers.get("Accept-Encoding", "")
@@ -183,19 +219,59 @@ class HubHandler(BaseHTTPRequestHandler):
                 item = item.strip()
                 if item.startswith("novel_token="):
                     token = item[len("novel_token="):]
-        return token == "daqin_authorized"
+        return isinstance(token, str) and hmac.compare_digest(token, AUTH_TOKEN)
 
     def get_json_body(self):
         length = int(self.headers.get("Content-Length", 0))
-        if length > 0:
-            raw = self.rfile.read(length).decode("utf-8", errors="ignore")
-            try:
-                return json.loads(raw)
-            except Exception:
-                return {}
-        return {}
+        if not 0 <= length <= 32 * 1024 * 1024:
+            raise ValueError("请求内容超过 32MB 限制")
+        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+        body = json.loads(raw)
+        if not isinstance(body, dict):
+            raise ValueError("请求必须为 JSON 对象")
+        return body
 
     def do_GET(self):
+        try:
+            query = parse_qs(urlparse(self.path).query)
+            if query.get("book"):
+                safe_component(query["book"][0])
+            if query.get("file"):
+                safe_component(query["file"][0])
+            if self.path.split("?")[0].rstrip("/").endswith(("/pending_task", "/task_status")):
+                with WRITE_LOCK:
+                    self.handle_get()
+            else:
+                self.handle_get()
+        except (ValueError, KeyError, TypeError) as error:
+            self.send_json({"error": str(error)}, 400)
+        except FileNotFoundError as error:
+            self.send_json({"error": str(error)}, 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            self.log_error("Request failed")
+            self.send_json({"error": "服务器处理失败，请重试"}, 500)
+
+    def do_POST(self):
+        try:
+            path = urlparse(self.path).path.rstrip("/")
+            if path not in ("/api/login", "/novel/api/login") and not self.check_auth():
+                self.send_json({"error": "Unauthorized", "need_login": True}, 401)
+                return
+            with WRITE_LOCK:
+                self.handle_post()
+        except (ValueError, KeyError, TypeError, UnicodeError) as error:
+            self.send_json({"error": str(error)}, 400)
+        except FileNotFoundError as error:
+            self.send_json({"error": str(error)}, 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as error:
+            self.log_error("Write request failed: %s", type(error).__name__)
+            self.send_json({"error": "保存失败，请重试"}, 500)
+
+    def handle_get(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         qs = parse_qs(parsed.query)
@@ -208,6 +284,21 @@ class HubHandler(BaseHTTPRequestHandler):
                     self.send_html(f.read())
             else:
                 self.send_html("<h1>大秦科技修仙远程中枢 3.5 启动中...</h1>")
+            return
+
+        if path.startswith(("/assets/", "/novel/assets/")):
+            filename = path.rsplit("/", 1)[-1]
+            if filename not in ("marked.min.js", "purify.min.js"):
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            with open(os.path.join(os.path.dirname(__file__), "assets", filename), "rb") as stream:
+                content = stream.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
             return
 
         # APK 下载路由 (公网免密，防缓存机制)
@@ -331,7 +422,7 @@ class HubHandler(BaseHTTPRequestHandler):
 
             bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
             c_dir = os.path.join(bpath, "01_正文")
-            files = sorted(glob.glob(os.path.join(c_dir, "**", "*.md"), recursive=True))
+            files = novel_manager.chapter_files(bpath)
             chapters = []
             for f in files:
                 fname = os.path.basename(f)
@@ -366,7 +457,9 @@ class HubHandler(BaseHTTPRequestHandler):
                 return
 
             bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
-            candidates = glob.glob(os.path.join(bpath, "01_正文", "**", os.path.basename(fname)), recursive=True)
+            candidates = [p for p in novel_manager.chapter_files(bpath) if os.path.basename(p) == fname]
+            if len(candidates) > 1:
+                raise ValueError("章节文件名重复，请检查分卷名称")
             if candidates and os.path.exists(candidates[0]):
                 target = candidates[0]
                 with open(target, "r", encoding="utf-8", errors="ignore") as fp:
@@ -396,7 +489,9 @@ class HubHandler(BaseHTTPRequestHandler):
                 return
 
             bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
-            candidates = glob.glob(os.path.join(bpath, "01_正文", "**", os.path.basename(fname)), recursive=True)
+            candidates = [p for p in novel_manager.chapter_files(bpath) if os.path.basename(p) == fname]
+            if len(candidates) > 1:
+                raise ValueError("章节文件名重复，请检查分卷名称")
             if candidates and os.path.exists(candidates[0]):
                 with open(candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
                     raw_text = fp.read()
@@ -459,7 +554,7 @@ class HubHandler(BaseHTTPRequestHandler):
             chap_dir = qs.get("chap", [""])[0]
             img_name = qs.get("img", [""])[0]
             bpath, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
-            img_path = os.path.join(bpath, "02_插图", chap_dir, img_name)
+            img_path = within(bpath, "02_插图", chap_dir, img_name)
             if os.path.exists(img_path) and os.path.isfile(img_path):
                 try:
                     with open(img_path, "rb") as fp:
@@ -467,7 +562,9 @@ class HubHandler(BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.send_header("Content-Type", "image/png")
                     self.send_header("Content-Length", str(len(img_data)))
-                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("Cache-Control", "private, max-age=86400")
+                    if qs.get("download") == ["1"]:
+                        self.send_header("Content-Disposition", "attachment; filename=" + urllib.parse.quote(img_name))
                     self.end_headers()
                     self.wfile.write(img_data)
                     return
@@ -542,6 +639,10 @@ class HubHandler(BaseHTTPRequestHandler):
             LOCAL_STATUS["last_seen"] = time.time()
             now = time.time()
             for tid, t in list(TASKS.items()):
+                if t["status"] == "running" and now - t.get("heartbeat_at", t.get("assigned_at", now)) > 180:
+                    t.update(status="failed", completed_at=now)
+                    t["progress_log"].append("本地执行端失去心跳，请确认 Antigravity 中的执行结果后重试")
+                    save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
                 is_stale_assigned = (t["status"] == "assigned" and (now - t.get("assigned_at", t.get("created_at", now))) > 30)
                 if t["status"] == "pending" or is_stale_assigned:
                     t["status"] = "assigned"
@@ -563,7 +664,7 @@ class HubHandler(BaseHTTPRequestHandler):
 
         self.send_json({"error": "Not Found", "path": path}, 404)
 
-    def do_POST(self):
+    def handle_post(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         body = self.get_json_body()
@@ -572,7 +673,7 @@ class HubHandler(BaseHTTPRequestHandler):
         if path == "/api/login" or path == "/novel/api/login":
             pwd = body.get("password", "")
             if pwd == PASSWORD:
-                self.send_json({"ok": True, "token": "daqin_authorized"})
+                self.send_json({"ok": True, "token": AUTH_TOKEN})
             else:
                 self.send_json({"ok": False, "error": "口令错误，请重新输入"}, 401)
             return
@@ -582,15 +683,22 @@ class HubHandler(BaseHTTPRequestHandler):
             LOCAL_STATUS["online"] = True
             LOCAL_STATUS["last_seen"] = time.time()
             book_id = body.get("book_id", "给政哥讲量子力学，他竟肉身硬抗二向箔")
-            bpath = os.path.join(BOOKS_DIR, book_id)
+            bpath = within(BOOKS_DIR, book_id)
             os.makedirs(os.path.join(bpath, "01_正文", "第一卷_人界篇"), exist_ok=True)
             os.makedirs(os.path.join(bpath, "00_设定集"), exist_ok=True)
 
-            # 同步章节 (仅在内容发生变动时才写盘并精准失效缓存，避免重复破坏缓存)
             chapters = body.get("chapters", [])
+            settings = body.get("settings", [])
+            if not isinstance(chapters, list) or not isinstance(settings, list):
+                raise ValueError("同步文档必须为列表")
+            for item in chapters + settings:
+                safe_component(item["filename"])
+                if not item["filename"].endswith(".md") or not isinstance(item["content"], str):
+                    raise ValueError("同步文档必须为 Markdown 文本")
+            # Only changed files are replaced, and cache invalidation follows each write.
             has_chapter_changes = False
             for c in chapters:
-                fpath = os.path.join(bpath, "01_正文", "第一卷_人界篇", c["filename"])
+                fpath = os.path.join(bpath, "01_正文", "第一卷_人界篇", safe_component(c["filename"]))
                 old_text = ""
                 if os.path.exists(fpath):
                     try:
@@ -599,8 +707,7 @@ class HubHandler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 if old_text != c["content"]:
-                    with open(fpath, "w", encoding="utf-8") as fp:
-                        fp.write(c["content"])
+                    atomic_write(fpath, c["content"])
                     has_chapter_changes = True
                     invalidate_cache(c["filename"])
 
@@ -608,7 +715,7 @@ class HubHandler(BaseHTTPRequestHandler):
             settings = body.get("settings", [])
             has_setting_changes = False
             for s in settings:
-                fpath = os.path.join(bpath, "00_设定集", s["filename"])
+                fpath = os.path.join(bpath, "00_设定集", safe_component(s["filename"]))
                 old_text = ""
                 if os.path.exists(fpath):
                     try:
@@ -617,8 +724,7 @@ class HubHandler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 if old_text != s["content"]:
-                    with open(fpath, "w", encoding="utf-8") as fp:
-                        fp.write(s["content"])
+                    atomic_write(fpath, s["content"])
                     has_setting_changes = True
                     invalidate_cache(s["filename"])
 
@@ -628,6 +734,8 @@ class HubHandler(BaseHTTPRequestHandler):
                 save_json_file(os.path.join(DATA_DIR, "conversations.json"), conversations)
 
             # 仅在有实际内容变更时失效目录总览缓存
+            if has_chapter_changes or has_setting_changes:
+                invalidate_cache("novel:cache:books")
             if has_chapter_changes:
                 invalidate_cache(f"novel:cache:chapters:{book_id}")
             if has_setting_changes:
@@ -636,38 +744,100 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "chapters_count": len(chapters), "settings_count": len(settings)})
             return
 
-        # 随章插图与「作者有话说」元数据双端同步接口
-        if path in ["/api/sync_illustrations", "/novel/api/sync_illustrations"]:
-            book_id = body.get("book_id", "给政哥讲量子力学，他竟肉身硬抗二向箔")
-            chap_dir = body.get("chapter_code", "")
-            meta = body.get("meta", {})
-            images = body.get("images", {})
-            
+        if path in ("/api/heartbeat", "/novel/api/heartbeat"):
+            LOCAL_STATUS.update(online=True, last_seen=time.time())
+            tid = body.get("id")
+            if tid in TASKS and TASKS[tid]["status"] == "running":
+                TASKS[tid]["heartbeat_at"] = time.time()
+            self.send_json({"ok": True})
+            return
+
+        if path in ("/api/save_chapter_notes", "/novel/api/save_chapter_notes"):
+            book = body.get("book")
+            filename = safe_component(body.get("file"))
+            bpath, _ = novel_manager.get_book_path(book, BOOKS_DIR)
+            extras = novel_manager.get_chapter_extras(book, filename, BOOKS_DIR)
+            meta = extras.get("meta") or {}
+            if body.get("revision", "") != meta.get("revision", ""):
+                self.send_json({"error": "文案已在其他页面更新，请重新载入后保存"}, 409)
+                return
+            note = body.get("author_note", "")
+            comments = body.get("chapter_comments", [])
+            if not isinstance(note, str) or len(note) > 20000 or not isinstance(comments, list):
+                raise ValueError("文案格式或长度无效")
+            if len(comments) > 20 or any(not isinstance(c, str) or len(c) > 5000 for c in comments):
+                raise ValueError("章评格式或长度无效")
+            meta.update(chapter_filename=filename, chapter_code=extras["chap_dir"],
+                        author_note=note, chapter_comments=comments, revision=uuid.uuid4().hex)
+            directory = within(bpath, "02_插图", extras["chap_dir"])
+            atomic_write(os.path.join(directory, "作者有话说.md"), note)
+            atomic_write(os.path.join(directory, "章节评论.md"), "\n\n".join(comments))
+            save_json_file(os.path.join(directory, "meta.json"), meta)
+            self.send_json({"ok": True, "meta": meta})
+            return
+
+        # Images use immutable filenames. Publish metadata only after every upload is validated.
+        if path in ("/api/sync_illustrations", "/novel/api/sync_illustrations"):
+            book_id = body.get("book_id")
             bpath, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
-            chap_clean_name = re.sub(r"[^\w\u4e00-\u9fa5]", "_", chap_dir)
-            target_dir = os.path.join(bpath, "02_插图", chap_clean_name)
-            os.makedirs(target_dir, exist_ok=True)
-            
-            import base64
-            saved_cnt = 0
-            for fname, b64_str in images.items():
-                try:
-                    img_bytes = base64.b64decode(b64_str)
-                    with open(os.path.join(target_dir, fname), "wb") as ifp:
-                        ifp.write(img_bytes)
-                    saved_cnt += 1
-                except Exception:
-                    pass
-                    
-            if meta:
-                with open(os.path.join(target_dir, "meta.json"), "w", encoding="utf-8") as mfp:
-                    json.dump(meta, mfp, ensure_ascii=False, indent=2)
-                    
-            if "author_note" in meta:
-                with open(os.path.join(target_dir, "作者有话说.md"), "w", encoding="utf-8") as nfp:
-                    nfp.write(meta["author_note"])
-                    
-            self.send_json({"ok": True, "saved_images": saved_cnt})
+            chapter_code = safe_component(body.get("chapter_code"))
+            incoming = body.get("meta", {})
+            filename = safe_component(incoming.get("chapter_filename"))
+            from illustration_generator import chapter_directory
+            if chapter_directory(filename) != chapter_code:
+                raise ValueError("章节与插画目录不匹配")
+            chapter = novel_manager.read_chapter(book_id, filename, BOOKS_DIR)
+            if incoming.get("source_sha256") != hashlib.sha256(chapter.encode()).hexdigest():
+                self.send_json({"error": "章节正文已更新，请重新生成素材"}, 409)
+                return
+            target_dir = within(bpath, "02_插图", chapter_code)
+            old = novel_manager.get_chapter_extras(book_id, filename, BOOKS_DIR).get("meta") or {}
+            if body.get("base_revision", "") != old.get("revision", ""):
+                self.send_json({"error": "素材已被编辑或重新生成，请刷新后重试"}, 409)
+                return
+            note = incoming.get("author_note")
+            comments = incoming.get("chapter_comments")
+            if not isinstance(note, str) or len(note) > 20000 or not isinstance(comments, list) or len(comments) > 20:
+                raise ValueError("生成文案格式无效")
+            if any(not isinstance(comment, str) or len(comment) > 5000 for comment in comments):
+                raise ValueError("生成章评格式无效")
+            images = body.get("images", {})
+            if not isinstance(images, dict):
+                raise ValueError("图片数据格式无效")
+            items = incoming.get("illustrations", [])
+            if not isinstance(items, list) or len(items) > 4 or len(images) != len(items):
+                raise ValueError("图片数量无效")
+            decoded = {}
+            for item in items:
+                image_name = safe_component(item["filename"])
+                if not re.fullmatch(r"[0-9a-f]{32}_[1-4]\.png", image_name):
+                    raise ValueError("图片文件名必须包含本次生成编号")
+                raw = base64.b64decode(images[image_name], validate=True)
+                if len(raw) > 8 * 1024 * 1024 or raw[:8] != b"\x89PNG\r\n\x1a\n" or len(raw) < 32:
+                    raise ValueError("图片格式或大小无效")
+                width, height = struct.unpack(">II", raw[16:24])
+                if width < 800 or height < 450 or width * height > 24000000:
+                    raise ValueError("图片尺寸无效")
+                decoded[image_name] = raw
+            for image_name, raw in decoded.items():
+                image_path = within(target_dir, image_name)
+                if os.path.exists(image_path):
+                    with open(image_path, "rb") as stream:
+                        if stream.read() != raw:
+                            raise ValueError("图片文件名冲突，请重新生成")
+                atomic_write(image_path, raw)
+            meta = dict(incoming)
+            if body.get("notes_only"):
+                meta["illustrations"] = old.get("illustrations", old.get("images", []))
+                meta["style"] = old.get("style", "legacy")
+                meta["count"] = len(meta["illustrations"])
+            for key in ("author_note", "chapter_comments"):
+                if key not in meta:
+                    raise ValueError("生成结果缺少互动文案")
+            atomic_write(os.path.join(target_dir, "作者有话说.md"), meta["author_note"])
+            atomic_write(os.path.join(target_dir, "章节评论.md"), "\n\n".join(meta["chapter_comments"]))
+            save_json_file(os.path.join(target_dir, "meta.json"), meta)
+            self.send_json({"ok": True, "saved_images": len(decoded), "revision": meta["revision"]})
             return
 
         # 番茄发布工作台：一键自动修复错别字与标点规范
@@ -681,7 +851,7 @@ class HubHandler(BaseHTTPRequestHandler):
 
             if not content and fname:
                 bpath, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
-                candidates = glob.glob(os.path.join(bpath, "01_正文", "**", fname), recursive=True)
+                candidates = [p for p in novel_manager.chapter_files(bpath) if os.path.basename(p) == safe_component(fname)]
                 if candidates and os.path.exists(candidates[0]):
                     with open(candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
                         content = fp.read()
@@ -730,9 +900,35 @@ class HubHandler(BaseHTTPRequestHandler):
             if "target_chapter" in extra_data and "chapter_file" not in extra_data:
                 extra_data["chapter_file"] = extra_data["target_chapter"]
 
+            safe_component(book_id)
+            if action != "create_new_novel":
+                novel_manager.get_book_path(book_id, BOOKS_DIR)
+            elif os.path.exists(within(BOOKS_DIR, book_id)):
+                raise ValueError("同名作品已存在，请使用其他书名")
+            chapter_file = extra_data.get("chapter_file")
+            if chapter_file:
+                safe_component(chapter_file)
+            if action in ("generate_chapter_illustrations", "generate_chapter_notes"):
+                if not chapter_file:
+                    raise ValueError("请先选择章节")
+                if not 1 <= int(extra_data.get("image_count", 4)) <= 4:
+                    raise ValueError("图片数量必须为 1 到 4")
+                for existing in TASKS.values():
+                    if (existing["status"] in ("pending", "assigned", "running")
+                            and existing.get("book_id") == book_id and existing.get("action") == action
+                            and existing.get("extra_data", {}).get("chapter_file") == chapter_file):
+                        self.send_json({"ok": True, "task_id": existing["id"], "task": existing})
+                        return
+            request_id = body.get("request_id")
+            if request_id:
+                for existing in TASKS.values():
+                    if existing.get("request_id") == request_id:
+                        self.send_json({"ok": True, "task_id": existing["id"], "task": existing})
+                        return
             tid = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
             task = {
                 "id": tid,
+                "request_id": request_id,
                 "action": action,
                 "sub_action": sub_action,
                 "prompt": prompt,
@@ -757,11 +953,19 @@ class HubHandler(BaseHTTPRequestHandler):
             tid = body.get("id")
             if tid and tid in TASKS:
                 t = TASKS[tid]
-                t["status"] = body.get("status", t["status"])
+                new_status = body.get("status", t["status"])
+                if new_status not in ("running", "completed", "failed"):
+                    raise ValueError("任务状态无效")
+                if t["status"] in ("completed", "failed"):
+                    self.send_json({"ok": True, "terminal": True})
+                    return
+                t["status"] = new_status
+                t["heartbeat_at"] = time.time()
                 log_entry = body.get("log")
                 if log_entry:
-                    t["progress_log"].append(f"[{time.strftime('%H:%M:%S')}] {log_entry}")
-                if t["status"] == "completed":
+                    t["progress_log"].append(f"[{time.strftime('%H:%M:%S')}] {str(log_entry)[:4000]}")
+                    t["progress_log"] = t["progress_log"][-200:]
+                if t["status"] in ("completed", "failed"):
                     t["completed_at"] = time.time()
                     t["result"] = body.get("result")
                     # 失效缓存以更新最新生成的章节与设定
@@ -777,8 +981,17 @@ class HubHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     # 加载任务历史
     tasks_file = os.path.join(DATA_DIR, "tasks.json")
-    TASKS = load_json_file(tasks_file, {})
+    if os.path.exists(tasks_file):
+        with open(tasks_file, encoding="utf-8") as stream:
+            TASKS = json.load(stream)
+    for task in TASKS.values():
+        if task["status"] == "running" and "heartbeat_at" not in task:
+            task.update(status="failed", completed_at=time.time())
+            task.setdefault("progress_log", []).append("旧版本任务缺少完成回执，已结束异常状态。请检查已有成果后重试。")
+        elif task["status"] == "running":
+            task["heartbeat_at"] = time.time()
+    save_json_file(tasks_file, TASKS)
     port = 8899
-    server = HTTPServer(("0.0.0.0", port), HubHandler)
+    server = BoundedHTTPServer((os.environ.get("NOVEL_HUB_BIND", "127.0.0.1"), int(os.environ.get("NOVEL_HUB_PORT", port))), HubHandler)
     print(f"Novel Hub 3.5 Server (Redis Cache & Fast Tomato Engine) running on 0.0.0.0:{port}...")
     server.serve_forever()

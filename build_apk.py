@@ -37,6 +37,9 @@ def handle_remove_readonly(func, path, exc):
     func(path)
 
 def build():
+    resolved_build = os.path.realpath(BUILD_DIR)
+    if os.path.commonpath((os.path.realpath(BASE_DIR), resolved_build)) != os.path.realpath(BASE_DIR) or resolved_build == os.path.realpath(BASE_DIR):
+        raise ValueError("Build directory must remain inside the workspace")
     if os.path.exists(BUILD_DIR):
         try:
             shutil.rmtree(BUILD_DIR, onexc=handle_remove_readonly)
@@ -124,8 +127,11 @@ def build():
     # 7. Zipalign + v1 + v2 + v3 签名使用 uber-apk-signer
     out_signed_dir = os.path.join(BUILD_DIR, "signed")
     os.makedirs(out_signed_dir, exist_ok=True)
+    java_tmp = os.path.join(BUILD_DIR, "java-tmp")
+    os.makedirs(java_tmp, exist_ok=True)
     sign_cmd = [
         JAVA,
+        "-Djava.io.tmpdir=" + java_tmp,
         "-jar", UBER_SIGNER,
         "-a", final_unsigned_apk,
         "--ks", keystore,
@@ -147,7 +153,7 @@ def build():
     shutil.copyfile(signed_apks[0], universal_apk)
 
     size_mb = os.path.getsize(OUTPUT_APK) / (1024 * 1024)
-    print(f"\n🎉 SUCCESS! 【智笔云枢 · NovelRemoteHub】(v1.5.0) 官方正式版 APK 已完成 Zipalign 4字节对齐与 v1/v2/v3 工业级签名！")
+    print(f"\n🎉 SUCCESS! 【智笔云枢 · NovelRemoteHub】(v1.8.0) 官方正式版 APK 已完成 Zipalign 4字节对齐与 v1/v2/v3 工业级签名！")
     print(f"📦 Output path: {OUTPUT_APK} / {universal_apk} ({size_mb:.2f} MB)")
 
 if __name__ == "__main__":
