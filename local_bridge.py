@@ -314,7 +314,9 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
         if not conversation:
             raise RuntimeError("所选模型与备用模型均不可用")
         result = agent_client.wait_for_receipt(receipt, conversation, progress_cb)
-        for filename in result.get("files", []):
+        if not isinstance(result.get("summary"), str) or not result["summary"].strip() or not isinstance(result.get("files"), list):
+            raise ValueError("Antigravity 完成回执缺少有效总结或成果列表")
+        for filename in result["files"]:
             target = Path(filename).resolve()
             if not target.is_relative_to(Path(BOOKS_ROOT).resolve()) or not target.is_file():
                 raise ValueError("AI 回执中包含无效成果路径")
@@ -667,7 +669,7 @@ def run_bridge_loop():
                     api_post("task_progress", {
                         "id": tid, 
                         "status": "completed", 
-                        "log": f"{output.strip()}\n\n🎉 成果已就绪，正在自动同步至多端云枢！"
+                        "log": f"{output.strip()}\n\n成果已校验并同步至云端。"
                     })
                     print(f"[Task] 成功执行任务: {task_title}")
                     # 立即全量同步最新生成的文件

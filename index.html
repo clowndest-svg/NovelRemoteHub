@@ -1063,11 +1063,9 @@
         }
 
         .illustration-img-box img {
-            position: absolute;
-            top: 0;
-            left: 0;
+            display: block;
             width: 100%;
-            height: 100%;
+            height: auto;
             object-fit: cover;
             transition: transform 0.3s ease;
         }
@@ -1422,7 +1420,7 @@
         @media(max-width:600px) {
             #custom-illu-prompt { width:100%; flex-basis:100%; }
             #custom-illu-prompt + button { width:100%; }
-            div:has(> #custom-illu-prompt) { flex-wrap:wrap; }
+            .illustration-prompt-row { flex-wrap:wrap; }
             .illustrations-gallery-grid { grid-template-columns:minmax(0,1fr); }
         }
     </style>
@@ -1824,7 +1822,7 @@
                             <span style="font-size:11px; color:var(--text-dim);">支持生成 1~4 张对应不同高潮名场面</span>
                         </div>
 
-                        <div style="display:flex; gap:8px;">
+                        <div class="illustration-prompt-row" style="display:flex; gap:8px;">
                             <input type="text" id="custom-illu-prompt" class="search-input" placeholder="💡 可选：补充本章画面重点 / 运镜氛围 (留空则由 AI 自动提炼四大高潮瞬间)..." style="font-size:12px; padding:7px 10px;">
                             <button id="btn-launch-illu" class="btn-card-action" style="background:linear-gradient(135deg, #eab308, #a855f7); color:#000; font-weight:800; border:none; padding:7px 14px; white-space:nowrap; cursor:pointer;" onclick="launchIllustrationGeneration()">
                                 🚀 唤醒 AI 绘制插图
@@ -2388,7 +2386,7 @@
             const statW = document.getElementById("stat-words-count");
             if (statW) statW.innerText = totalWords > 10000 ? (totalWords / 10000).toFixed(1) + "万" : totalWords;
             
-            document.getElementById("stat-settings-count").innerText = BOOKS.find(book => book.id === CURRENT_BOOK)?.settings_count || 0;
+            document.getElementById("stat-settings-count").innerText = (BOOKS.find(book => book.id === CURRENT_BOOK) || {}).settings_count || 0;
             renderCatalogCards();
             updateNextLabel();
             if (typeof populateTomatoChapterSelect === 'function') populateTomatoChapterSelect();
@@ -2530,10 +2528,10 @@
 
             try {
                 const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(book)}&file=${encodeURIComponent(c.filename)}`);
-                if (CURRENT_BOOK !== book || CHAPTERS[CURRENT_INDEX]?.filename !== c.filename) return;
+                if (CURRENT_BOOK !== book || (CHAPTERS[CURRENT_INDEX] || {}).filename !== c.filename) return;
                 if (res && res.content) {
                     CLIENT_CACHE.chapterContent[cacheKey] = res.content;
-                    if (CURRENT_BOOK !== book || CHAPTERS[CURRENT_INDEX]?.filename !== c.filename) return;
+                    if (CURRENT_BOOK !== book || (CHAPTERS[CURRENT_INDEX] || {}).filename !== c.filename) return;
                     document.getElementById("chapter-content").innerText = res.content;
                 } else if (!CLIENT_CACHE.chapterContent[cacheKey]) {
                     document.getElementById("chapter-content").innerText = "正文读取失败";
@@ -3327,7 +3325,7 @@
                     action: notesOnly ? "generate_chapter_notes" : "generate_chapter_illustrations",
                     book_id: book, chapter_file: file, image_count: SELECTED_ILLU_COUNT,
                     model_tier: CURRENT_MODEL_TIER,
-                    request_id: crypto.randomUUID(),
+                    request_id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`),
                     custom_prompt: document.getElementById("custom-illu-prompt").value.trim()
                 })
             });

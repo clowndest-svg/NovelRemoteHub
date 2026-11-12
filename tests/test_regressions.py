@@ -357,6 +357,30 @@ class RegressionTests(unittest.TestCase):
         payload['images'][filename] = base64.b64encode(raw[:32]).decode()
         self.assertEqual(self.request('/api/sync_illustrations', payload)[0], 400)
 
+    def test_creative_receipt_requires_summary_and_files(self):
+        import sys
+        streams = sys.stdout, sys.stderr, sys.excepthook
+        try:
+            import local_bridge
+        finally:
+            sys.stdout, sys.stderr, sys.excepthook = streams
+        with patch.object(local_bridge, 'BOOKS_ROOT', str(self.root)), patch.object(local_bridge, 'ensure_antigravity_running', return_value=(True, 'ready')), patch('agent_client.new_conversation', return_value='id'), patch('agent_client.wait_for_receipt', return_value={}):
+            ok, message = local_bridge.execute_agentapi('核对设定')
+        self.assertFalse(ok)
+        self.assertIn('完成回执', message)
+
+    def test_creative_receipt_accepts_verified_summary(self):
+        import sys
+        streams = sys.stdout, sys.stderr, sys.excepthook
+        try:
+            import local_bridge
+        finally:
+            sys.stdout, sys.stderr, sys.excepthook = streams
+        with patch.object(local_bridge, 'BOOKS_ROOT', str(self.root)), patch.object(local_bridge, 'ensure_antigravity_running', return_value=(True, 'ready')), patch('agent_client.new_conversation', return_value='id'), patch('agent_client.wait_for_receipt', return_value={'summary': '已核对设定', 'files': []}):
+            ok, message = local_bridge.execute_agentapi('核对设定')
+        self.assertTrue(ok)
+        self.assertIn('已核对设定', message)
+
 
 if __name__ == '__main__':
     unittest.main()
