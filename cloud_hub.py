@@ -426,7 +426,7 @@ class HubHandler(BaseHTTPRequestHandler):
             return
 
         # 手机端下发创作指令
-        if path == "/api/dispatch_task" or path == "/novel/api/dispatch_task":
+        if path in ["/api/dispatch_task", "/novel/api/dispatch_task", "/api/task", "/novel/api/task"]:
             if not self.check_auth():
                 self.send_json({"error": "Unauthorized"}, 401)
                 return
@@ -453,7 +453,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 "result": None
             }
             TASKS[tid] = task
-            self.send_json({"ok": True, "task": task})
+            self.send_json({"ok": True, "task_id": tid, "task": task})
             return
 
         # 本地桥接器回报任务进度与流式结果

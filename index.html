@@ -1525,15 +1525,16 @@
             const termText = document.getElementById("task-terminal");
             if (termText) termText.innerText = `[${new Date().toLocaleTimeString()}] 正在检测电脑进程健康与 Clash Verge 代理端口连通性...`;
 
-            const res = await fetchAPI(`${API}/task`, {
+            const res = await fetchAPI(`${API}/dispatch_task`, {
                 method: "POST",
                 body: JSON.stringify({
                     action: "wake_antigravity",
                     book_id: CURRENT_BOOK
                 })
             });
-            if (res && res.task_id) {
-                ACTIVE_TASK_ID = res.task_id;
+            const tid = res ? (res.task_id || (res.task && res.task.id)) : null;
+            if (tid) {
+                ACTIVE_TASK_ID = tid;
                 startPolling(async () => {
                     checkStatus();
                 });
