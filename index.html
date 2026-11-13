@@ -2095,9 +2095,10 @@
                     message.innerText = data.error || '登录失败，请检查口令后重试';
                     return;
                 }
+                const lifetime = Number(data.expires_in);
+                if (!Number.isFinite(lifetime) || lifetime <= 0) throw new Error('登录有效期无效');
                 TOKEN = data.token;
-                TOKEN_EXPIRES_AT = Number(data.expires_at) * 1000;
-                if (!Number.isFinite(TOKEN_EXPIRES_AT) || TOKEN_EXPIRES_AT <= Date.now()) throw new Error('登录有效期无效');
+                TOKEN_EXPIRES_AT = Date.now() + Math.min(lifetime * 1000, SESSION_CACHE_MS);
                 localStorage.setItem('novel_token', TOKEN);
                 localStorage.setItem('novel_token_expires_at', String(TOKEN_EXPIRES_AT));
                 syncAccessCookie();
