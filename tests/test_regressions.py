@@ -151,6 +151,29 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': count})[0], 400)
         self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'polish', 'chapter_count': 2})[0], 400)
 
+    def test_concurrent_serial_retry_creates_one_task(self):
+        def dispatch_once(_):
+            return self.dispatch(action='creative_instruction', request_id='concurrent-retry', extra_data={'workflow': 'serial', 'chapter_count': 3})[1]['task_id']
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            identifiers = list(executor.map(dispatch_once, range(4)))
+        self.assertEqual(len(set(identifiers)), 1)
+        self.assertEqual(len(hub.TASKS), 1)
+
+    def test_serial_active_duplicates_reuse_task(self):
+        payload = dict(action='creative_instruction', prompt='连续续写', extra_data={'workflow': 'serial', 'chapter_count': 10})
+        first = self.dispatch(**payload)[1]
+        second = self.dispatch(**payload)[1]
+        self.assertEqual(first['task_id'], second['task_id'])
+        self.assertTrue(second['deduplicated'])
+        hub.TASKS[first['task_id']]['status'] = 'completed'
+        third = self.dispatch(**payload)[1]
+        self.assertNotEqual(first['task_id'], third['task_id'])
+
+    def test_request_id_payload_conflict_rejected(self):
+        self.dispatch(action='creative_instruction', request_id='retry', prompt='A')
+        self.assertEqual(self.dispatch(action='creative_instruction', request_id='retry', prompt='B')[0], 400)
+        self.assertEqual(len(hub.TASKS), 1)
+
     def test_pending_task_reports_queue_and_active_progress(self):
         _, first = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 10})
         _, second = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 3})
@@ -653,6 +676,18 @@ class SerialWritingTests(unittest.TestCase):
         self.assertIn('第2章承接前情', self.prompts[1])
         self.assertIn('人物位置与认知', self.prompts[1])
         self.assertEqual((self.directory / '第001章_起点.md').read_text(encoding='utf-8'), '第一章前情与伏笔')
+
+    def test_ten_then_three_starts_twentieth_then_thirtieth(self):
+        original = self.directory / '第001章_起点.md'
+        original.rename(self.directory / '第019章_前情.md')
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=self.write_chapter), patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(True, 0, 0)):
+            self.assertTrue(self.run_serial(10)[0])
+            self.assertTrue(self.run_serial(3)[0])
+        self.assertIn('第020章', self.prompts[0])
+        self.assertIn('第029章', self.prompts[9])
+        self.assertIn('第030章', self.prompts[10])
+        self.assertIn('第032章', self.prompts[12])
+        self.assertEqual(len(list(self.directory.glob('*.md'))), 14)
 
     def test_failure_stops_remaining_chapters(self):
         def execute(prompt, **kwargs):

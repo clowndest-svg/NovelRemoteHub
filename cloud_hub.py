@@ -1018,11 +1018,21 @@ class HubHandler(BaseHTTPRequestHandler):
                         self.send_json({"ok": True, "task_id": existing["id"], "task": existing})
                         return
             request_id = body.get("request_id")
-            if request_id:
-                for existing in TASKS.values():
-                    if existing.get("request_id") == request_id:
-                        self.send_json({"ok": True, "task_id": existing["id"], "task": existing})
-                        return
+            if request_id is not None and (not isinstance(request_id, str) or not request_id or len(request_id) > 128):
+                raise ValueError("请求编号无效")
+            def same_request(existing):
+                return (existing.get('action') == action and existing.get('book_id') == book_id
+                    and existing.get('engine_mode') == engine_mode and existing.get('prompt', '') == prompt
+                    and existing.get('sub_action', '') == sub_action and existing.get('extra_data') == extra_data)
+            for existing in TASKS.values():
+                same_id = request_id and existing.get('request_id') == request_id
+                active_serial = (action == 'creative_instruction' and extra_data.get('workflow') == 'serial'
+                    and existing.get('status') in ('pending', 'assigned', 'running') and same_request(existing))
+                if same_id and not same_request(existing):
+                    raise ValueError("该请求编号已用于其他任务，请使用新编号")
+                if same_id or active_serial:
+                    self.send_json({"ok": True, "task_id": existing['id'], "task": existing, "deduplicated": True})
+                    return
             tid = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
             task = {
                 "id": tid,

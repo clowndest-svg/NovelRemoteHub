@@ -2813,11 +2813,21 @@
             btn.disabled = true;
             btn.innerText = `⏳ 正在调度 ${CURRENT_MODEL_TIER.toUpperCase()} 唤醒电脑...`;
 
+            const intent = JSON.stringify({ book: CURRENT_BOOK, prompt, workflow: CURRENT_WORKFLOW,
+                count: CURRENT_WORKFLOW === 'serial' ? Number(document.getElementById('serial-chapter-count').value) : 1,
+                engine: CURRENT_ENGINE, model: CURRENT_MODEL_TIER, effort: CURRENT_REASONING_EFFORT });
+            let submission;
+            try { submission = JSON.parse(localStorage.getItem('novel_submission_retry') || 'null'); } catch (error) {}
+            if (!submission || submission.intent !== intent) {
+                submission = { intent, id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}` };
+                localStorage.setItem('novel_submission_retry', JSON.stringify(submission));
+            }
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
                     method: "POST",
                     body: JSON.stringify({
                         action: "creative_instruction",
+                        request_id: submission.id,
                         prompt: prompt,
                         book_id: CURRENT_BOOK,
                         engine_mode: CURRENT_ENGINE,
@@ -2830,11 +2840,12 @@
                 });
 
                 if (res.ok) {
+                    localStorage.removeItem('novel_submission_retry');
                     ACTIVE_TASK_ID = res.task.id;
                     document.getElementById("term-container").style.display = "block";
                     const modelDisplayName = (currentModel() || {}).name || CURRENT_MODEL_TIER;
                     document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 ${modelDisplayName} 执行任务...`;
-                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在连接所选桌面执行端...`;
+                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] ${res.deduplicated ? "已关联现有任务" : "任务已建立"} (${ACTIVE_TASK_ID})\n正在连接所选桌面执行端...`;
                     startPolling(async () => {
                         await loadChapters();
                         alert("🎉 创作任务完成！新章节已同步，快去阅读吧！");
