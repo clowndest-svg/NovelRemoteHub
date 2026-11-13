@@ -384,15 +384,26 @@ def serial_chapter_prompt(book_id, user_prompt):
     pad_num = f"{next_chapter_num:03d}"
 
     prev_chapter_file = c_files[-1] if c_files else None
-    prev_chapter_tail = ""
+    prev_chapter_content = ""
+    prev_chapter_hook = ""
     if prev_chapter_file:
         with open(prev_chapter_file, "r", encoding="utf-8", errors="ignore") as fp:
-            prev_chapter_tail = fp.read()[-2000:]
+            prev_raw = fp.read()
+            prev_chapter_content = prev_raw if len(prev_raw) <= 5000 else prev_raw[:1000] + "\n\n……（中略）……\n\n" + prev_raw[-4000:]
+            prev_chapter_hook = prev_raw[-600:].strip()
 
-    # 收集全套设定集清单
+    # 1. 优先读取全书前情剧情与伏笔总账本
+    ledger_content = ""
+    ledger_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*伏笔*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*账本*.md"))
+    if ledger_candidates:
+        with open(ledger_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
+            ledger_content = fp.read()
+
+    # 2. 收集全套设定集清单
     setting_files = sorted(glob.glob(os.path.join(book_root, "00_设定集", "*.md")))
     setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
 
+    # 3. 提取分章细纲
     outline_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*细纲*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*大纲*.md"))
     chapter_outline = ""
     if outline_candidates:
@@ -404,39 +415,56 @@ def serial_chapter_prompt(book_id, user_prompt):
                 chapter_outline = m.group(1).strip()
 
     prompt = f"""【《{book_id}》小说新章节创作指令 · 第{pad_num}章】
-你正在为番茄小说作品《{book_id}》创作全新正文第{pad_num}章。
+你正在为番茄爆款网文《{book_id}》创作全新正文第{pad_num}章。
 当前小说工程工作区：`{book_root}`
-上一章正文文件路径：`{prev_chapter_file if prev_chapter_file else "（首章）"}`
+上一章正文文件路径：`{prev_chapter_file if prev_chapter_file else "（首章开篇）"}`
 
-【全套设定集文档清单（必须严格对照，杜绝任何设定冲突）】：
+【全套设定大典文档清单（必须严格对照，严禁设定冲突与吃书）】：
 {setting_file_list_str}
 
-【上一章末尾衔接剧情与悬念钩子】：
+【全书前情剧情脉络、人物实时状态与伏笔总账本】：
 \"\"\"
-{prev_chapter_tail}
+{ledger_content if ledger_content else "请先调用 read_file 查阅 00_设定集 下的全部大纲与设定文档，掌握全书剧情脉络与人物状态。"}
 \"\"\"
 
-【本章分章细纲规划】：
+【上一章完整剧情正文与章末生死悬念钩子】：
 \"\"\"
-{chapter_outline if chapter_outline else f"第{pad_num}章按全书细纲与主线总谱剧情推进，承接上一章伏笔"}
+{prev_chapter_content if prev_chapter_content else "（本章为全书开篇首章）"}
+\"\"\"
+★ 上一章末尾悬念钩子（本章开篇前三句话内必须严密无缝衔接）：
+\"\"\"
+{prev_chapter_hook}
+\"\"\"
+
+【本章分章细纲精准规划】：
+\"\"\"
+{chapter_outline if chapter_outline else f"第{pad_num}章按全书细纲与主线总谱推进，承接上一章伏笔，严密推进核心冲突"}
 \"\"\"
 
 【作者指令附加要求】：
 \"\"\"
-{user_prompt if user_prompt else "按大纲极致推演，强化剧情反差张力，章末设置引人点击下一章的王炸悬念钩子"}
+{user_prompt if user_prompt else "按大纲极致推演，强化剧情反差张力，严格遵循生产力演进铁律，章末设置引人点击下一章的强力断章钩子"}
 \"\"\"
 
-【必须执行的工作流 SOP（铁律执行）】：
-1. 步骤1：调用 read_file 读取上一章正文（路径：`{prev_chapter_file}`），确保剧情节奏、人物台词对白与章末悬念钩子无缝衔接，逻辑严密！
-2. 步骤2：检索并查阅 `{book_root}\\00_设定集\\` 目录下全部设定文档，并读取本书根目录存在的 GEMINI.md，确保严格遵循本书既有世界观、人物设定和创作规范；
-3. 步骤3：遵循番茄小说行文规范（中文全角双引号“”、移动端短段落排版、戏带设定、每章必留抓人点击下一章的强力断章钩子）；
-4. 步骤4：篇幅要求：默认4000-5000字，作者明确指定篇幅时遵循作者要求，情节饱满，节奏极度紧凑；
-5. 步骤5：创作完成后直接调用 write_file 写入对应文件路径：
+【必须执行的工作流 SOP（铁律执行·严禁违背）】：
+1. 步骤1（前情与设定核验）：动笔前必须研读上述【全书前情与伏笔账本】及相关设定集（大纲、人物、境界、民生篇）。核对当前登场角色状态、所在位置、当前科技树上限，严禁吃书，严禁空降超纲科技！
+2. 步骤2（历史章节精准溯源）：若本章剧情涉及前序特定章节的历史事件（如伏笔回收、特定装备原理、此前某位配角的约定），直接调用 read_file 调阅对应历史章节正文对账，确保因果绝对严密！
+3. 步骤3（前章无缝因果咬合）：本章开篇必须紧密接住上一章末尾的悬念钩子与人物动作心理，前三句话内拉满悬念张力，杜绝任何断层脱节！
+4. 步骤4（番茄小说爆款行文规范）：
+   - 对话统一使用规范中文全角双引号“”，严禁日式直角引号；
+   - 移动端排版呼吸感：1-3句话一段，长段落坚决拆分；
+   - 戏带设定：高深物理与修仙原理必须通过人物打脸、动手制造、激烈冲突展示，杜绝枯燥说明文；
+   - 章末设置强力吸睛悬念断章钩子，驱动读者欲罢不能点击下一章！
+5. 步骤5（篇幅与落盘）：默认4000-5000字，情节饱满，节奏极度紧凑。创作完成后直接调用 write_file 写入对应文件路径：
    `{book_root}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
 """
     prompt += f"""
-本轮只创作第{pad_num}章，以本轮编号为准。先完整阅读最新前章、本章细纲及相关设定，核对时间线、人物位置与认知、能力限制和未解伏笔。
-逐项检查前章结尾到本章开头的因果衔接，结尾为后章留下可承接状态。存在设定矛盾时停止并报告。
+【防吃书四项硬性自检】：
+本轮只创作第{pad_num}章，以本轮编号为准。
+① 人物口吻：顾见微（怨种嘴碎社畜+学术暴君双重反差）、政哥（千古一帝霸烈甲方）；
+② 科技树边界：严守当前工业底座，核对能力限制，严禁跳跃到中后期宇宙神级科技；
+③ 因果连续：时间线、地理方位、人物位置与认知严格承接；
+④ 伏笔推进：承接前文伏笔，并在结尾为后章留下明确钩子。存在设定矛盾时立即停止并报告。
 仅新增本轮章节，不改写历史正文或设定，不提前创作后续章节。
 """
     return prompt, next_chapter_num
