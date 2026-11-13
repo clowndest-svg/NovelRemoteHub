@@ -650,8 +650,11 @@ class HubHandler(BaseHTTPRequestHandler):
                     t.update(status="failed", completed_at=now)
                     t["progress_log"].append("本地执行端失去心跳，请确认 Antigravity 中的执行结果后重试")
                     save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
-                is_stale_assigned = (t["status"] == "assigned" and (now - t.get("assigned_at", t.get("created_at", now))) > 30)
+                is_stale_assigned = (t["status"] == "assigned" and (now - t.get("heartbeat_at", t.get("assigned_at", t.get("created_at", now)))) > 30)
                 if t["status"] == "pending" or is_stale_assigned:
+                    if any(other_id != tid and other.get('book_id') == t.get('book_id')
+                           and other.get('status') in ('assigned', 'running') for other_id, other in TASKS.items()):
+                        continue
                     t["status"] = "assigned"
                     t["assigned_at"] = now
                     save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)

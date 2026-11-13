@@ -174,6 +174,14 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(self.dispatch(action='creative_instruction', request_id='retry', prompt='B')[0], 400)
         self.assertEqual(len(hub.TASKS), 1)
 
+    def test_same_book_has_one_active_claim(self):
+        first = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 10})[1]
+        second = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 3})[1]
+        self.assertEqual(self.request('/api/pending_task')[1]['task']['id'], first['task_id'])
+        self.assertIsNone(self.request('/api/pending_task')[1]['task'])
+        hub.TASKS[first['task_id']]['status'] = 'completed'
+        self.assertEqual(self.request('/api/pending_task')[1]['task']['id'], second['task_id'])
+
     def test_pending_task_reports_queue_and_active_progress(self):
         _, first = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 10})
         _, second = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 3})
