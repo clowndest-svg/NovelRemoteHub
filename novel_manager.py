@@ -153,7 +153,11 @@ def get_user_settings(config_dir=None):
         "auto_check_ledger": True,
         "strict_tomato_layout": True,
         "theme_mode": "dark-gold",
-        "reader_font_size": 20
+        "reader_font_size": 20,
+        "deepseek_enabled": False,
+        "deepseek_api_key": "",
+        "deepseek_base_url": "https://api.deepseek.com",
+        "deepseek_default_model": "deepseek-chat"
     }
     if os.path.exists(cfg_path):
         try:

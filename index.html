@@ -1437,6 +1437,107 @@
         .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
         .setting-item:last-child { border-bottom: none; }
         .setting-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+        /* 移动端统一黑金抽屉选择器 (彻底解决原生系统丑陋白底弹窗) */
+        .novel-picker-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 12000;
+            display: none;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .novel-picker-overlay.show { display: flex; }
+        .novel-picker-sheet {
+            background: linear-gradient(180deg, #111827 0%, #080d1a 100%);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-bottom: none;
+            border-radius: 18px 18px 0 0;
+            width: 100%;
+            max-width: 560px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.8), 0 0 20px rgba(245, 158, 11, 0.15);
+            animation: sheetSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes sheetSlideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .novel-picker-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .novel-picker-title {
+            font-size: 15px; font-weight: 800; color: #fbbf24;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .novel-picker-items {
+            overflow-y: auto; padding: 14px 16px 30px;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .novel-picker-option {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 13px 16px;
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+        .novel-picker-option:active {
+            transform: scale(0.98);
+        }
+        .novel-picker-option.active {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: #f59e0b;
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+        }
+        .novel-picker-option.active .opt-label {
+            color: #fbbf24; font-weight: bold;
+        }
+        .novel-picker-option.disabled {
+            opacity: 0.35; cursor: not-allowed;
+        }
+        .opt-label {
+            font-size: 14px; color: var(--text-main); line-height: 1.4;
+        }
+        .opt-indicator {
+            width: 20px; height: 20px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; margin-left: 12px;
+            color: #f59e0b;
+        }
+
+        /* 统一全局 Toast 系统 (消灭系统原生 alert 白框) */
+        .novel-toast {
+            position: fixed;
+            top: 24px; left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-radius: 30px;
+            padding: 10px 22px;
+            color: #f8fafc;
+            font-size: 13px; font-weight: 600;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8), 0 0 15px rgba(245, 158, 11, 0.2);
+            backdrop-filter: blur(10px);
+            z-index: 99999;
+            pointer-events: none;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex; align-items: center; max-width: 90vw; text-align: center;
+        }
+        .novel-toast.show {
+            opacity: 1; transform: translateX(-50%) translateY(0);
+        }
+        .novel-toast.success { border-color: #10b981; box-shadow: 0 10px 30px rgba(0,0,0,0.8), 0 0 15px rgba(16, 185, 129, 0.3); }
+        .novel-toast.error { border-color: #ef4444; box-shadow: 0 10px 30px rgba(0,0,0,0.8), 0 0 15px rgba(239, 68, 68, 0.3); }
     </style>
 </head>
 <body>
@@ -2122,6 +2223,50 @@
                         <input type="checkbox" id="setting-strict-tomato" checked style="accent-color:var(--accent); width:18px; height:18px;">
                     </div>
                 </div>
+
+                <!-- 3. DeepSeek 官方大模型 API 引擎配置 -->
+                <div class="setting-card" style="border-color: rgba(56, 189, 248, 0.4);">
+                    <div class="setting-card-title" style="color: #38bdf8;">
+                        <span>🔮</span>
+                        <span>DeepSeek 官方 API 直连创作引擎</span>
+                    </div>
+                    <div style="font-size:11px; color:var(--text-sub); line-height:1.5; margin-bottom:12px;">
+                        配置 DeepSeek 官方 API 后，手机端无需电脑开机即可全天候直连调用 <b>DeepSeek-V3</b>（极速满血版）与 <b>DeepSeek-R1</b>（深度思维链推理），并在执行端随时切换！
+                    </div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">启用 DeepSeek 直连创作与智审通道</div>
+                            <div class="setting-desc">开启后，顶部执行端列表中将立即呈现 DeepSeek 引擎</div>
+                        </div>
+                        <input type="checkbox" id="setting-deepseek-enabled" style="accent-color:#38bdf8; width:18px; height:18px;" onchange="toggleDeepSeekFields()">
+                    </div>
+                    <div id="deepseek-fields-group" style="margin-top:10px;">
+                        <div class="input-group">
+                            <label class="input-label" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>🔑 DeepSeek 官方 API Key (sk-...)</span>
+                                <span style="font-size:11px; color:#38bdf8; cursor:pointer;" onclick="toggleApiKeyVisibility()">👁️ 查看/隐藏密钥</span>
+                            </label>
+                            <input type="password" id="setting-deepseek-key" class="input-text" placeholder="在此粘贴您的 sk-xxxxxxxxxxxx API 密钥">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">🌐 官方 API 地址 (Base URL)</label>
+                            <input type="text" id="setting-deepseek-url" class="input-text" placeholder="https://api.deepseek.com" value="https://api.deepseek.com">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">🎯 默认创作模型偏好</label>
+                            <select id="setting-deepseek-model" class="select-box">
+                                <option value="deepseek-chat">DeepSeek-V3 (极速满血版 671B · 绝美文笔)</option>
+                                <option value="deepseek-reasoner">DeepSeek-R1 (深度思维链推理 · 伏笔战力统筹)</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+                            <button type="button" class="btn-new-book-quick" style="border-color:#38bdf8; color:#38bdf8; padding:6px 14px; font-size:11px;" onclick="testDeepSeekKey()">
+                                🔍 一键测试 API 连通性
+                            </button>
+                            <span id="deepseek-test-status" style="font-size:11px;"></span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div style="display:flex; gap:10px; margin-top:14px;">
@@ -2164,6 +2309,17 @@
             <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="submitNewNovelArchitecture()">
                 🔥 执行当前类型，生成架构与设定集
             </button>
+        </div>
+    </div>
+
+    <!-- 移动端统一黑金抽屉选择器 (消灭原生系统丑陋白底单选框) -->
+    <div id="novel-picker-modal" class="novel-picker-overlay" onclick="closeNovelPicker(event)">
+        <div class="novel-picker-sheet" onclick="event.stopPropagation()">
+            <div class="novel-picker-header">
+                <div id="novel-picker-title" class="novel-picker-title">⚡ 请选择选项</div>
+                <button class="close-btn" onclick="closeNovelPicker()">&times;</button>
+            </div>
+            <div id="novel-picker-items" class="novel-picker-items"></div>
         </div>
     </div>
 
@@ -2275,6 +2431,7 @@
         });
 
         async function initApp() {
+            initAllCustomPickers();
             checkStatus();
             setInterval(checkStatus, 10000);
             if (!TOKEN) await requestAccessLogin();
@@ -2882,6 +3039,146 @@
             }
         }
 
+        // --- 统一全局黑金 Toast 通知系统 (彻底取代系统丑陋原生 alert 白框) ---
+        function showToast(message, type = "info") {
+            let toast = document.getElementById("novel-toast");
+            if (!toast) {
+                toast = document.createElement("div");
+                toast.id = "novel-toast";
+                toast.className = "novel-toast";
+                document.body.appendChild(toast);
+            }
+            toast.className = `novel-toast show ${type}`;
+            const icon = type === "success" ? "✓ " : (type === "error" ? "⚠️ " : "ℹ️ ");
+            toast.innerHTML = `<span style="margin-right:6px;">${icon}</span><span>${escapeHtml(String(message))}</span>`;
+            clearTimeout(toast._timer);
+            toast._timer = setTimeout(() => {
+                toast.classList.remove("show");
+            }, 3200);
+        }
+        window.alert = function(msg) {
+            showToast(msg, "info");
+        };
+
+        // --- 统一移动端黑金抽屉选择器 (彻底解决原生系统白底单选框丑陋问题) ---
+        function openNovelPicker(selectId, customTitle) {
+            const select = document.getElementById(selectId);
+            if (!select || select.disabled) return;
+            const modal = document.getElementById("novel-picker-modal");
+            const titleEl = document.getElementById("novel-picker-title");
+            const container = document.getElementById("novel-picker-items");
+            if (!modal || !container) return;
+
+            let title = customTitle;
+            if (!title) {
+                if (selectId === "agent-type-select") title = "⚡ 选择执行类型 / 创作引擎";
+                else if (selectId === "agent-model-select") title = "🤖 选择创作大模型";
+                else if (selectId === "agent-effort-select") title = "🧠 选择思考与推理等级";
+                else title = "⚡ 请选择";
+            }
+            if (titleEl) titleEl.innerText = title;
+
+            const options = Array.from(select.options);
+            const currentValue = select.value;
+
+            container.innerHTML = options.map(opt => {
+                const isSelected = (opt.value === currentValue);
+                const isDisabled = opt.disabled;
+                return `
+                    <div class="novel-picker-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}" 
+                         onclick="${isDisabled ? '' : `chooseNovelPickerOption('${selectId}', ${htmlArgument(opt.value)})`}">
+                        <div style="flex:1; min-width:0;">
+                            <div class="opt-label">${escapeHtml(opt.text)}</div>
+                        </div>
+                        <div class="opt-indicator">${isSelected ? '●' : '○'}</div>
+                    </div>
+                `;
+            }).join("");
+
+            modal.classList.add("show");
+        }
+
+        function chooseNovelPickerOption(selectId, value) {
+            const select = document.getElementById(selectId);
+            if (select) {
+                select.value = value;
+                select.dispatchEvent(new Event('change'));
+            }
+            closeNovelPicker();
+        }
+
+        function closeNovelPicker(e) {
+            const modal = document.getElementById("novel-picker-modal");
+            if (modal) modal.classList.remove("show");
+        }
+
+        function bindCustomPickerToSelect(selectId, title) {
+            const sel = document.getElementById(selectId);
+            if (!sel || sel._hasCustomPicker) return;
+            sel._hasCustomPicker = true;
+            const handler = function(e) {
+                if (sel.disabled) return;
+                e.preventDefault();
+                e.stopPropagation();
+                openNovelPicker(selectId, title);
+            };
+            sel.addEventListener('mousedown', handler);
+            sel.addEventListener('touchstart', handler, { passive: false });
+        }
+
+        function initAllCustomPickers() {
+            bindCustomPickerToSelect("agent-type-select", "⚡ 选择执行类型 / 创作引擎");
+            bindCustomPickerToSelect("agent-model-select", "🤖 选择创作大模型");
+            bindCustomPickerToSelect("agent-effort-select", "🧠 选择思考与推理等级");
+        }
+
+        // --- DeepSeek 专用设置与连通性测试 ---
+        function toggleDeepSeekFields() {
+            const enabled = document.getElementById("setting-deepseek-enabled").checked;
+            const group = document.getElementById("deepseek-fields-group");
+            if (group) {
+                group.style.opacity = enabled ? "1" : "0.5";
+                group.style.pointerEvents = enabled ? "auto" : "none";
+            }
+        }
+
+        function toggleApiKeyVisibility() {
+            const input = document.getElementById("setting-deepseek-key");
+            if (input) {
+                input.type = (input.type === "password") ? "text" : "password";
+            }
+        }
+
+        async function testDeepSeekKey() {
+            const key = (document.getElementById("setting-deepseek-key").value || "").trim();
+            const url = (document.getElementById("setting-deepseek-url").value || "").trim();
+            const statusEl = document.getElementById("deepseek-test-status");
+            if (!key) {
+                showToast("请先输入 DeepSeek API Key 再测试！", "error");
+                return;
+            }
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color:#38bdf8;">⏳ 正在测试连通性...</span>`;
+            }
+            try {
+                const res = await fetchAPI(`${API}/test_deepseek`, {
+                    method: "POST",
+                    body: JSON.stringify({ api_key: key, base_url: url })
+                });
+                if (res && res.ok) {
+                    if (statusEl) statusEl.innerHTML = `<span style="color:#10b981; font-weight:bold;">✓ ${escapeHtml(res.message)}</span>`;
+                    showToast(res.message, "success");
+                } else {
+                    const msg = (res && res.message) || "连通性测试未通过";
+                    if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">⚠️ ${escapeHtml(msg)}</span>`;
+                    showToast(msg, "error");
+                }
+            } catch (err) {
+                if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">⚠️ 请求异常: ${escapeHtml(err.message)}</span>`;
+                showToast("测试异常：" + err.message, "error");
+            }
+        }
+
         // --- 全局系统设置与防吃书规则 ---
         async function openSettingsModal() {
             document.getElementById("settings-modal").classList.add("show");
@@ -2910,6 +3207,20 @@
                     if (document.getElementById("setting-strict-tomato")) {
                         document.getElementById("setting-strict-tomato").checked = s.strict_tomato_layout !== false;
                     }
+                    // DeepSeek 字段加载
+                    if (document.getElementById("setting-deepseek-enabled")) {
+                        document.getElementById("setting-deepseek-enabled").checked = Boolean(s.deepseek_enabled);
+                    }
+                    if (document.getElementById("setting-deepseek-key")) {
+                        document.getElementById("setting-deepseek-key").value = s.deepseek_api_key || "";
+                    }
+                    if (document.getElementById("setting-deepseek-url")) {
+                        document.getElementById("setting-deepseek-url").value = s.deepseek_base_url || "https://api.deepseek.com";
+                    }
+                    if (document.getElementById("setting-deepseek-model")) {
+                        document.getElementById("setting-deepseek-model").value = s.deepseek_default_model || "deepseek-chat";
+                    }
+                    toggleDeepSeekFields();
                 }
             } catch (err) {
                 console.error("加载设置失败", err);
@@ -2928,7 +3239,11 @@
                 batch_count: parseInt(document.getElementById("setting-batch-count").value) || 1,
                 auto_check_ledger: document.getElementById("setting-check-ledger").checked,
                 auto_read_previous: document.getElementById("setting-read-previous").checked,
-                strict_tomato_layout: document.getElementById("setting-strict-tomato").checked
+                strict_tomato_layout: document.getElementById("setting-strict-tomato").checked,
+                deepseek_enabled: document.getElementById("setting-deepseek-enabled").checked,
+                deepseek_api_key: (document.getElementById("setting-deepseek-key").value || "").trim(),
+                deepseek_base_url: (document.getElementById("setting-deepseek-url").value || "").trim(),
+                deepseek_default_model: document.getElementById("setting-deepseek-model").value
             };
             
             const btn = document.getElementById("btn-save-settings");
@@ -2939,13 +3254,15 @@
                     body: JSON.stringify(payload)
                 });
                 if (res && res.ok) {
-                    alert("⚙️ 全局设置与长篇防吃书规则已成功保存生效！");
+                    showToast("⚙️ 全局设置与 DeepSeek API 规则已成功保存生效！", "success");
                     closeSettingsModal();
+                    // 刷新一次模型目录
+                    await refreshAgentCatalog();
                 } else {
-                    alert("保存失败：" + ((res && res.error) || "未知错误"));
+                    showToast("保存失败：" + ((res && res.error) || "未知错误"), "error");
                 }
             } catch (err) {
-                alert("保存异常：" + err.message);
+                showToast("保存异常：" + err.message, "error");
             } finally {
                 if (btn) { btn.disabled = false; btn.innerText = "💾 保存全局偏好设置"; }
             }

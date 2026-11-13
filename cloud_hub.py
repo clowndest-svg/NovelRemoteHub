@@ -649,7 +649,17 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Unauthorized", "need_login": True}, 401)
                 return
             catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": [], "updated_at": 0})
-            self.send_json({**catalog, "stale": time.time() - catalog.get("updated_at", 0) > 180})
+            engines_list = list(catalog.get("engines", []))
+            try:
+                import deepseek_client
+                ds_info = deepseek_client.discover(DATA_DIR)
+                cfg = deepseek_client.get_deepseek_config(DATA_DIR)
+                if cfg.get("enabled"):
+                    if not any(e.get("id") == "deepseek" for e in engines_list):
+                        engines_list.append(ds_info)
+            except Exception:
+                pass
+            self.send_json({"engines": engines_list, "updated_at": catalog.get("updated_at", 0), "stale": time.time() - catalog.get("updated_at", 0) > 180})
             return
 
         # 检查公司电脑是否在线
@@ -1037,6 +1047,15 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "result": del_res, "message": f"作品「{btitle}」已安全移入回收站"})
             return
 
+        # DeepSeek API 连通性测试接口
+        if path in ("/api/test_deepseek", "/novel/api/test_deepseek"):
+            api_key = str(body.get("api_key") or "").strip()
+            base_url = str(body.get("base_url") or "").strip()
+            import deepseek_client
+            ok, msg = deepseek_client.test_api_key(api_key, base_url)
+            self.send_json({"ok": ok, "message": msg})
+            return
+
         if path in ("/api/refresh_agents", "/novel/api/refresh_agents"):
             LOCAL_STATUS["refresh_agents"] = True
             self.send_json({"ok": True})
@@ -1044,13 +1063,13 @@ class HubHandler(BaseHTTPRequestHandler):
 
         if path in ("/api/sync_agents", "/novel/api/sync_agents"):
             engines = body.get("engines")
-            if not isinstance(engines, list) or len(engines) != 2:
+            if not isinstance(engines, list) or len(engines) < 2:
                 raise ValueError("执行端目录格式无效")
             cleaned = []
             for entry in engines:
                 engine = canonical_engine(entry["id"])
                 available = bool(entry.get("available"))
-                if available and (not is_workspace(entry.get("workspace", "")) or entry.get("project_name") != "小说" or not entry.get("project_id")):
+                if engine != "deepseek" and available and (not is_workspace(entry.get("workspace", "")) or entry.get("project_name") != "小说" or not entry.get("project_id")):
                     raise ValueError("执行端必须绑定小说工作区")
                 models = entry.get("models", [])
                 if not isinstance(models, list) or len(models) > 100:
@@ -1069,13 +1088,17 @@ class HubHandler(BaseHTTPRequestHandler):
                         "is_default": bool(model.get("is_default")), "default_effort": model.get("default_effort"),
                         "efforts": [{"id": effort["id"], "name": str(effort.get("name", effort["id"]))[:100]} for effort in efforts],
                         "effort_models": model.get("effort_models", {}), "quota_remaining": model.get("quota_remaining")})
-                cleaned.append({"id": engine, "name": "Antigravity" if engine == "antigravity" else "ChatGPT（Codex）",
+                display_name = "Antigravity" if engine == "antigravity" else ("ChatGPT（Codex）" if engine == "codex" else "DeepSeek (官方直连 API)")
+                cleaned.append({"id": engine, "name": display_name,
                     "available": available, "models": filtered, "project_id": entry.get("project_id"),
                     "project_name": entry.get("project_name"), "workspace": entry.get("workspace"),
                     "permission_mode": "full-access", "capabilities": {"text": True, "images": bool(entry.get("capabilities", {}).get("images"))},
                     "error": str(entry.get("error", ""))[:500]})
-            if {entry["id"] for entry in cleaned} != {"antigravity", "codex"}:
+            ids = [entry["id"] for entry in cleaned]
+            if len(ids) != len(set(ids)):
                 raise ValueError("执行端类型重复")
+            if set(ids) not in ({"antigravity", "codex"}, {"antigravity", "codex", "deepseek"}):
+                raise ValueError("执行端类型无效")
             save_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": cleaned, "updated_at": time.time()})
             self.send_json({"ok": True})
             return

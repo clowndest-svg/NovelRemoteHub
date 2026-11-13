@@ -32,6 +32,8 @@ def canonical_engine(value):
         return 'antigravity'
     if value in ('codex', 'chatgpt'):
         return 'codex'
+    if value in ('deepseek', 'ds', 'deepseek_chat', 'deepseek_reasoner'):
+        return 'deepseek'
     raise ValueError('未知执行类型，请重新选择')
 
 

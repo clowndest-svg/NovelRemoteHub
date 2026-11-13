@@ -13,6 +13,79 @@ import codex_desktop
 from agent_workspace import WORKSPACE_ROOT, choose_project, is_workspace, selected_model
 
 
+def find_codex_executable():
+    # 1. 尝试环境变量 PATH
+    exe = shutil.which('codex')
+    if exe and os.path.isfile(exe):
+        return exe
+
+    # 2. 从运行中进程快速探测
+    try:
+        proc = subprocess.run(
+            ['powershell', '-NoProfile', '-Command', 
+             '(Get-Process -Name codex -ErrorAction SilentlyContinue | Select-Object -First 1).Path'],
+            capture_output=True, text=True, timeout=3
+        )
+        p = proc.stdout.strip()
+        if p and os.path.isfile(p):
+            return p
+    except Exception:
+        pass
+
+    # 3. 通过 PowerShell Get-AppxPackage 获取 WindowsApps 安装路径
+    try:
+        proc = subprocess.run(
+            ['powershell', '-NoProfile', '-Command', 
+             '(Get-AppxPackage *codex* -ErrorAction SilentlyContinue | Select-Object -First 1).InstallLocation'],
+            capture_output=True, text=True, timeout=4
+        )
+        install_dir = proc.stdout.strip()
+        if install_dir and os.path.isdir(install_dir):
+            for cand_rel in [os.path.join('app', 'resources', 'codex.exe'), os.path.join('resources', 'codex.exe'), 'codex.exe']:
+                cand = os.path.join(install_dir, cand_rel)
+                if os.path.isfile(cand):
+                    return cand
+    except Exception:
+        pass
+
+    # 4. 常见 WindowsApps 目录扫描兜底
+    win_apps = Path(r"C:\Program Files\WindowsApps")
+    if win_apps.is_dir():
+        try:
+            candidates = list(win_apps.glob("OpenAI.Codex_*/app/resources/codex.exe"))
+            if candidates:
+                candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                return str(candidates[0])
+        except Exception:
+            pass
+
+    return None
+
+
+def find_chatgpt_executable():
+    codex_exe = find_codex_executable()
+    if codex_exe:
+        cand1 = Path(codex_exe).parents[1] / 'ChatGPT.exe'
+        if cand1.is_file(): return str(cand1)
+        cand2 = Path(codex_exe).parent / 'ChatGPT.exe'
+        if cand2.is_file(): return str(cand2)
+
+    try:
+        proc = subprocess.run(
+            ['powershell', '-NoProfile', '-Command', 
+             '(Get-AppxPackage *codex* -ErrorAction SilentlyContinue | Select-Object -First 1).InstallLocation'],
+            capture_output=True, text=True, timeout=4
+        )
+        install_dir = proc.stdout.strip()
+        if install_dir and os.path.isdir(install_dir):
+            cand = Path(install_dir) / 'app' / 'ChatGPT.exe'
+            if cand.is_file():
+                return str(cand)
+    except Exception:
+        pass
+    return None
+
+
 class CodexClient:
     def __init__(self):
         self.process = None
@@ -25,7 +98,7 @@ class CodexClient:
         with self.lock:
             if self.process and self.process.poll() is None:
                 return
-            executable = shutil.which('codex')
+            executable = find_codex_executable()
             if not executable:
                 raise RuntimeError('未找到 Codex 桌面端执行程序')
             self.process = subprocess.Popen([executable, 'app-server', '--listen', 'stdio://'],
@@ -125,9 +198,8 @@ class CodexClient:
                 'capabilities': {'images': True, 'text': True}, 'permission_mode': 'full-access'}
 
     def wake(self):
-        executable = shutil.which('codex')
-        desktop = Path(executable).parents[1] / 'ChatGPT.exe' if executable else None
-        if not desktop or not desktop.is_file():
+        desktop = find_chatgpt_executable()
+        if not desktop or not os.path.isfile(desktop):
             raise RuntimeError('未找到 ChatGPT（Codex）桌面程序')
         subprocess.Popen([str(desktop)], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         deadline = time.monotonic() + 45
