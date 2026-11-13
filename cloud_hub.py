@@ -321,7 +321,22 @@ def sync_book(body):
                     atomic_write(target, document["content"])
                     changed = True
             if authoritative:
-                for name, filename in by_name.items():
+                for name, filename in list(by_name.items()):
+                    # 如果该文件是正文章节，且其章节序号高于本地上报的最大序号，说明是云端/DeepSeek新创作的章节，绝不能归档误删！
+                    is_newer_chapter = False
+                    if kind == "01_正文":
+                        m_cloud = re.search(r"第0*(\d+)章", name)
+                        if m_cloud:
+                            cloud_num = int(m_cloud.group(1))
+                            max_local_num = 0
+                            for doc in documents:
+                                m_loc = re.search(r"第0*(\d+)章", doc.get("filename", ""))
+                                if m_loc:
+                                    max_local_num = max(max_local_num, int(m_loc.group(1)))
+                            if cloud_num > max_local_num:
+                                is_newer_chapter = True
+                    if is_newer_chapter:
+                        continue
                     archive = os.path.join(book_path, ".sync-archive", uuid.uuid4().hex, kind, name)
                     os.makedirs(os.path.dirname(archive), exist_ok=True)
                     os.replace(filename, archive)
@@ -351,6 +366,84 @@ def sync_book(body):
     receipt = content_fingerprint(actual_chapters, actual_settings)
     return {"ok": True, "chapters_count": len(chapters), "settings_count": len(settings),
             "fingerprint": receipt}
+
+
+def execute_deepseek_task_async(tid):
+    """
+    云端直连 DeepSeek 官方 API 执行创作与推演任务。
+    无论本地电脑是否开机，均可全天候在云端全自动阅读全书设定集与前序章节，
+    调用官方 deepseek-flash / deepseek-v4-pro 大模型进行思维链推演与正文撰写！
+    """
+    tasks_file = os.path.join(DATA_DIR, "tasks.json")
+    task = TASKS.get(tid)
+    if not task:
+        return
+    task["status"] = "running"
+    task["heartbeat_at"] = time.time()
+
+    def report(msg):
+        task["progress_log"].append(f"[{time.strftime('%H:%M:%S')}] {str(msg)[:4000]}")
+        task["progress_log"] = task["progress_log"][-200:]
+        task["heartbeat_at"] = time.time()
+        save_json_file(tasks_file, TASKS)
+
+    try:
+        import deepseek_client
+        cfg = deepseek_client.get_deepseek_config(DATA_DIR)
+        if not cfg["enabled"] or not cfg["api_key"]:
+            raise ValueError("DeepSeek 官方 API 未启用或未配置 API Key，请在【系统设置】中输入您的 Key 并开启开关")
+
+        book_id = task.get("book_id") or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+        book_path, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
+        extra_data = task.get("extra_data") or {}
+        user_prompt = task.get("prompt") or extra_data.get("instructions") or ""
+        model = extra_data.get("model_tier") or "deepseek-flash"
+        effort = extra_data.get("reasoning_effort") or "high"
+        workflow = extra_data.get("workflow")
+        chapter_count = novel_manager.validate_chapter_count(extra_data.get("chapter_count", 1))
+
+        is_write_chapter = (workflow == "serial" or (not workflow and (not user_prompt or "续写" in user_prompt or "开始写作" in user_prompt)))
+
+        if is_write_chapter:
+            ok, output, last_file = deepseek_client.write_serial_chapters(
+                book_root=book_path,
+                book_id=book_id,
+                count=chapter_count,
+                user_prompt=user_prompt,
+                model=model,
+                effort=effort,
+                config_dir=DATA_DIR,
+                progress_cb=report
+            )
+            if not ok:
+                raise RuntimeError(output)
+            task["status"] = "completed"
+            task["completed_at"] = time.time()
+            task["result"] = {"summary": output, "files": [last_file] if last_file else []}
+            report(f"🎉 {output}")
+            invalidate_cache()
+        else:
+            ok, output = deepseek_client.execute_instruction(
+                book_root=book_path,
+                book_id=book_id,
+                user_prompt=user_prompt,
+                model=model,
+                effort=effort,
+                config_dir=DATA_DIR,
+                progress_cb=report
+            )
+            if not ok:
+                raise RuntimeError(output)
+            task["status"] = "completed"
+            task["completed_at"] = time.time()
+            task["result"] = {"summary": output}
+            report(f"✅ 执行完毕:\n{output[:500]}")
+            invalidate_cache()
+    except Exception as e:
+        task["status"] = "failed"
+        task["completed_at"] = time.time()
+        task["progress_log"].append(f"[{time.strftime('%H:%M:%S')}] ❌ 任务执行失败: {str(e)}")
+        save_json_file(tasks_file, TASKS)
 
 
 class BoundedHTTPServer(ThreadingHTTPServer):
@@ -1352,6 +1445,9 @@ class HubHandler(BaseHTTPRequestHandler):
             }
             TASKS[tid] = task
             save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
+            if engine_mode == "deepseek":
+                task["progress_log"] = [f"[{time.strftime('%H:%M:%S')}] 任务已建立，DeepSeek 官方 API 直连创作引擎正在启动..."]
+                threading.Thread(target=execute_deepseek_task_async, args=(tid,), daemon=True).start()
             self.send_json({"ok": True, "task_id": tid, "task": task})
             return
 

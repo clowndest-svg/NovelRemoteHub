@@ -32,6 +32,7 @@ import agent_client
 import desktop_agents
 from agent_workspace import canonical_engine
 import novel_manager
+import deepseek_client
 from sync_protocol import content_fingerprint
 
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
@@ -138,7 +139,7 @@ def api_post(endpoint, data):
         print(f"[api_post error] {endpoint}: {e}")
         return None
 
-def api_get(endpoint):
+def api_get(endpoint, silent=False):
     url = f"{CLOUD_SERVER_URL}/{endpoint.lstrip('/')}"
     req = urllib.request.Request(url, headers={
         "X-Novel-Token": TOKEN
@@ -147,7 +148,8 @@ def api_get(endpoint):
         with CLOUD_OPENER.open(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        print(f"[api_post error] {endpoint}: {e}")
+        if not silent:
+            print(f"[api_get error] {endpoint}: {e}")
         return None
 
 # 3. Antigravity 进程健康检测与自动唤醒拉起
@@ -307,6 +309,23 @@ def _sync_all_books_to_cloud(force):
         for entry in os.scandir(BOOKS_ROOT):
             if entry.is_dir() and not entry.name.startswith("."):
                 book_id = entry.name
+                # 检查云端是否已有手机端通过 DeepSeek 离线创作的新章节，自动拉取至本地 D:\小说
+                try:
+                    cloud_info = api_get(f"chapters?book={urllib.parse.quote(book_id)}", silent=True)
+                    if cloud_info and isinstance(cloud_info.get("chapters"), list):
+                        local_fnames = {os.path.basename(p) for p in novel_manager.chapter_files(entry.path)}
+                        for c_item in cloud_info["chapters"]:
+                            c_fname = c_item.get("filename")
+                            if c_fname and c_fname not in local_fnames:
+                                doc = api_get(f"chapter?book={urllib.parse.quote(book_id)}&file={urllib.parse.quote(c_fname)}", silent=True)
+                                if doc and doc.get("content"):
+                                    dest_dir = os.path.join(entry.path, "01_正文", "第一卷_人界篇")
+                                    os.makedirs(dest_dir, exist_ok=True)
+                                    atomic_write(os.path.join(dest_dir, c_fname), doc["content"])
+                                    print(f"[Sync] 成功从云端下载新创作章节至本地：{c_fname}")
+                except Exception as dl_err:
+                    pass
+
                 chapters, settings = collect_book_data(book_id)
                 meta, cover_base64 = collect_book_meta_and_cover(book_id)
                 fingerprint = content_fingerprint(chapters, settings)
@@ -826,11 +845,29 @@ def run_bridge_loop():
                         user_prompt += f"\n本次只精修现有章节 {prev_chapter_file}，原稿已备份到 {backup}。"
 
                     if is_write_chapter:
+                        if engine == "deepseek":
+                            ok, output, last_file = deepseek_client.write_serial_chapters(
+                                book_root=book_root, book_id=book_id, count=extra_data.get("chapter_count", 1),
+                                user_prompt=user_prompt, model=model_tier, effort=reasoning_effort, progress_cb=report_progress
+                            )
+                            if ok:
+                                sync_all_books_to_cloud()
+                            api_post("task_progress", {"id": tid, "status": "completed" if ok else "failed", "log": output})
+                            continue
                         ok, output = execute_serial_chapters(book_id, extra_data.get("chapter_count", 1), user_prompt,
                             engine, model_tier, reasoning_effort, report_progress)
                         api_post("task_progress", {"id": tid, "status": "completed" if ok else "failed", "log": output})
                         continue
                     else:
+                        if engine == "deepseek":
+                            ok, output = deepseek_client.execute_instruction(
+                                book_root=book_root, book_id=book_id, user_prompt=user_prompt,
+                                model=model_tier, effort=reasoning_effort, progress_cb=report_progress
+                            )
+                            if ok:
+                                sync_all_books_to_cloud()
+                            api_post("task_progress", {"id": tid, "status": "completed" if ok else "failed", "log": output})
+                            continue
                         prompt = f"""【《{book_id}》小说辅助构思与推演指令】
 当前小说工程工作区：`D:\\小说\\{book_id}`
 设定集目录：`D:\\小说\\{book_id}\\00_设定集`

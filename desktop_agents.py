@@ -3,6 +3,7 @@ import time
 
 import agent_client
 import codex_client
+import deepseek_client
 from agent_workspace import canonical_engine
 
 
@@ -15,6 +16,12 @@ def catalog():
         except Exception as error:
             engines.append({'id': identifier, 'name': name, 'available': False,
                             'models': [], 'error': str(error)[:500]})
+    try:
+        ds = deepseek_client.discover()
+        if ds.get("available"):
+            engines.append(ds)
+    except Exception:
+        pass
     return {'engines': engines, 'updated_at': time.time()}
 
 
