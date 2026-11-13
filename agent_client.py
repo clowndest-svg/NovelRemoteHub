@@ -125,6 +125,8 @@ def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
     next_report = 0
     next_status = 0
     invalid_receipt = False
+    idle_since = None
+    recovery_sent = False
     while time.monotonic() < deadline:
         if Path(path).is_file():
             try:
@@ -154,6 +156,19 @@ def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
                 error = steps[-1].get("errorMessage", {}).get("error", {})
                 message = error.get("modelErrorMessage") or error.get("shortError") or error.get("userErrorMessage") or "执行端已终止任务"
                 raise RuntimeError("Antigravity 执行失败 " + str(message)[:1000])
+            if trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE" and steps and steps[-1].get("type") == "CORTEX_STEP_TYPE_PLANNER_RESPONSE":
+                idle_since = idle_since if idle_since is not None else time.monotonic()
+                if time.monotonic() - idle_since >= 15:
+                    if recovery_sent:
+                        raise RuntimeError("Agent 已结束但仍未保存成果回执，已停止等待，请核对本轮文件")
+                    rpc("SendUserCascadeMessage", {"cascadeId": conversation_id, "items": [{"text":
+                        f"上一轮尚未完成文件保存和成果回执。请核对原任务，补齐本轮指定成果文件，并用 JSON 序列化 API 写入回执 {path}。已存在的成果先核对，只补齐原任务，禁止新增下一章或扩大任务范围。"}]})
+                    recovery_sent = True
+                    idle_since = None
+                    if progress:
+                        progress("Agent 已停止回复但缺少成果回执，正在原会话补齐保存与回执（一次）")
+            else:
+                idle_since = None
         if progress and time.monotonic() >= next_report:
             progress(f"Antigravity 会话 {conversation_id} 正在执行，等待成果校验…")
             next_report = time.monotonic() + 15

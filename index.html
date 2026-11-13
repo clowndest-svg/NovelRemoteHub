@@ -2858,6 +2858,15 @@
                     const data = await fetchAPI(`${API}/task_status?id=${ACTIVE_TASK_ID}`);
                     const term = document.getElementById("task-terminal");
                     term.innerText = (data.progress_log || []).join("\n");
+                    if (data.status === 'pending') {
+                        const waiting = data.waiting_for || [];
+                        document.getElementById('pipeline-status-text').innerText = data.queue_position > 0
+                            ? `排队中，前方 ${data.queue_position} 个任务` : '等待电脑领取任务';
+                        if (waiting.length) term.innerText += '\n轮到本任务时，将从当时最新章节继续。';
+                        for (const item of waiting) term.innerText += `\n前序任务（${item.chapter_count} 章/项） ${item.progress}`;
+                    } else if (data.status === 'running') {
+                        document.getElementById('pipeline-status-text').innerText = '电脑已接收，正在执行';
+                    }
                     term.scrollTop = term.scrollHeight;
 
                     if (data.status === "completed") {

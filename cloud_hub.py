@@ -664,7 +664,18 @@ class HubHandler(BaseHTTPRequestHandler):
         if path == "/api/task_status" or path == "/novel/api/task_status":
             tid = qs.get("id", [""])[0]
             if tid in TASKS:
-                self.send_json(TASKS[tid])
+                task = TASKS[tid]
+                ahead = []
+                if task['status'] == 'pending':
+                    for key, item in TASKS.items():
+                        if key == tid:
+                            break
+                        if item['status'] in ('pending', 'assigned', 'running'):
+                            ahead.append(item)
+                self.send_json({**task, 'queue_position': len(ahead),
+                    'waiting_for': [{'id': item['id'], 'action': item['action'],
+                        'chapter_count': item.get('extra_data', {}).get('chapter_count', 1),
+                        'progress': (item.get('progress_log') or ['等待电脑领取'])[-1]} for item in ahead]})
             else:
                 self.send_json({"error": "Task not found"}, 404)
             return

@@ -151,6 +151,16 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': count})[0], 400)
         self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'polish', 'chapter_count': 2})[0], 400)
 
+    def test_pending_task_reports_queue_and_active_progress(self):
+        _, first = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 10})
+        _, second = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 3})
+        hub.TASKS[first['task_id']]['status'] = 'running'
+        hub.TASKS[first['task_id']]['progress_log'].append('续写进度 2/10')
+        status, result = self.request('/api/task_status?id=' + second['task_id'])
+        self.assertEqual(status, 200)
+        self.assertEqual(result['queue_position'], 1)
+        self.assertEqual(result['waiting_for'][0]['progress'], '续写进度 2/10')
+
     def test_catalog_requires_auth(self):
         self.assertEqual(self.request('/api/engines', auth=False)[0], 401)
 
@@ -510,6 +520,29 @@ class RegressionTests(unittest.TestCase):
 
 
 class DesktopAgentTests(unittest.TestCase):
+    def test_idle_missing_receipt_recovers_once(self):
+        import agent_client
+        import itertools
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'result.json'
+            def rpc(method, *args, **kwargs):
+                if method == 'SendUserCascadeMessage':
+                    path.write_text('{"summary":"saved","files":[]}', encoding='utf-8')
+                    return {}
+                return {'status': 'CASCADE_RUN_STATUS_IDLE', 'trajectory': {'steps': [{'type': 'CORTEX_STEP_TYPE_PLANNER_RESPONSE'}]}}
+            with patch('agent_client.rpc', side_effect=rpc) as calls, patch('agent_client.time.sleep'), patch('agent_client.time.monotonic', side_effect=itertools.count(0, 5)):
+                self.assertEqual(agent_client.wait_for_receipt(path, 'id')['summary'], 'saved')
+            self.assertEqual(sum(c.args[0] == 'SendUserCascadeMessage' for c in calls.call_args_list), 1)
+
+    def test_idle_recovery_has_bounded_attempts(self):
+        import agent_client
+        import itertools
+        idle = {'status': 'CASCADE_RUN_STATUS_IDLE', 'trajectory': {'steps': [{'type': 'CORTEX_STEP_TYPE_PLANNER_RESPONSE'}]}}
+        with tempfile.TemporaryDirectory() as directory, patch('agent_client.rpc', return_value=idle) as calls, patch('agent_client.time.sleep'), patch('agent_client.time.monotonic', side_effect=itertools.count(0, 5)):
+            with self.assertRaisesRegex(RuntimeError, '仍未保存'):
+                agent_client.wait_for_receipt(Path(directory) / 'missing.json', 'id')
+            self.assertEqual(sum(c.args[0] == 'SendUserCascadeMessage' for c in calls.call_args_list), 1)
+
     def test_idle_invalid_receipt_fails_without_hanging(self):
         import agent_client
         with tempfile.TemporaryDirectory() as directory:
