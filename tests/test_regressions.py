@@ -143,6 +143,14 @@ class RegressionTests(unittest.TestCase):
         self.assertNotEqual(hub.issue_session()['token'], token)
         self.assertFalse(hub.valid_access_token('无效令牌'))
 
+    def test_serial_dispatch_counts(self):
+        status, result = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 3})
+        self.assertEqual(status, 200)
+        self.assertEqual(hub.TASKS[result['task_id']]['extra_data']['chapter_count'], 3)
+        for count in [0, 11, True, 1.5, '2']:
+            self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': count})[0], 400)
+        self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'polish', 'chapter_count': 2})[0], 400)
+
     def test_catalog_requires_auth(self):
         self.assertEqual(self.request('/api/engines', auth=False)[0], 401)
 
@@ -502,6 +510,22 @@ class RegressionTests(unittest.TestCase):
 
 
 class DesktopAgentTests(unittest.TestCase):
+    def test_idle_invalid_receipt_fails_without_hanging(self):
+        import agent_client
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'result.json'
+            path.write_text('{"summary":"invalid"quote"}', encoding='utf-8')
+            with patch('agent_client.rpc', return_value={'status': 'CASCADE_RUN_STATUS_IDLE'}):
+                with self.assertRaisesRegex(ValueError, '不是有效 JSON'):
+                    agent_client.wait_for_receipt(path, 'id', timeout=5)
+
+    def test_receipt_accepts_utf8_bom(self):
+        import agent_client
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'result.json'
+            path.write_text('{"summary":"done","files":[]}', encoding='utf-8-sig')
+            self.assertEqual(agent_client.wait_for_receipt(path, 'id')['summary'], 'done')
+
     def test_antigravity_reports_terminal_error_without_waiting_for_receipt(self):
         import agent_client
         trajectory = {'status': 'CASCADE_RUN_STATUS_IDLE', 'trajectory': {'steps': [
@@ -556,6 +580,78 @@ class DesktopAgentTests(unittest.TestCase):
         catalog = {'available': True, 'models': [{'id': 'selected', 'disabled': True}, {'id': 'other', 'efforts': [{'id': 'high'}]}]}
         with self.assertRaises(ValueError):
             selected_model(catalog, 'selected', 'high')
+
+
+class SerialWritingTests(unittest.TestCase):
+    def setUp(self):
+        import sys
+        streams = sys.stdout, sys.stderr, sys.excepthook
+        try:
+            import local_bridge
+        finally:
+            sys.stdout, sys.stderr, sys.excepthook = streams
+        self.bridge = local_bridge
+        self.temporary = tempfile.TemporaryDirectory()
+        self.directory = Path(self.temporary.name) / '作品' / '01_正文' / '第一卷_人界篇'
+        self.directory.mkdir(parents=True)
+        (self.directory / '第001章_起点.md').write_text('第一章前情与伏笔', encoding='utf-8')
+        self.root_patch = patch.object(self.bridge, 'BOOKS_ROOT', self.temporary.name)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
+        self.addCleanup(self.temporary.cleanup)
+        self.prompts = []
+
+    def write_chapter(self, prompt, **kwargs):
+        import re
+        number = int(re.search(r'第(\d+)章', prompt).group(1))
+        self.prompts.append(prompt)
+        (self.directory / f'第{number:03d}章_延续.md').write_text(f'第{number}章承接前情', encoding='utf-8')
+        return True, '完成'
+
+    def run_serial(self, count):
+        return self.bridge.execute_serial_chapters('作品', count, '保持伏笔一致', 'codex', 'test-model', 'high', lambda text: None)
+
+    def test_sequential_prompts_use_new_previous_chapter(self):
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=self.write_chapter), patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(True, 0, 0)) as sync:
+            ok, result = self.run_serial(2)
+        self.assertTrue(ok, result)
+        self.assertEqual(sync.call_count, 2)
+        self.assertIn('第002章_延续.md', self.prompts[1])
+        self.assertIn('第2章承接前情', self.prompts[1])
+        self.assertIn('人物位置与认知', self.prompts[1])
+        self.assertEqual((self.directory / '第001章_起点.md').read_text(encoding='utf-8'), '第一章前情与伏笔')
+
+    def test_failure_stops_remaining_chapters(self):
+        def execute(prompt, **kwargs):
+            return self.write_chapter(prompt, **kwargs) if not self.prompts else (False, '额度不足')
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=execute) as execute_mock, patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(True, 0, 0)):
+            ok, result = self.run_serial(3)
+        self.assertFalse(ok)
+        self.assertIn('1/3', result)
+        self.assertEqual(execute_mock.call_count, 2)
+        self.assertEqual(len(list(self.directory.glob('*.md'))), 2)
+
+    def test_missing_chapter_cannot_complete_batch(self):
+        with patch.object(self.bridge, 'execute_agentapi', return_value=(True, '完成')):
+            ok, result = self.run_serial(2)
+        self.assertFalse(ok)
+        self.assertIn('0/2', result)
+
+    def test_sync_failure_stops_after_local_completion(self):
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=self.write_chapter) as execute, patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(False, 0, 0)):
+            ok, result = self.run_serial(3)
+        self.assertFalse(ok)
+        self.assertIn('1/3', result)
+        self.assertEqual(execute.call_count, 1)
+
+    def test_history_change_stops_batch(self):
+        def execute(prompt, **kwargs):
+            (self.directory / '第001章_起点.md').write_text('异常改写', encoding='utf-8')
+            return self.write_chapter(prompt, **kwargs)
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=execute):
+            ok, result = self.run_serial(2)
+        self.assertFalse(ok)
+        self.assertIn('历史正文发生变化', result)
 
 
 if __name__ == '__main__':

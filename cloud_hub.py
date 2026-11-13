@@ -960,10 +960,14 @@ class HubHandler(BaseHTTPRequestHandler):
             extra_data = body.get("extra_data") or {}
 
             # 智能平铺兼容：无论前端是嵌套在 extra_data 里，还是直接平铺在 body 顶层，全部自动合并到 extra_data
-            for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "reasoning_effort", "instructions"]:
+            for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "reasoning_effort", "instructions", "chapter_count"]:
                 if k in body and k not in extra_data:
                     extra_data[k] = body[k]
 
+            count = novel_manager.validate_chapter_count(extra_data.get("chapter_count", 1))
+            if count > 1 and (action != "creative_instruction" or extra_data.get("workflow") != "serial"):
+                raise ValueError("多章续写仅适用于自动续写模式")
+            extra_data["chapter_count"] = count
             catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": []})
             agent = next((entry for entry in catalog["engines"] if entry["id"] == engine_mode), {})
             if action == "wake_antigravity":

@@ -585,3 +585,9 @@ def export_tomato_zip(book_id=None, root_dir=None):
 
     mem_zip.seek(0)
     return mem_zip.getvalue(), f"{btitle}_番茄发布包.zip"
+
+
+def validate_chapter_count(value=1):
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 10:
+        raise ValueError("续写章节数必须为 1 到 10 的整数")
+    return value

@@ -303,6 +303,7 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
     prompt += f"""\n完成所有操作后，最后一步将 UTF-8 JSON 回执写入 {receipt}。
 结构为 {{"summary":"实际完成内容","files":["实际写入文件的绝对路径"]}}。
 如果执行失败，写入 {{"error":"具体失败原因"}}。回执必须在全部操作完成后才写入。
+必须使用 json.dumps、JSON.stringify 或 ConvertTo-Json 正确序列化回执，再读取并解析确认合法，避免文本引号造成无效 JSON。
 """
     try:
         conversation = desktop_agents.new_conversation(prompt, title, model_tier, engine_mode, reasoning_effort)
@@ -318,6 +319,100 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
         return True, f"会话 {conversation} 已返回完成回执。\n{result.get('summary', '')}"
     except Exception as error:
         return False, str(error)
+
+
+def serial_chapter_prompt(book_id, user_prompt):
+    book_root = os.path.join(BOOKS_ROOT, book_id)
+    c_files = novel_manager.chapter_files(book_root)
+    next_chapter_num = max((int(m.group(1)) for f in c_files if (m := re.search(r"第(\d+)章", os.path.basename(f)))), default=0) + 1
+    pad_num = f"{next_chapter_num:03d}"
+
+    prev_chapter_file = c_files[-1] if c_files else None
+    prev_chapter_tail = ""
+    if prev_chapter_file:
+        with open(prev_chapter_file, "r", encoding="utf-8", errors="ignore") as fp:
+            prev_chapter_tail = fp.read()[-2000:]
+
+    # 收集全套设定集清单
+    setting_files = sorted(glob.glob(os.path.join(book_root, "00_设定集", "*.md")))
+    setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
+
+    outline_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*细纲*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*大纲*.md"))
+    chapter_outline = ""
+    if outline_candidates:
+        with open(outline_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
+            outline_text = fp.read()
+            pattern = rf"(第0*{next_chapter_num}章[^\n]*\n.*?)(?=\n[^\n]*第\d+章|\Z)"
+            m = re.search(pattern, outline_text, re.DOTALL)
+            if m:
+                chapter_outline = m.group(1).strip()
+
+    prompt = f"""【《{book_id}》小说新章节创作指令 · 第{pad_num}章】
+你正在为番茄小说作品《{book_id}》创作全新正文第{pad_num}章。
+当前小说工程工作区：`{book_root}`
+上一章正文文件路径：`{prev_chapter_file if prev_chapter_file else "（首章）"}`
+
+【全套设定集文档清单（必须严格对照，杜绝任何设定冲突）】：
+{setting_file_list_str}
+
+【上一章末尾衔接剧情与悬念钩子】：
+\"\"\"
+{prev_chapter_tail}
+\"\"\"
+
+【本章分章细纲规划】：
+\"\"\"
+{chapter_outline if chapter_outline else f"第{pad_num}章按全书细纲与主线总谱剧情推进，承接上一章伏笔"}
+\"\"\"
+
+【作者指令附加要求】：
+\"\"\"
+{user_prompt if user_prompt else "按大纲极致推演，强化剧情反差张力，章末设置引人点击下一章的王炸悬念钩子"}
+\"\"\"
+
+【必须执行的工作流 SOP（铁律执行）】：
+1. 步骤1：调用 read_file 读取上一章正文（路径：`{prev_chapter_file}`），确保剧情节奏、人物台词对白与章末悬念钩子无缝衔接，逻辑严密！
+2. 步骤2：检索并查阅 `{book_root}\\00_设定集\\` 目录下全部设定文档，并读取本书根目录存在的 GEMINI.md，确保严格遵循本书既有世界观、人物设定和创作规范；
+3. 步骤3：遵循番茄小说行文规范（中文全角双引号“”、移动端短段落排版、戏带设定、每章必留抓人点击下一章的强力断章钩子）；
+4. 步骤4：篇幅要求：默认4000-5000字，作者明确指定篇幅时遵循作者要求，情节饱满，节奏极度紧凑；
+5. 步骤5：创作完成后直接调用 write_file 写入对应文件路径：
+   `{book_root}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
+"""
+    prompt += f"""
+本轮只创作第{pad_num}章，以本轮编号为准。先完整阅读最新前章、本章细纲及相关设定，核对时间线、人物位置与认知、能力限制和未解伏笔。
+逐项检查前章结尾到本章开头的因果衔接，结尾为后章留下可承接状态。存在设定矛盾时停止并报告。
+仅新增本轮章节，不改写历史正文或设定，不提前创作后续章节。
+"""
+    return prompt, next_chapter_num
+
+
+def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress):
+    count = novel_manager.validate_chapter_count(count)
+    completed = 0
+    try:
+        for index in range(count):
+            prompt, number = serial_chapter_prompt(book_id, user_prompt)
+            book_root = os.path.join(BOOKS_ROOT, book_id)
+            before = {path: Path(path).read_bytes() for path in novel_manager.chapter_files(book_root)}
+            progress(f"续写进度 {index}/{count}，正在创作第{number:03d}章并核对前后章逻辑")
+            ok, result = execute_agentapi(prompt, title=f"【连续续写 {index + 1}/{count}】《{book_id}》第{number:03d}章",
+                engine_mode=engine, model_tier=model, reasoning_effort=effort, progress_cb=progress)
+            if not ok:
+                raise RuntimeError(result)
+            after = novel_manager.chapter_files(book_root)
+            if any(not Path(path).is_file() or Path(path).read_bytes() != content for path, content in before.items()):
+                raise RuntimeError("历史正文发生变化，已停止后续章节，请核对本轮结果")
+            added = [path for path in after if path not in before]
+            if len(added) != 1 or not re.search(rf"第0*{number}章", Path(added[0]).name) or not Path(added[0]).read_text(encoding='utf-8-sig').strip():
+                raise RuntimeError("本轮新增章节的数量、编号或内容不符合要求，请核对本轮结果")
+            completed += 1
+            synced, _, _ = sync_all_books_to_cloud()
+            if not synced:
+                raise RuntimeError("本章已在本地完成，云端同步失败，已停止后续章节")
+            progress(f"续写进度 {completed}/{count}，第{number:03d}章已校验并同步，下一章将读取本章全文衔接")
+        return True, f"连续续写完成，共 {completed}/{count} 章，均已校验并同步。"
+    except Exception as error:
+        return False, f"连续续写已停止，已完成 {completed}/{count} 章。{error}"
 
 
 def sync_agent_catalog():
@@ -626,38 +721,10 @@ def run_bridge_loop():
                         user_prompt += f"\n本次只精修现有章节 {prev_chapter_file}，原稿已备份到 {backup}。"
 
                     if is_write_chapter:
-                        prompt = f"""【《{book_id}》小说新章节创作指令 · 第{pad_num}章】
-你正在为番茄小说作品《{book_id}》创作全新正文第{pad_num}章。
-当前小说工程工作区：`D:\\小说\\{book_id}`
-上一章正文文件路径：`{prev_chapter_file if prev_chapter_file else "（首章）"}`
-
-【全套设定集文档清单（必须严格对照，杜绝任何设定冲突）】：
-{setting_file_list_str}
-
-【上一章末尾衔接剧情与悬念钩子】：
-\"\"\"
-{prev_chapter_tail}
-\"\"\"
-
-【本章分章细纲规划】：
-\"\"\"
-{chapter_outline if chapter_outline else f"第{pad_num}章按全书细纲与主线总谱剧情推进，承接上一章伏笔"}
-\"\"\"
-
-【作者指令附加要求】：
-\"\"\"
-{user_prompt if user_prompt else "按大纲极致推演，强化剧情反差张力，章末设置引人点击下一章的王炸悬念钩子"}
-\"\"\"
-
-【必须执行的工作流 SOP（铁律执行）】：
-1. 步骤1：调用 read_file 读取上一章正文（路径：`{prev_chapter_file}`），确保剧情节奏、人物台词对白与章末悬念钩子无缝衔接，逻辑严密！
-2. 步骤2：检索并查阅 `D:\\小说\\{book_id}\\00_设定集\\` 目录下全部设定文档，并读取本书根目录存在的 GEMINI.md，确保严格遵循本书既有世界观、人物设定和创作规范；
-3. 步骤3：遵循番茄小说行文规范（中文全角双引号“”、移动端短段落排版、戏带设定、每章必留抓人点击下一章的强力断章钩子）；
-4. 步骤4：篇幅要求：4000-5000字，情节饱满，节奏极度紧凑；
-5. 步骤5：创作完成后直接调用 write_file 写入对应文件路径：
-   `D:\\小说\\{book_id}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
-"""
-                        task_title = f"【手机遥控】《{book_id}》创作第{pad_num}章"
+                        ok, output = execute_serial_chapters(book_id, extra_data.get("chapter_count", 1), user_prompt,
+                            engine, model_tier, reasoning_effort, report_progress)
+                        api_post("task_progress", {"id": tid, "status": "completed" if ok else "failed", "log": output})
+                        continue
                     else:
                         prompt = f"""【《{book_id}》小说辅助构思与推演指令】
 当前小说工程工作区：`D:\\小说\\{book_id}`

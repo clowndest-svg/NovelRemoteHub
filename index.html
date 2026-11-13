@@ -1555,7 +1555,7 @@
                     <button class="btn-catalog-quick" onclick="exportTomatoZip()">
                         <span>📦 导出番茄ZIP</span>
                     </button>
-                    <button class="btn-catalog-quick" onclick="switchTab('antigravity'); fillWorkflowPrompt('serial')">
+                    <button class="btn-catalog-quick" onclick="switchTab('antigravity'); switchWorkflowTab('serial')">
                         <span>➕ 续写下一章</span>
                     </button>
                 </div>
@@ -1620,6 +1620,10 @@
                     <div id="wf-tab-custom" class="wf-tab-btn" onclick="switchWorkflowTab('custom')">🛠️ 自由指令</div>
                 </div>
 
+                <label id="serial-count-row" style="display:flex;align-items:center;gap:12px;margin:12px 0;color:var(--text-sub);font-size:13px">
+                    续写章节数
+                    <select id="serial-chapter-count" class="select-box" style="min-width:100px" onchange="updateNextLabel()"><option value="1">1 章</option><option value="2">2 章</option><option value="3">3 章</option><option value="4">4 章</option><option value="5">5 章</option><option value="6">6 章</option><option value="7">7 章</option><option value="8">8 章</option><option value="9">9 章</option><option value="10">10 章</option></select>
+                </label>
                 <!-- 模式快捷辅助芯片 -->
                 <div id="workflow-chips-container" class="quick-chips-row">
                     <!-- 动态注入 -->
@@ -2584,7 +2588,8 @@
             if (tag) tag.innerText = `待写第 ${padNum} 章`;
             const btn = document.getElementById("dispatch-btn");
             if (btn && !btn.disabled) {
-                btn.innerText = `执行当前类型任务 (创作第${padNum}章)`;
+                const count = Number(document.getElementById("serial-chapter-count").value);
+                btn.innerText = CURRENT_WORKFLOW === "serial" ? `开始续写 ${count} 章（从第${padNum}章起）` : "执行当前类型任务";
             }
         }
 
@@ -2748,7 +2753,9 @@
             document.getElementById("wf-tab-plot").classList.toggle("active", wf === "plot");
             document.getElementById("wf-tab-custom").classList.toggle("active", wf === "custom");
 
+            document.getElementById("serial-count-row").style.display = wf === "serial" ? "flex" : "none";
             fillWorkflowPrompt(wf);
+            updateNextLabel();
         }
 
         function fillWorkflowPrompt(wf) {
@@ -2764,7 +2771,7 @@
                     <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
                     <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
                 `;
-                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，检索分章细纲中第${padNum}章规划，无缝承接上一章末尾悬念钩子，开始创作【第${padNum}章】正文（4000-5000字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
+                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，按每轮指定章号检索对应分章细纲，完整阅读最新前章并核对人物状态、时间线与伏笔，逐章创作正文（4000-5000字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
             } else if (wf === "polish") {
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('黄金留存')">🔥 黄金留存率爆改 (前3章优化)</div>
@@ -2816,7 +2823,8 @@
                         engine_mode: CURRENT_ENGINE,
                         extra_data: {
                             model_tier: CURRENT_MODEL_TIER,
-                            workflow: CURRENT_WORKFLOW
+                            workflow: CURRENT_WORKFLOW,
+                            chapter_count: CURRENT_WORKFLOW === "serial" ? Number(document.getElementById("serial-chapter-count").value) : 1
                         }
                     })
                 });
@@ -2861,6 +2869,7 @@
                         clearInterval(TASK_POLL_TIMER);
                         document.getElementById("pipeline-status-text").innerText = `❌ 任务中断`;
                         term.innerText += `\n\n❌ 任务中断，请检查公司电脑执行端`;
+                        await loadChapters();
                     }
                 } catch (e) {}
             }, 2500);

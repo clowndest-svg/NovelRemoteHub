@@ -18,7 +18,7 @@ def daemon_environment():
                         key=lambda p: p.stat().st_mtime, reverse=True)
     for path in candidates:
         try:
-            hub = json.loads(path.read_text(encoding="utf-8"))
+            hub = json.loads(path.read_text(encoding="utf-8-sig"))
             with socket.create_connection(("127.0.0.1", int(hub["httpPort"])), timeout=1):
                 env = os.environ.copy()
                 env["ANTIGRAVITY_LS_ADDRESS"] = f"127.0.0.1:{hub['httpPort']}"
@@ -124,21 +124,30 @@ def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
     deadline = time.monotonic() + timeout
     next_report = 0
     next_status = 0
+    invalid_receipt = False
     while time.monotonic() < deadline:
         if Path(path).is_file():
             try:
-                receipt = json.loads(Path(path).read_text(encoding="utf-8"))
+                receipt = json.loads(Path(path).read_text(encoding="utf-8-sig"))
                 if receipt.get("error"):
                     raise RuntimeError(str(receipt["error"]))
                 return receipt
             except json.JSONDecodeError:
-                pass
+                invalid_receipt = True
         if time.monotonic() >= next_status:
             next_status = time.monotonic() + 10
             try:
                 trajectory = rpc("GetCascadeTrajectory", {"cascadeId": conversation_id}, timeout=5)
             except (RuntimeError, OSError, ValueError):
                 trajectory = {}
+            if invalid_receipt and trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE":
+                try:
+                    receipt = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+                except json.JSONDecodeError as error:
+                    raise ValueError("执行端已结束，但完成回执不是有效 JSON，请核对本轮成果") from error
+                if receipt.get("error"):
+                    raise RuntimeError(str(receipt["error"]))
+                return receipt
             steps = trajectory.get("trajectory", {}).get("steps", [])
             if (trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE" and steps
                     and steps[-1].get("type") == "CORTEX_STEP_TYPE_ERROR_MESSAGE"):
