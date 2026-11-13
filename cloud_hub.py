@@ -19,6 +19,7 @@ import glob
 import shutil
 import gzip
 import re
+import html
 import urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import threading
@@ -34,6 +35,48 @@ from urllib.parse import urlparse, parse_qs
 # 引入小说管理工作流
 sys.path.append(os.path.dirname(__file__))
 import novel_manager
+
+
+def generate_svg_cover(book_title, genre="宇宙科技修仙"):
+    title = (book_title or "大秦科技修仙").strip()
+    clean_title = re.sub(r"^[《【\s]+|[》】\s]+$", "", title)
+    lines = []
+    chunk_size = 8
+    for i in range(0, len(clean_title), chunk_size):
+        lines.append(clean_title[i:i+chunk_size])
+    if not lines:
+        lines = ["大秦科技修仙"]
+
+    text_elements = ""
+    start_y = 255 - (len(lines) - 1) * 26
+    for i, line in enumerate(lines):
+        y = start_y + i * 52
+        text_elements += f'<text x="200" y="{y}" font-size="28" font-weight="900" fill="#f8fafc" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" letter-spacing="2">{html.escape(line)}</text>\n'
+
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 560" width="400" height="560">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19" />
+      <stop offset="45%" stop-color="#1e1b4b" />
+      <stop offset="100%" stop-color="#311042" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <rect x="15" y="15" width="370" height="530" rx="12" fill="none" stroke="rgba(245, 158, 11, 0.45)" stroke-width="2" stroke-dasharray="8 4"/>
+  <rect x="25" y="25" width="350" height="510" rx="8" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1"/>
+  <rect x="135" y="60" width="130" height="28" rx="14" fill="rgba(245, 158, 11, 0.15)" stroke="#f59e0b" stroke-width="1"/>
+  <text x="200" y="79" font-size="13" font-weight="bold" fill="#fbbf24" text-anchor="middle" font-family="system-ui, sans-serif">{html.escape(genre or '连载作品')}</text>
+  <circle cx="200" cy="270" r="145" fill="none" stroke="rgba(168, 85, 247, 0.18)" stroke-width="2"/>
+  <circle cx="200" cy="270" r="100" fill="none" stroke="rgba(245, 158, 11, 0.15)" stroke-width="1.5" stroke-dasharray="6 3"/>
+  {text_elements}
+  <line x1="80" y1="440" x2="320" y2="440" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1"/>
+  <text x="200" y="470" font-size="12" fill="#94a3b8" text-anchor="middle" font-family="system-ui, sans-serif" letter-spacing="4">NOVEL REMOTE HUB</text>
+  <text x="200" y="495" font-size="11" fill="#64748b" text-anchor="middle" font-family="system-ui, sans-serif">全宇宙科技修仙 · 终极创世中枢</text>
+</svg>"""
 
 # 1. Redis 高速缓存连接
 try:
@@ -286,6 +329,12 @@ def sync_book(body):
         conversations = body.get("conversations", [])
         if conversations:
             save_json_file(os.path.join(DATA_DIR, "conversations.json"), conversations)
+        meta = body.get("meta")
+        if isinstance(meta, dict) and meta:
+            novel_manager.save_book_meta(book_id, meta, BOOKS_DIR)
+        cover_base64 = body.get("cover_base64")
+        if isinstance(cover_base64, str) and cover_base64:
+            novel_manager.save_book_cover(book_id, cover_base64, BOOKS_DIR)
     finally:
         if changed:
             # Invalidate once per book, including public reading responses.
@@ -416,7 +465,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 safe_component(query["file"][0])
             if self.path.split("?")[0].rstrip("/").endswith((
                     "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
-                    "/settings", "/setting", "/tomato_clean", "/chapter_extras")):
+                    "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/cover", "/app_settings")):
                 with WRITE_LOCK:
                     self.handle_get()
             else:
@@ -550,6 +599,51 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(APP_VERSION_INFO)
             return
 
+        # 书籍封面接口 (公网流式直出：有真实封面输出真实图片，无封面动态输出矢量SVG)
+        if path in ("/api/cover", "/novel/api/cover"):
+            book_id = qs.get("book", [""])[0]
+            cover_data = None
+            mime_type = "image/png"
+            if book_id:
+                try:
+                    bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
+                    # 优先检测真实封面文件
+                    for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+                        cand = os.path.join(bpath, "00_设定集", f"cover{ext}")
+                        if os.path.exists(cand) and os.path.isfile(cand):
+                            with open(cand, "rb") as fp:
+                                cover_data = fp.read()
+                            mime_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else ("image/webp" if ext == ".webp" else "image/png")
+                            break
+                        cand2 = os.path.join(bpath, f"cover{ext}")
+                        if os.path.exists(cand2) and os.path.isfile(cand2):
+                            with open(cand2, "rb") as fp:
+                                cover_data = fp.read()
+                            mime_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else ("image/webp" if ext == ".webp" else "image/png")
+                            break
+                    if not cover_data:
+                        meta = novel_manager.read_book_meta(bpath)
+                        svg = generate_svg_cover(btitle or book_id, meta.get("genre", "科技修仙"))
+                        cover_data = svg.encode("utf-8")
+                        mime_type = "image/svg+xml; charset=utf-8"
+                except Exception:
+                    pass
+            if not cover_data:
+                svg = generate_svg_cover(book_id or "大秦科技修仙", "科技修仙")
+                cover_data = svg.encode("utf-8")
+                mime_type = "image/svg+xml; charset=utf-8"
+
+            self.send_response(200)
+            self.send_header("Content-Type", mime_type)
+            self.send_header("Content-Length", str(len(cover_data)))
+            self.send_header("Cache-Control", "public, max-age=600")
+            if qs.get("download") == ["1"]:
+                fname = f"cover_{book_id}.png" if "png" in mime_type else f"cover_{book_id}.svg"
+                self.send_header("Content-Disposition", f'attachment; filename="{urllib.parse.quote(fname)}"')
+            self.end_headers()
+            self.wfile.write(cover_data)
+            return
+
         if path in ("/api/engines", "/novel/api/engines"):
             if not self.check_auth():
                 self.send_json({"error": "Unauthorized", "need_login": True}, 401)
@@ -588,6 +682,12 @@ class HubHandler(BaseHTTPRequestHandler):
             res = {"books": books}
             set_cached(cache_key, res, ttl=180)
             self.send_json(res)
+            return
+
+        # 获取系统全局个性化设置
+        if path in ("/api/app_settings", "/novel/api/app_settings"):
+            settings = novel_manager.get_user_settings(DATA_DIR)
+            self.send_json({"ok": True, "settings": settings})
             return
 
         if path in ("/api/library", "/novel/api/library"):
@@ -886,6 +986,55 @@ class HubHandler(BaseHTTPRequestHandler):
             result = sync_book(body)
             LOCAL_STATUS.update(online=True, last_seen=time.time())
             self.send_json(result)
+            return
+
+        # 保存系统个性化设置
+        if path in ("/api/app_settings", "/novel/api/app_settings"):
+            new_settings = novel_manager.save_user_settings(body, DATA_DIR)
+            self.send_json({"ok": True, "settings": new_settings})
+            return
+
+        # 修改小说基本信息与封面
+        if path in ("/api/book_meta", "/novel/api/book_meta"):
+            book_id = body.get("book_id")
+            if not book_id:
+                raise ValueError("缺少作品编号")
+            meta_update = {}
+            if "title" in body and str(body["title"]).strip():
+                meta_update["title"] = str(body["title"]).strip()
+            if "genre" in body:
+                meta_update["genre"] = str(body["genre"]).strip()
+            if "description" in body:
+                meta_update["description"] = str(body["description"]).strip()
+            if "tags" in body and isinstance(body["tags"], list):
+                meta_update["tags"] = [str(t).strip() for t in body["tags"] if str(t).strip()]
+
+            save_res = novel_manager.save_book_meta(book_id, meta_update, BOOKS_DIR)
+            target_id = save_res.get("book_id", book_id)
+
+            cover_base64 = body.get("cover_base64")
+            if cover_base64 and isinstance(cover_base64, str):
+                novel_manager.save_book_cover(target_id, cover_base64, BOOKS_DIR)
+
+            invalidate_cache()
+            self.send_json({"ok": True, "book_id": target_id, "meta": save_res.get("meta", {})})
+            return
+
+        # 安全删除小说（软删除，移入.trash/，防误触二次确认）
+        if path in ("/api/delete_book", "/novel/api/delete_book"):
+            book_id = body.get("book_id")
+            confirm_title = str(body.get("confirm_title") or "").strip()
+            if not book_id:
+                raise ValueError("缺少作品编号")
+            bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
+            clean_confirm = re.sub(r"^[《【\s]+|[》】\s]+$", "", confirm_title)
+            clean_btitle = re.sub(r"^[《【\s]+|[》】\s]+$", "", btitle)
+            clean_id = re.sub(r"^[《【\s]+|[》】\s]+$", "", book_id)
+            if clean_confirm != clean_btitle and clean_confirm != clean_id:
+                raise ValueError(f"安全确认失败：输入的书名必须完全等于原书名「{btitle}」")
+            del_res = novel_manager.delete_book_safe(book_id, BOOKS_DIR)
+            invalidate_cache()
+            self.send_json({"ok": True, "result": del_res, "message": f"作品「{btitle}」已安全移入回收站"})
             return
 
         if path in ("/api/refresh_agents", "/novel/api/refresh_agents"):

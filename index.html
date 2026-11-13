@@ -1428,6 +1428,15 @@
         .agent-controls select { margin-top:4px; width:100%; }
         #agent-connection-status { grid-column:1/-1; font-size:11px; color:var(--text-sub); overflow-wrap:anywhere; }
         @media(max-width:600px) { .agent-controls { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }
+        .modal-box-large { max-width: 860px; width: min(94vw, 860px); }
+        .book-gallery-card:hover { border-color: rgba(245, 158, 11, 0.5) !important; transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.4); }
+        .cover-upload-box { border: 2px dashed var(--border-highlight); border-radius: 8px; padding: 14px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg-primary); }
+        .cover-upload-box:hover { border-color: var(--accent); background: rgba(245, 158, 11, 0.05); }
+        .setting-card { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+        .setting-card-title { font-size: 13px; font-weight: bold; color: var(--accent); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+        .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .setting-item:last-child { border-bottom: none; }
+        .setting-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -1466,19 +1475,27 @@
             <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.0" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
+            <button class="btn-apk-pill" onclick="openSettingsModal()" title="系统全局设置与创作风控偏好" style="background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-main); cursor:pointer;">
+                <span>⚙️ 设置</span>
+            </button>
         </div>
     </header>
 
     <!-- 多书架作品切换条 -->
-    <div class="shelf-strip">
-        <div class="active-book-wrapper" onclick="openBookDrawer()">
+    <div class="shelf-strip" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <div class="active-book-wrapper" onclick="openBookDrawer()" style="flex:1; cursor:pointer;" title="点击切换小说或打开书架大厅">
             <span>📚</span>
             <span id="current-book-label" class="active-book-name">《给政哥讲量子力学，他竟肉身硬抗二向箔》</span>
             <span style="font-size:10px;">▼</span>
         </div>
-        <button class="btn-new-book-quick" onclick="openNewBookModal()">
-            <span>➕ 构思新书</span>
-        </button>
+        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+            <button class="btn-new-book-quick" onclick="openBookDrawer()" title="进入所有小说书架大厅查看封面与作品详情">
+                <span>📚 书架大厅</span>
+            </button>
+            <button class="btn-new-book-quick" onclick="openNewBookModal()" title="构思一部全新小说">
+                <span>➕ 构思新书</span>
+            </button>
+        </div>
     </div>
 
     <div class="sync-share-strip" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;">
@@ -1915,17 +1932,206 @@
         </div>
     </nav>
 
-    <!-- 多书架抽屉 Modal -->
+    <!-- 宏伟作品书架大厅 Modal -->
     <div id="book-modal" class="modal-overlay" onclick="closeBookDrawer(event)">
-        <div class="modal-box" onclick="event.stopPropagation()">
+        <div class="modal-box modal-box-large" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <div class="modal-title">📚 作品书架管理</div>
+                <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                    <span>📚</span>
+                    <span>作品书架大厅 · 多宇宙创作画廊</span>
+                </div>
                 <button class="close-btn" onclick="closeBookDrawer()">&times;</button>
             </div>
-            <div id="books-list-container" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
-            <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #6b21a8); color:#fff; font-size:13px; padding:10px;" onclick="closeBookDrawer(); openNewBookModal();">
-                ➕ 构思并新建一部新小说
-            </button>
+            <div id="books-list-container" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px; max-height:65vh; overflow-y:auto; padding-right:4px;"></div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn-launch-big" style="flex:1; background:linear-gradient(135deg, #a855f7, #6b21a8); color:#fff; font-size:13px; padding:10px;" onclick="closeBookDrawer(); openNewBookModal();">
+                    ➕ 构思并新建一部新小说
+                </button>
+                <button class="btn-new-book-quick" style="padding:10px 16px;" onclick="closeBookDrawer()">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 作品基本信息与封面修改 Modal -->
+    <div id="edit-book-modal" class="modal-overlay" onclick="closeEditBookModal(event)">
+        <div class="modal-box" onclick="event.stopPropagation()" style="max-width:520px;">
+            <div class="modal-header">
+                <div class="modal-title">✏️ 作品基本信息与封面管理</div>
+                <button class="close-btn" onclick="closeEditBookModal()">&times;</button>
+            </div>
+            <input type="hidden" id="edit-book-id">
+            
+            <!-- 封面预览与上传区 -->
+            <div class="input-group">
+                <label class="input-label">🖼️ 作品封面（支持上传 PNG/JPG/WEBP 或直接拖拽图片）</label>
+                <div style="display:flex; gap:14px; align-items:center; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:12px;">
+                    <div style="width:84px; height:116px; border-radius:6px; overflow:hidden; border:1px solid var(--border-highlight); background:#06080d; flex-shrink:0;">
+                        <img id="edit-book-cover-preview" src="" alt="封面预览" style="width:100%; height:100%; object-fit:cover;">
+                    </div>
+                    <div style="flex:1;">
+                        <div class="cover-upload-box" onclick="document.getElementById('edit-book-cover-file').click()" ondragover="event.preventDefault()" ondrop="event.preventDefault(); handleCoverFileSelect(event)">
+                            <div style="font-size:12px; font-weight:bold; color:var(--accent);">点击选择新封面文件</div>
+                            <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">或将本地图片拖拽至此处</div>
+                        </div>
+                        <input type="file" id="edit-book-cover-file" accept="image/*" style="display:none;" onchange="handleCoverFileSelect(event)">
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">📖 小说书名（修改后将安全重命名底层目录）</label>
+                <input type="text" id="edit-book-title" class="input-text" placeholder="输入小说书名">
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">🏷️ 题材与流派</label>
+                <input type="text" id="edit-book-genre" class="input-text" placeholder="例如：宇宙科技修仙 / 历史科幻 / 赛博仙侠">
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">💡 故事简介与金手指定位（供书架展示与AI创作提炼）</label>
+                <textarea id="edit-book-desc" class="prompt-textarea" style="height:80px;" placeholder="简要描述故事主线、主角能力与核心爽点..."></textarea>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:14px;">
+                <button id="btn-save-book-meta" class="btn-launch-big" style="flex:1; background:linear-gradient(135deg, #f59e0b, #d97706); color:#000; font-weight:bold; padding:10px;" onclick="submitEditBookMeta()">
+                    💾 保存作品信息与封面
+                </button>
+                <button class="btn-new-book-quick" style="padding:10px 16px;" onclick="closeEditBookModal()">
+                    取消
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 安全删除小说确认 Modal -->
+    <div id="delete-book-modal" class="modal-overlay" onclick="closeDeleteBookModal(event)">
+        <div class="modal-box" onclick="event.stopPropagation()" style="max-width:480px; border-color:rgba(239,68,68,0.5);">
+            <div class="modal-header" style="border-bottom-color:rgba(239,68,68,0.3);">
+                <div class="modal-title" style="color:#ef4444; display:flex; align-items:center; gap:6px;">
+                    <span>⚠️</span>
+                    <span>安全移入回收站确认</span>
+                </div>
+                <button class="close-btn" onclick="closeDeleteBookModal()">&times;</button>
+            </div>
+            <div style="font-size:12px; color:var(--text-main); line-height:1.6; margin-bottom:12px;">
+                即将对作品 <b id="delete-book-target-name" style="color:var(--accent);">《》</b> 执行安全删除。
+            </div>
+            <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 12px; font-size:11px; color:#fca5a5; line-height:1.5; margin-bottom:14px;">
+                🛡️ <b>防丢失承诺</b>：本软件采用绝对安全的<b>软删除（Soft Delete）</b>机制。作品文件夹将安全完整归档至 <code>.trash/</code> 回收站中，随时可由管理员手动找回或一键恢复，绝不会硬性丢失心血！
+            </div>
+            <div class="input-group">
+                <label class="input-label" style="color:#ef4444;">防误触安全校验：请输入完整原书名以解锁删除按钮</label>
+                <input type="text" id="delete-book-confirm-input" class="input-text" style="border-color:rgba(239,68,68,0.5);" placeholder="在此完整输入书名进行核对" oninput="checkDeleteConfirmInput()">
+            </div>
+            <div style="display:flex; gap:10px; margin-top:14px;">
+                <button id="btn-confirm-delete-book" class="btn-launch-big" style="flex:1; background:#ef4444; color:#fff; font-weight:bold; padding:10px; opacity:0.5; cursor:not-allowed;" disabled onclick="submitDeleteBook()">
+                    🗑️ 确认安全移入回收站
+                </button>
+                <button class="btn-new-book-quick" style="padding:10px 16px;" onclick="closeDeleteBookModal()">
+                    取消
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全局系统设置与创作风控偏好 Modal -->
+    <div id="settings-modal" class="modal-overlay" onclick="closeSettingsModal(event)">
+        <div class="modal-box modal-box-large" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                    <span>⚙️</span>
+                    <span>系统全局设置与长篇创作风控中心</span>
+                </div>
+                <button class="close-btn" onclick="closeSettingsModal()">&times;</button>
+            </div>
+            <div style="max-height:65vh; overflow-y:auto; padding-right:4px;">
+                <!-- 1. AI 创作偏好 -->
+                <div class="setting-card">
+                    <div class="setting-card-title">🤖 AI 创作执行端与模型偏好</div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">默认 AI 执行引擎</div>
+                            <div class="setting-desc">推荐使用 Antigravity 进行深度长篇构思与写章</div>
+                        </div>
+                        <select id="setting-default-engine" class="select-box" style="width:170px;">
+                            <option value="antigravity">Antigravity (推荐)</option>
+                            <option value="codex">ChatGPT (Codex)</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">默认思考与推理等级</div>
+                            <div class="setting-desc">深度长篇创作建议设为“高”，以充分展开逻辑推演</div>
+                        </div>
+                        <select id="setting-default-effort" class="select-box" style="width:170px;">
+                            <option value="高">高 (High 推理深度)</option>
+                            <option value="中">中 (Medium 平衡)</option>
+                            <option value="低">低 (Low 极速响应)</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">单章默认目标字数</div>
+                            <div class="setting-desc">番茄小说主流黄金章节篇幅，保证剧情饱满爽点密集</div>
+                        </div>
+                        <select id="setting-default-words" class="select-box" style="width:170px;">
+                            <option value="4000-5000">黄金标准 (4000-5000字)</option>
+                            <option value="5000-6000">加长篇幅 (5000-6000字)</option>
+                            <option value="6000-8000">爆发大章 (6000-8000字)</option>
+                            <option value="3000-4000">紧凑短章 (3000-4000字)</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">连续续写默认批次</div>
+                            <div class="setting-desc">一次任务默认连写的章节数量</div>
+                        </div>
+                        <select id="setting-batch-count" class="select-box" style="width:170px;">
+                            <option value="1">单章续写 (1 章)</option>
+                            <option value="2">双章连更 (2 章)</option>
+                            <option value="3">三章连发 (3 章)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 2. 长篇防吃书防护网 -->
+                <div class="setting-card">
+                    <div class="setting-card-title">🛡️ 长篇小说防“吃设定/吃伏笔”终极防护网</div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">强制注入全书剧情与伏笔线索总账本</div>
+                            <div class="setting-desc">写作前自动检索并通读总账本，确保人物境界、底牌、待收伏笔严丝合缝</div>
+                        </div>
+                        <input type="checkbox" id="setting-check-ledger" checked style="accent-color:var(--accent); width:18px; height:18px;">
+                    </div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">强制通读最新上一章正文与断章钩子</div>
+                            <div class="setting-desc">自动提炼上一章末尾未解之谜与危机悬念，杜绝新章节开头生硬脱节</div>
+                        </div>
+                        <input type="checkbox" id="setting-read-previous" checked style="accent-color:var(--accent); width:18px; height:18px;">
+                    </div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">严格番茄规范排版机审引擎</div>
+                            <div class="setting-desc">段首两全角空格、中文字符全角化、杜绝半角英文引号与错别字混淆</div>
+                        </div>
+                        <input type="checkbox" id="setting-strict-tomato" checked style="accent-color:var(--accent); width:18px; height:18px;">
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:14px;">
+                <button id="btn-save-settings" class="btn-launch-big" style="flex:1; background:linear-gradient(135deg, #10b981, #059669); color:#fff; font-weight:bold; padding:10px;" onclick="submitAppSettings()">
+                    💾 保存全局偏好设置
+                </button>
+                <button class="btn-new-book-quick" style="padding:10px 16px;" onclick="closeSettingsModal()">
+                    关闭
+                </button>
+            </div>
         </div>
     </div>
 
@@ -2454,22 +2660,295 @@
             if (aitarget) aitarget.innerText = `《${CURRENT_BOOK}》`;
         }
 
+        let EDIT_COVER_BASE64 = null;
+        let PENDING_DELETE_BOOK = null;
+
         function openBookDrawer() {
             const container = document.getElementById("books-list-container");
-            container.innerHTML = BOOKS.map(b => `
-                <div style="background:var(--bg-secondary); border:1px solid ${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--border)'}; border-radius:var(--radius-sm); padding:10px; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectBook(${htmlArgument(b.id)})">
-                    <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">
-                        <div style="font-size:13px; font-weight:800; color:${b.id === CURRENT_BOOK ? 'var(--accent)' : 'var(--text-main)'}; overflow:hidden; text-overflow:ellipsis;">📖 《${escapeHtml(b.title)}》</div>
-                        <div style="font-size:10px; color:var(--text-dim); margin-top:2px;">共 ${b.chapter_count || 0} 章 · 设定卷宗 ${b.settings_count || 0} 篇</div>
-                    </div>
-                    <span style="color:var(--accent); font-size:11px; white-space:nowrap; margin-left:8px;">${b.id === CURRENT_BOOK ? '● 当前' : '➔ 切换'}</span>
+            if (!container) return;
+            
+            // 汇总统计
+            const totalChapters = BOOKS.reduce((sum, b) => sum + (b.chapter_count || 0), 0);
+            const totalWords = BOOKS.reduce((sum, b) => sum + (b.word_count || 0), 0);
+            
+            const summaryHtml = `
+                <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin-bottom:12px; display:flex; justify-content:space-around; align-items:center; font-size:12px; color:var(--text-sub);">
+                    <div>📚 藏书 <b style="color:var(--accent); font-size:14px;">${BOOKS.length}</b> 部</div>
+                    <div style="width:1px; height:18px; background:var(--border);"></div>
+                    <div>📑 全书共 <b style="color:var(--text-main); font-size:14px;">${totalChapters}</b> 章</div>
+                    <div style="width:1px; height:18px; background:var(--border);"></div>
+                    <div>✍️ 总字数 <b style="color:#38bdf8; font-size:14px;">${(totalWords/10000).toFixed(1)}</b> 万字</div>
                 </div>
-            `).join("");
+            `;
+            
+            const cardsHtml = BOOKS.map(b => {
+                const isCurrent = (b.id === CURRENT_BOOK);
+                const coverSrc = `${API}/cover?book=${encodeURIComponent(b.id)}`;
+                const genreBadge = b.genre || '宇宙科技修仙';
+                const desc = b.description ? escapeHtml(b.description).replace(/\n/g, ' ') : '暂无作品简介，点击【修改信息】即可补充故事背景与金手指介绍。';
+                return `
+                    <div class="book-gallery-card ${isCurrent ? 'active-card' : ''}" style="background:var(--bg-secondary); border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'}; border-radius:10px; padding:12px; display:flex; gap:14px; margin-bottom:10px; position:relative; transition:all 0.2s ease;">
+                        ${isCurrent ? '<div style="position:absolute; top:8px; right:8px; background:rgba(245,158,11,0.2); border:1px solid var(--accent); color:var(--accent); font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px;">● 当前创作中</div>' : ''}
+                        <div style="flex-shrink:0; width:88px; height:120px; border-radius:6px; overflow:hidden; border:1px solid var(--border-highlight); background:#0b0f19; box-shadow:0 4px 10px rgba(0,0,0,0.5);">
+                            <img src="${coverSrc}" alt="${escapeHtml(b.title)}" style="width:100%; height:100%; object-fit:cover; display:block;" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' viewBox=\\'0 0 100 140\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23111827\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23e2b740\\' font-size=\\'12\\' text-anchor=\\'middle\\'>封面</text></svg>'">
+                        </div>
+                        <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:space-between;">
+                            <div>
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px; padding-right:${isCurrent ? '80px' : '0'};">
+                                    <h4 style="margin:0; font-size:14px; font-weight:800; color:${isCurrent ? 'var(--accent)' : 'var(--text-main)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">《${escapeHtml(b.title)}》</h4>
+                                    <span style="font-size:10px; background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3); border-radius:4px; padding:1px 6px;">${escapeHtml(genreBadge)}</span>
+                                </div>
+                                <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">
+                                    <span>共 ${b.chapter_count || 0} 章</span> · 
+                                    <span>${b.word_count ? (b.word_count/10000).toFixed(1) + '万字' : '未统计'}</span> · 
+                                    <span>设定卷宗 ${b.settings_count || 0} 篇</span>
+                                </div>
+                                <div style="font-size:11px; color:var(--text-sub); line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis;" title="${desc}">
+                                    ${desc}
+                                </div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;">
+                                <button class="btn-new-book-quick" style="padding:4px 10px; font-size:11px; background:${isCurrent ? 'rgba(245,158,11,0.15)' : 'var(--bg-primary)'}; border-color:${isCurrent ? 'var(--accent)' : 'var(--border)'}; color:${isCurrent ? 'var(--accent)' : 'var(--text-main)'};" onclick="selectBook(${htmlArgument(b.id)})">
+                                    ${isCurrent ? '✍️ 正在创作' : '➔ 切换创作'}
+                                </button>
+                                <button class="btn-new-book-quick" style="padding:4px 10px; font-size:11px;" onclick="openEditBookModal(${htmlArgument(b.id)})">
+                                    ✏️ 修改信息与封面
+                                </button>
+                                <button class="btn-new-book-quick" style="padding:4px 10px; font-size:11px; color:#ef4444; border-color:rgba(239,68,68,0.4);" onclick="openDeleteBookModal(${htmlArgument(b.id)}, ${htmlArgument(b.title)})">
+                                    🗑️ 安全删除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+            
+            container.innerHTML = summaryHtml + cardsHtml;
             document.getElementById("book-modal").classList.add("show");
         }
 
         function closeBookDrawer(e) {
             document.getElementById("book-modal").classList.remove("show");
+        }
+
+        // --- 作品信息与封面编辑 ---
+        function openEditBookModal(bookId) {
+            const book = BOOKS.find(b => b.id === bookId) || { id: bookId, title: bookId, genre: '', description: '' };
+            document.getElementById("edit-book-id").value = book.id;
+            document.getElementById("edit-book-title").value = book.title || book.id;
+            document.getElementById("edit-book-genre").value = book.genre || "";
+            document.getElementById("edit-book-desc").value = book.description || "";
+            EDIT_COVER_BASE64 = null;
+            const preview = document.getElementById("edit-book-cover-preview");
+            if (preview) {
+                preview.src = `${API}/cover?book=${encodeURIComponent(book.id)}&_t=${Date.now()}`;
+            }
+            document.getElementById("edit-book-modal").classList.add("show");
+        }
+
+        function closeEditBookModal(e) {
+            document.getElementById("edit-book-modal").classList.remove("show");
+        }
+
+        function handleCoverFileSelect(e) {
+            const files = e.target.files || (e.dataTransfer && e.dataTransfer.files);
+            if (!files || !files.length) return;
+            const file = files[0];
+            if (!file.type.startsWith("image/")) {
+                alert("请选择有效的图片文件（PNG、JPG 或 WEBP）！");
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                EDIT_COVER_BASE64 = evt.target.result;
+                const preview = document.getElementById("edit-book-cover-preview");
+                if (preview) preview.src = EDIT_COVER_BASE64;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function submitEditBookMeta() {
+            const bookId = document.getElementById("edit-book-id").value;
+            const newTitle = document.getElementById("edit-book-title").value.trim();
+            const genre = document.getElementById("edit-book-genre").value.trim();
+            const desc = document.getElementById("edit-book-desc").value.trim();
+            
+            if (!newTitle) return alert("书名不能为空！");
+            
+            const payload = {
+                book_id: bookId,
+                title: newTitle,
+                genre: genre,
+                description: desc
+            };
+            if (EDIT_COVER_BASE64) {
+                payload.cover_base64 = EDIT_COVER_BASE64;
+            }
+            
+            const saveBtn = document.getElementById("btn-save-book-meta");
+            if (saveBtn) { saveBtn.disabled = true; saveBtn.innerText = "正在保存并生效..."; }
+            
+            try {
+                const res = await fetchAPI(`${API}/book_meta`, {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
+                if (res && res.ok) {
+                    alert(`作品《${newTitle}》信息与封面已成功保存！`);
+                    closeEditBookModal();
+                    if (CURRENT_BOOK === bookId) {
+                        CURRENT_BOOK = res.book_id || newTitle;
+                    }
+                    await loadBooks();
+                    openBookDrawer();
+                } else {
+                    alert("保存失败：" + ((res && res.error) || "未知错误"));
+                }
+            } catch (err) {
+                alert("保存异常：" + err.message);
+            } finally {
+                if (saveBtn) { saveBtn.disabled = false; saveBtn.innerText = "💾 保存作品信息与封面"; }
+            }
+        }
+
+        // --- 安全软删除作品 ---
+        function openDeleteBookModal(bookId, bookTitle) {
+            PENDING_DELETE_BOOK = { id: bookId, title: bookTitle || bookId };
+            const nameEl = document.getElementById("delete-book-target-name");
+            if (nameEl) nameEl.innerText = `《${bookTitle || bookId}》`;
+            const inputEl = document.getElementById("delete-book-confirm-input");
+            if (inputEl) inputEl.value = "";
+            const btn = document.getElementById("btn-confirm-delete-book");
+            if (btn) {
+                btn.disabled = true;
+                btn.style.opacity = "0.5";
+                btn.style.cursor = "not-allowed";
+            }
+            document.getElementById("delete-book-modal").classList.add("show");
+        }
+
+        function closeDeleteBookModal(e) {
+            document.getElementById("delete-book-modal").classList.remove("show");
+        }
+
+        function checkDeleteConfirmInput() {
+            const input = (document.getElementById("delete-book-confirm-input").value || "").trim();
+            const target = (PENDING_DELETE_BOOK && PENDING_DELETE_BOOK.title) ? PENDING_DELETE_BOOK.title.trim() : "";
+            const targetId = (PENDING_DELETE_BOOK && PENDING_DELETE_BOOK.id) ? PENDING_DELETE_BOOK.id.trim() : "";
+            const btn = document.getElementById("btn-confirm-delete-book");
+            
+            const cleanInput = input.replace(/^[《【\s]+|[》】\s]+$/g, "");
+            const cleanTarget = target.replace(/^[《【\s]+|[》】\s]+$/g, "");
+            const cleanId = targetId.replace(/^[《【\s]+|[》】\s]+$/g, "");
+            
+            const isMatch = Boolean(cleanInput && (cleanInput === cleanTarget || cleanInput === cleanId));
+            if (btn) {
+                btn.disabled = !isMatch;
+                btn.style.opacity = isMatch ? "1" : "0.5";
+                btn.style.cursor = isMatch ? "pointer" : "not-allowed";
+            }
+        }
+
+        async function submitDeleteBook() {
+            if (!PENDING_DELETE_BOOK) return;
+            const confirmVal = document.getElementById("delete-book-confirm-input").value.trim();
+            const btn = document.getElementById("btn-confirm-delete-book");
+            if (btn) { btn.disabled = true; btn.innerText = "正在安全移入回收站..."; }
+            
+            try {
+                const res = await fetchAPI(`${API}/delete_book`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        book_id: PENDING_DELETE_BOOK.id,
+                        confirm_title: confirmVal
+                    })
+                });
+                if (res && res.ok) {
+                    alert(res.message || "作品已安全移入回收站！");
+                    closeDeleteBookModal();
+                    const wasCurrent = (CURRENT_BOOK === PENDING_DELETE_BOOK.id);
+                    await loadBooks();
+                    if (wasCurrent && BOOKS.length > 0) {
+                        await selectBook(BOOKS[0].id);
+                    }
+                    openBookDrawer();
+                } else {
+                    alert("删除失败：" + ((res && res.error) || "安全校验未通过"));
+                }
+            } catch (err) {
+                alert("删除异常：" + err.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerText = "🗑️ 确认安全移入回收站"; }
+            }
+        }
+
+        // --- 全局系统设置与防吃书规则 ---
+        async function openSettingsModal() {
+            document.getElementById("settings-modal").classList.add("show");
+            try {
+                const data = await fetchAPI(`${API}/app_settings`);
+                if (data && data.settings) {
+                    const s = data.settings;
+                    if (document.getElementById("setting-default-engine")) {
+                        document.getElementById("setting-default-engine").value = s.default_engine || "antigravity";
+                    }
+                    if (document.getElementById("setting-default-effort")) {
+                        document.getElementById("setting-default-effort").value = s.default_effort || "高";
+                    }
+                    if (document.getElementById("setting-default-words")) {
+                        document.getElementById("setting-default-words").value = s.default_chapter_words || "4000-5000";
+                    }
+                    if (document.getElementById("setting-batch-count")) {
+                        document.getElementById("setting-batch-count").value = s.batch_count || 1;
+                    }
+                    if (document.getElementById("setting-check-ledger")) {
+                        document.getElementById("setting-check-ledger").checked = s.auto_check_ledger !== false;
+                    }
+                    if (document.getElementById("setting-read-previous")) {
+                        document.getElementById("setting-read-previous").checked = s.auto_read_previous !== false;
+                    }
+                    if (document.getElementById("setting-strict-tomato")) {
+                        document.getElementById("setting-strict-tomato").checked = s.strict_tomato_layout !== false;
+                    }
+                }
+            } catch (err) {
+                console.error("加载设置失败", err);
+            }
+        }
+
+        function closeSettingsModal(e) {
+            document.getElementById("settings-modal").classList.remove("show");
+        }
+
+        async function submitAppSettings() {
+            const payload = {
+                default_engine: document.getElementById("setting-default-engine").value,
+                default_effort: document.getElementById("setting-default-effort").value,
+                default_chapter_words: document.getElementById("setting-default-words").value,
+                batch_count: parseInt(document.getElementById("setting-batch-count").value) || 1,
+                auto_check_ledger: document.getElementById("setting-check-ledger").checked,
+                auto_read_previous: document.getElementById("setting-read-previous").checked,
+                strict_tomato_layout: document.getElementById("setting-strict-tomato").checked
+            };
+            
+            const btn = document.getElementById("btn-save-settings");
+            if (btn) { btn.disabled = true; btn.innerText = "正在保存..."; }
+            try {
+                const res = await fetchAPI(`${API}/app_settings`, {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
+                if (res && res.ok) {
+                    alert("⚙️ 全局设置与长篇防吃书规则已成功保存生效！");
+                    closeSettingsModal();
+                } else {
+                    alert("保存失败：" + ((res && res.error) || "未知错误"));
+                }
+            } catch (err) {
+                alert("保存异常：" + err.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerText = "💾 保存全局偏好设置"; }
+            }
         }
 
         async function selectBook(bookId) {

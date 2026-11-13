@@ -17,6 +17,7 @@ import json
 import zipfile
 import io
 import datetime
+import base64
 from storage import within, safe_component
 
 # 自动判断当前是在本地 Windows 还是云端 Linux
@@ -29,6 +30,148 @@ os.makedirs(DEFAULT_ROOT, exist_ok=True)
 
 # ----------------- 1. 书架与目录管理 -----------------
 
+def get_book_meta_file(bpath):
+    return os.path.join(bpath, "00_设定集", "book.json")
+
+def read_book_meta(bpath, book_id=None):
+    if not book_id:
+        book_id = os.path.basename(bpath.rstrip(r"\/"))
+    meta_file = get_book_meta_file(bpath)
+    meta = {
+        "id": book_id,
+        "title": book_id,
+        "genre": "科幻修真 / 网文",
+        "author": "作者",
+        "description": "",
+        "cover": "",
+        "created_at": None,
+        "updated_at": None
+    }
+    if os.path.exists(meta_file):
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                meta.update(saved)
+        except Exception:
+            pass
+    else:
+        intro_candidates = glob.glob(os.path.join(bpath, "00_设定集", "*简介*.md")) + glob.glob(os.path.join(bpath, "00_设定集", "*文案*.md"))
+        if intro_candidates:
+            try:
+                with open(intro_candidates[0], "r", encoding="utf-8", errors="ignore") as f:
+                    lines = [l.strip() for l in f.read().splitlines() if not l.strip().startswith("#") and l.strip()]
+                    meta["description"] = "\n".join(lines[:6])[:300]
+            except Exception:
+                pass
+
+    cover_candidates = glob.glob(os.path.join(bpath, "00_设定集", "cover.*"))
+    if cover_candidates:
+        meta["cover"] = os.path.basename(cover_candidates[0])
+        meta["has_cover"] = True
+    else:
+        meta["has_cover"] = False
+    return meta
+
+def save_book_meta(book_id, meta_data, root_dir=None):
+    bpath, _ = get_book_path(book_id, root_dir)
+    settings_dir = os.path.join(bpath, "00_设定集")
+    os.makedirs(settings_dir, exist_ok=True)
+    current = read_book_meta(bpath, book_id)
+    current.update(meta_data)
+    current["updated_at"] = int(datetime.datetime.now().timestamp())
+    
+    # 写入 book.json
+    meta_file = get_book_meta_file(bpath)
+    with open(meta_file, "w", encoding="utf-8") as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+
+    # 如果需要修改书名（重命名目录）
+    new_title = meta_data.get("new_title") or meta_data.get("title")
+    target_id = book_id
+    if new_title and new_title.strip() and new_title.strip() != book_id:
+        safe_new = safe_component(new_title.strip())
+        base = root_dir or DEFAULT_ROOT
+        new_path = os.path.join(base, safe_new)
+        if new_path != bpath:
+            if os.path.exists(new_path):
+                raise FileExistsError(f"目标书名《{safe_new}》已存在，无法重命名")
+            os.replace(bpath, new_path)
+            bpath = new_path
+            target_id = safe_new
+            current["id"] = target_id
+            current["title"] = target_id
+            with open(get_book_meta_file(bpath), "w", encoding="utf-8") as f:
+                json.dump(current, f, ensure_ascii=False, indent=2)
+
+    return {"ok": True, "book_id": target_id, "meta": current}
+
+def save_book_cover(book_id, image_data, ext="png", root_dir=None):
+    # 容错：如果 ext 看起来是一个目录路径且 root_dir 为空
+    if root_dir is None and isinstance(ext, str) and (os.path.isdir(ext) or "\\" in ext or "/" in ext):
+        root_dir = ext
+        ext = "png"
+    bpath, _ = get_book_path(book_id, root_dir)
+    settings_dir = os.path.join(bpath, "00_设定集")
+    os.makedirs(settings_dir, exist_ok=True)
+
+    # 支持 Base64 字符串与原始 bytes
+    raw_bytes = image_data
+    if isinstance(image_data, str):
+        if "," in image_data:
+            image_data = image_data.split(",", 1)[1]
+        raw_bytes = base64.b64decode(image_data)
+
+    # 移除旧封面
+    for old_cov in glob.glob(os.path.join(settings_dir, "cover.*")):
+        try: os.remove(old_cov)
+        except Exception: pass
+    cover_name = f"cover.{ext.lstrip('.')}"
+    cover_path = os.path.join(settings_dir, cover_name)
+    with open(cover_path, "wb") as f:
+        f.write(raw_bytes)
+    return cover_path
+
+def delete_book_safe(book_id, root_dir=None):
+    bpath, _ = get_book_path(book_id, root_dir)
+    base = root_dir or DEFAULT_ROOT
+    trash_dir = os.path.join(base, ".trash")
+    os.makedirs(trash_dir, exist_ok=True)
+    archive_name = f"{book_id}_deleted_{int(datetime.datetime.now().timestamp())}"
+    target_path = os.path.join(trash_dir, archive_name)
+    os.replace(bpath, target_path)
+    return {"ok": True, "archived_to": target_path, "trash_path": target_path, "deleted_book": book_id}
+
+def get_user_settings(config_dir=None):
+    cfg_path = os.path.join(config_dir or os.path.dirname(__file__), ".user_settings.json")
+    defaults = {
+        "default_engine": "antigravity",
+        "default_model": "Gemini 3.8 Flash (High)",
+        "default_effort": "高",
+        "default_chapter_words": "4000-5000",
+        "batch_count": 1,
+        "auto_read_previous": True,
+        "auto_check_ledger": True,
+        "strict_tomato_layout": True,
+        "theme_mode": "dark-gold",
+        "reader_font_size": 20
+    }
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                defaults.update(saved)
+        except Exception:
+            pass
+    return defaults
+
+def save_user_settings(settings, config_dir=None):
+    cfg_path = os.path.join(config_dir or os.path.dirname(__file__), ".user_settings.json")
+    current = get_user_settings(config_dir)
+    current.update(settings)
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+    return current
+
 def list_books(root_dir=None):
     base = root_dir or DEFAULT_ROOT
     if not os.path.exists(base):
@@ -39,14 +182,37 @@ def list_books(root_dir=None):
             bpath = entry.path
             chapters = chapter_files(bpath)
             settings = glob.glob(os.path.join(bpath, "00_设定集", "*.md"))
+            
+            # 计算总字数与最新更新时间
+            total_words = 0
+            latest_mtime = 0
+            for cf in chapters:
+                try:
+                    st = os.stat(cf)
+                    latest_mtime = max(latest_mtime, int(st.st_mtime))
+                    total_words += st.st_size // 3
+                except Exception:
+                    pass
+            
+            meta = read_book_meta(bpath, entry.name)
             books.append({
                 "id": entry.name,
-                "title": entry.name,
+                "title": meta.get("title", entry.name),
+                "genre": meta.get("genre", "科幻修真 / 网文"),
+                "author": meta.get("author", "作者"),
+                "description": meta.get("description", ""),
+                "cover": meta.get("cover", ""),
+                "has_cover": meta.get("has_cover", False),
+                "cover_url": f"/novel/api/cover?book={entry.name}" if meta.get("has_cover") else "",
                 "path": bpath,
                 "chapter_count": len(chapters),
                 "settings_count": len(settings),
+                "word_count": total_words,
+                "updated_at": latest_mtime,
                 "has_outline": os.path.exists(os.path.join(bpath, "00_设定集"))
             })
+    # 按更新时间或拼音排序
+    books.sort(key=lambda x: x.get("updated_at", 0), reverse=True)
     return books
 
 def get_book_path(book_id=None, root_dir=None):

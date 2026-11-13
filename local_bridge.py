@@ -25,6 +25,7 @@ import ctypes
 import socket
 import threading
 import uuid
+import base64
 from pathlib import Path
 from storage import atomic_json, atomic_write, within, safe_component
 import agent_client
@@ -224,6 +225,21 @@ def collect_book_data(book_dir_name):
             })
     return chapters, settings
 
+def collect_book_meta_and_cover(book_dir_name):
+    book_path = within(BOOKS_ROOT, book_dir_name)
+    meta = novel_manager.read_book_meta(book_path, book_dir_name)
+    cover_base64 = None
+    for ext in (".png", ".jpg", ".jpeg", ".webp"):
+        cov = os.path.join(book_path, "00_设定集", f"cover{ext}")
+        if os.path.exists(cov) and os.path.isfile(cov):
+            try:
+                with open(cov, "rb") as cfp:
+                    cover_base64 = base64.b64encode(cfp.read()).decode("ascii")
+                break
+            except Exception:
+                pass
+    return meta, cover_base64
+
 def collect_all_conversations():
     conversations = []
     conversation_id = CONFIG.get("conversation_id")
@@ -292,6 +308,7 @@ def _sync_all_books_to_cloud(force):
             if entry.is_dir() and not entry.name.startswith("."):
                 book_id = entry.name
                 chapters, settings = collect_book_data(book_id)
+                meta, cover_base64 = collect_book_meta_and_cover(book_id)
                 fingerprint = content_fingerprint(chapters, settings)
                 total_chapters += len(chapters)
                 total_settings += len(settings)
@@ -303,6 +320,8 @@ def _sync_all_books_to_cloud(force):
                     "book_id": book_id,
                     "chapters": chapters,
                     "settings": settings,
+                    "meta": meta,
+                    "cover_base64": cover_base64,
                     "conversations": convs,
                     "sync_version": 2,
                     "fingerprint": fingerprint
@@ -458,11 +477,14 @@ def serial_chapter_prompt(book_id, user_prompt):
 5. 步骤5（篇幅与落盘）：默认4000-5000字，情节饱满，节奏极度紧凑。创作完成后直接调用 write_file 写入对应文件路径：
    `{book_root}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
 """
+    char_guideline = "顾见微（怨种嘴碎社畜+学术暴君双重反差）、政哥（千古一帝霸烈甲方）" if ("政哥" in book_id or "量子力学" in book_id) else f"严格遵循《{book_id}》人物设定集与小传，还原主角与核心角色的语言风格与性格神韵，严禁人设崩坏"
+    tech_guideline = "严守当前工业底座，核对能力限制，严禁跳跃到中后期宇宙神级科技" if ("政哥" in book_id or "量子力学" in book_id) else f"严格核对《{book_id}》世界观与能力体系阶段，核对能力限制，严禁跳级超纲或空降外挂"
+
     prompt += f"""
 【防吃书四项硬性自检】：
 本轮只创作第{pad_num}章，以本轮编号为准。
-① 人物口吻：顾见微（怨种嘴碎社畜+学术暴君双重反差）、政哥（千古一帝霸烈甲方）；
-② 科技树边界：严守当前工业底座，核对能力限制，严禁跳跃到中后期宇宙神级科技；
+① 人物口吻：{char_guideline}；
+② 体系边界：{tech_guideline}；
 ③ 因果连续：时间线、地理方位、人物位置与认知严格承接；
 ④ 伏笔推进：承接前文伏笔，并在结尾为后章留下明确钩子。存在设定矛盾时立即停止并报告。
 仅新增本轮章节，不改写历史正文或设定，不提前创作后续章节。
@@ -601,7 +623,8 @@ def run_bridge_loop():
 你现在是白金级网文总架构师。请为《{book_title}》完成全套世界观与分卷分章构想，并调用 write_file 完整写入以下设定文件：
 1. `D:\\小说\\{book_title}\\00_设定集\\01_世界观核心设定与科技修炼体系.md`（包含力量境界体系、登天能级梯次、核心法则、社会生产力演化）；
 2. `D:\\小说\\{book_title}\\00_设定集\\02_核心人物小传与各方阵营势力.md`（包含主角身世金手指、核心反派、朝廷/宗门势力架构）；
-3. `D:\\小说\\{book_title}\\00_设定集\\03_全书分卷主线总谱与前30章分章细纲.md`（包含全书主线伏笔脉络、各卷高潮、前30章每章剧情推演与章末反转钩子）。
+3. `D:\\小说\\{book_title}\\00_设定集\\03_全书分卷主线总谱与前30章分章细纲.md`（包含全书主线伏笔脉络、各卷高潮、前30章每章剧情推演与章末反转钩子）；
+4. `D:\\小说\\{book_title}\\00_设定集\\00_全书前情剧情与伏笔线索总账本.md`（包含核心人物初始状态与位置、世界观底座基准线、当前核心悬念与开篇主线伏笔）。
 
 请直接调用 write_file 将以上文档全部写入落盘，确保内容详实充沛、设定自洽、爽点与悬念密集！
 """
