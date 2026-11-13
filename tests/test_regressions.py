@@ -430,6 +430,19 @@ class RegressionTests(unittest.TestCase):
         payload['images'][filename] = base64.b64encode(raw[:32]).decode()
         self.assertEqual(self.request('/api/sync_illustrations', payload)[0], 400)
 
+    def test_bridge_cloud_requests_use_dedicated_opener(self):
+        import sys
+        streams = sys.stdout, sys.stderr, sys.excepthook
+        try:
+            import local_bridge
+        finally:
+            sys.stdout, sys.stderr, sys.excepthook = streams
+        with patch.object(local_bridge.CLOUD_OPENER, 'open', side_effect=[io.BytesIO(b'{"ok":true}'), io.BytesIO(b'{"online":true}')]) as opener:
+            self.assertTrue(local_bridge.api_post('heartbeat', {})['ok'])
+            self.assertTrue(local_bridge.api_get('status')['online'])
+        self.assertEqual(opener.call_count, 2)
+        self.assertEqual(opener.call_args_list[0].args[0].full_url, local_bridge.CLOUD_SERVER_URL + '/heartbeat')
+
     def test_creative_receipt_requires_summary_and_files(self):
         import sys
         streams = sys.stdout, sys.stderr, sys.excepthook

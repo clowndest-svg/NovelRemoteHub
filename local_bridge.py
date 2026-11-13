@@ -88,6 +88,7 @@ ACTIVE_TASK = None
 
 # 忽略 SSL 证书校验 (安全直连)
 SSL_CTX = ssl.create_default_context()
+CLOUD_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=SSL_CTX))
 
 
 # 0. 单实例互斥守护 (端口锁)
@@ -124,7 +125,7 @@ def api_post(endpoint, data):
         "X-Novel-Token": TOKEN
     })
     try:
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=60 if len(body) > 1024 * 1024 else 15) as resp:
+        with CLOUD_OPENER.open(req, timeout=60 if len(body) > 1024 * 1024 else 15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         return None
@@ -135,7 +136,7 @@ def api_get(endpoint):
         "X-Novel-Token": TOKEN
     })
     try:
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=10) as resp:
+        with CLOUD_OPENER.open(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         return None
