@@ -46,6 +46,15 @@ class RegressionTests(unittest.TestCase):
     def setUp(self):
         hub.TASKS.clear()
         hub.MEMORY_CACHE.clear()
+        atomic_json(self.root / 'agents.json', {'updated_at': __import__('time').time(), 'engines': [
+            {'id': 'antigravity', 'available': True, 'name': 'Antigravity', 'project_id': 'ag-project',
+             'project_name': '小说', 'workspace': 'D:\\小说', 'capabilities': {'images': True},
+             'models': [{'id': 'gemini-3.8-flash-high', 'name': 'Gemini', 'is_default': True,
+                         'default_effort': 'high', 'efforts': [{'id': 'high', 'name': 'high'}]}]},
+            {'id': 'codex', 'available': True, 'name': 'ChatGPT（Codex）', 'project_id': 'codex-project',
+             'project_name': '小说', 'workspace': 'D:\\小说', 'capabilities': {'images': False},
+             'models': [{'id': 'gpt-test', 'name': 'GPT', 'is_default': True,
+                         'default_effort': 'medium', 'efforts': [{'id': 'medium'}, {'id': 'high'}]}]}]})
         self.book = '测试作品'
         self.file = '第013章_观微.md'
         self.text = '# 章节\n\n顾见微将铜制显微镜放在木桌上。\n\n淳于越在殿前凝视水滴。'
@@ -94,6 +103,68 @@ class RegressionTests(unittest.TestCase):
             chapter_comments=['水滴里有什么？'], revision='r1', style='2d-ink')
         return dict(book_id=self.book, chapter_code='第013章', meta=meta,
                     images={filename: base64.b64encode(image.getvalue()).decode()}, base_revision='')
+
+    def test_wake_available_when_client_catalog_is_offline(self):
+        atomic_json(self.root / 'agents.json', {'engines': []})
+        status, result = self.dispatch(action='wake_antigravity', engine_mode='codex')
+        self.assertEqual(status, 200)
+        self.assertEqual(hub.TASKS[result['task_id']]['engine_mode'], 'codex')
+
+    def test_verified_codex_image_capability_can_dispatch(self):
+        catalog = json.loads((self.root / 'agents.json').read_text())
+        catalog['engines'][1]['capabilities']['images'] = True
+        self.assertEqual(self.request('/api/sync_agents', catalog)[0], 200)
+        self.assertEqual(self.dispatch(action='generate_chapter_illustrations', engine_mode='codex')[0], 200)
+
+    def test_catalog_requires_auth(self):
+        self.assertEqual(self.request('/api/engines', auth=False)[0], 401)
+
+    def test_codex_dispatch_preserves_model_effort_and_permissions(self):
+        status, result = self.dispatch(engine_mode='codex', model_tier='gpt-test', reasoning_effort='high')
+        self.assertEqual(status, 200)
+        task = hub.TASKS[result['task_id']]
+        self.assertEqual(task['engine_mode'], 'codex')
+        self.assertEqual(task['workspace'], 'D:\\小说')
+        self.assertEqual(task['permission_mode'], 'full-access')
+        self.assertEqual(task['project_id'], 'codex-project')
+        self.assertEqual(task['extra_data']['model_tier'], 'gpt-test')
+        self.assertEqual(task['extra_data']['reasoning_effort'], 'high')
+
+    def test_dispatch_rejects_unknown_model_or_effort(self):
+        for overrides in [dict(engine_mode='codex', model_tier='missing'),
+                          dict(engine_mode='codex', model_tier='gpt-test', reasoning_effort='ultra'),
+                          dict(engine_mode='missing')]:
+            with self.subTest(overrides=overrides):
+                self.assertEqual(self.dispatch(**overrides)[0], 400)
+        self.assertFalse(hub.TASKS)
+
+    def test_codex_images_rejected_without_verified_image_capability(self):
+        self.assertEqual(self.dispatch(action='generate_chapter_illustrations', engine_mode='codex')[0], 400)
+
+    def test_catalog_rejects_wrong_or_duplicate_workspace(self):
+        catalog = json.loads((self.root / 'agents.json').read_text())
+        catalog['engines'][0]['workspace'] = 'D:\\other'
+        self.assertEqual(self.request('/api/sync_agents', catalog)[0], 400)
+        catalog['engines'][0]['workspace'] = 'D:\\小说'
+        catalog['engines'][1]['id'] = 'antigravity'
+        self.assertEqual(self.request('/api/sync_agents', catalog)[0], 400)
+
+    def test_catalog_sync_and_refresh(self):
+        catalog = json.loads((self.root / 'agents.json').read_text())
+        self.assertEqual(self.request('/api/sync_agents', catalog)[0], 200)
+        self.assertEqual(len(self.request('/api/engines')[1]['engines']), 2)
+        self.assertEqual(self.request('/api/refresh_agents', {})[0], 200)
+        self.assertTrue(self.request('/api/pending_task')[1]['refresh_agents'])
+        self.assertFalse(self.request('/api/pending_task')[1]['refresh_agents'])
+
+    def test_workspace_identity_requires_unique_name_and_root(self):
+        from agent_workspace import choose_project, is_workspace
+        self.assertTrue(is_workspace('file:///d%3A/%E5%B0%8F%E8%AF%B4'))
+        projects = [{'name': '小说', 'path': 'D:\\小说', 'id': 'correct'},
+                    {'name': '小说', 'path': 'D:\\other', 'id': 'other'}]
+        self.assertEqual(choose_project(projects, lambda entry: [entry['path']])['id'], 'correct')
+        with self.assertRaises(RuntimeError):
+            choose_project(projects + [projects[0]], lambda entry: [entry['path']])
 
     def test_get_requires_auth(self):
         self.assertEqual(self.request('/api/books', auth=False)[0], 401)
@@ -312,20 +383,22 @@ class RegressionTests(unittest.TestCase):
         second = self.dispatch(action='creative_instruction', request_id='unique')[1]
         self.assertEqual(first['task_id'], second['task_id'])
 
-    def test_antigravity_prompt_uses_executable_and_preserves_newlines(self):
+    def test_antigravity_native_prompt_preserves_newlines(self):
         import agent_client
-        completed = type('Completed', (), dict(returncode=0, stdout='{"response":{"conversationId":"test"}}', stderr=''))()
-        with patch('agent_client.daemon_environment', return_value={}), patch('agent_client.subprocess.run', return_value=completed) as run:
-            agent_client.new_conversation('第一行\n第二行设定', '测试')
-            arguments = run.call_args.args[0]
-            self.assertTrue(arguments[0].endswith('language_server.exe'))
-            self.assertEqual(arguments[-1], '第一行\n第二行设定')
+        catalog = {'available': True, 'project_id': 'project', 'models': [{'id': 'test', 'model_enum': 'MODEL_TEST', 'default_effort': 'high', 'efforts': [{'id': 'high'}]}]}
+        replies = [{'cascadeId': 'conversation'}, {'metadata': {'projectId': 'project'}}, {},
+                   {'trajectorySummaries': {'conversation': {'annotations': {'permissionPreset': 'AGENT_PERMISSION_PRESET_TURBO'}}}}, {}]
+        with patch('agent_client.discover', return_value=catalog), patch('agent_client.rpc', side_effect=replies) as rpc:
+            self.assertEqual(agent_client.new_conversation('第一行\n第二行设定', '测试', 'test'), 'conversation')
+            self.assertEqual(rpc.call_args_list[-1].args[1]['items'][0]['text'], '第一行\n第二行设定')
+            self.assertEqual(rpc.call_args_list[0].args[1]['projectEnvConfig']['projectId'], 'project')
 
-    def test_antigravity_zero_exit_with_error_is_failure(self):
+    def test_antigravity_permissions_checked_before_prompt(self):
         import agent_client
-        completed = type('Completed', (), dict(returncode=0, stdout='{"error":"quota"}', stderr=''))()
-        with patch('agent_client.daemon_environment', return_value={}), patch('agent_client.subprocess.run', return_value=completed):
-            with self.assertRaises(RuntimeError): agent_client.new_conversation('prompt', 'title')
+        catalog = {'available': True, 'project_id': 'project', 'models': [{'id': 'test', 'model_enum': 'MODEL_TEST', 'default_effort': 'high', 'efforts': [{'id': 'high'}]}]}
+        with patch('agent_client.discover', return_value=catalog), patch('agent_client.rpc', side_effect=[{'cascadeId':'conversation'}, {'metadata': {'projectId': 'project'}}, {}, {'trajectorySummaries': {}}]) as rpc:
+            with self.assertRaises(RuntimeError): agent_client.new_conversation('prompt', 'title', 'test')
+            self.assertNotIn('SendUserCascadeMessage', [call.args[0] for call in rpc.call_args_list])
 
     def test_thumbnail_upload_and_content_type(self):
         from PIL import Image
@@ -380,6 +453,54 @@ class RegressionTests(unittest.TestCase):
             ok, message = local_bridge.execute_agentapi('核对设定')
         self.assertTrue(ok)
         self.assertIn('已核对设定', message)
+
+
+class DesktopAgentTests(unittest.TestCase):
+    def test_codex_wait_checks_expected_turn(self):
+        from codex_client import CodexClient
+        client = CodexClient()
+        client.caller_thread = 'caller'
+        client.task_turns['task'] = 'actual-task-turn'
+        snapshots = [
+            {'turns': [{'id': 'initialization', 'status': 'completed'}]},
+            {'turns': [{'id': 'actual-task-turn', 'status': 'completed'}]}
+        ]
+        with patch('codex_desktop.call_desktop', side_effect=snapshots) as call, patch('codex_client.time.sleep'):
+            client.wait('task')
+        self.assertEqual(call.call_count, 2)
+
+    def test_codex_wait_reports_failed_turn(self):
+        from codex_client import CodexClient
+        client = CodexClient()
+        client.caller_thread = 'caller'
+        with patch('codex_desktop.call_desktop', return_value={'turns': [{'status': 'failed'}]}):
+            with self.assertRaises(RuntimeError):
+                client.wait('task')
+
+    def test_codex_requires_full_access_before_creating(self):
+        import codex_desktop
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / '.codex-global-state.json'
+            state.write_text(json.dumps({'owner': {'permission-selection-by-host-id:local': {'kind': 'agent-mode', 'agentMode': 'full-access'}}}))
+            with patch.dict(os.environ, {'CODEX_HOME': directory}):
+                codex_desktop.require_full_access()
+                state.write_text(json.dumps({'owner': {'permission-selection-by-host-id:local': {'kind': 'agent-mode', 'agentMode': 'workspace-write'}}}))
+                with self.assertRaises(RuntimeError):
+                    codex_desktop.require_full_access()
+
+    def test_catalog_failure_preserves_other_engine(self):
+        import desktop_agents
+        with patch('agent_client.discover', side_effect=RuntimeError('offline')), patch.object(desktop_agents.codex_client.CLIENT, 'discover', return_value={'id': 'codex', 'available': True, 'models': [{'id': 'test'}]}):
+            engines = desktop_agents.catalog()['engines']
+        self.assertFalse(engines[0]['available'])
+        self.assertEqual(engines[0]['models'], [])
+        self.assertTrue(engines[1]['available'])
+
+    def test_unavailable_model_never_changes_to_another_model(self):
+        from agent_workspace import selected_model
+        catalog = {'available': True, 'models': [{'id': 'selected', 'disabled': True}, {'id': 'other', 'efforts': [{'id': 'high'}]}]}
+        with self.assertRaises(ValueError):
+            selected_model(catalog, 'selected', 'high')
 
 
 if __name__ == '__main__':

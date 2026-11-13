@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Generate chapter-grounded 2D ink paintings through Antigravity's image tool."""
+"""Generate chapter-grounded 2D ink paintings through a selected desktop agent."""
 import hashlib
 import json
 import os
@@ -10,6 +10,8 @@ from pathlib import Path
 
 from storage import atomic_json, atomic_write, safe_component, within
 import agent_client
+import desktop_agents
+from agent_workspace import canonical_engine
 
 
 def chapter_directory(filename):
@@ -21,7 +23,8 @@ def chapter_directory(filename):
 
 def generate_chapter_visual_bundle(book_root, chapter_filename, chapter_text, count=4,
                                    custom_prompt="", progress=None, notes_only=False,
-                                   model="gemini-3.8-flash-high"):
+                                   model="gemini-3.8-flash-high", engine="antigravity", reasoning_effort=None):
+    engine = canonical_engine(engine)
     count = int(count)
     if not 1 <= count <= 4:
         raise ValueError("插画张数必须为 1 到 4")
@@ -51,7 +54,8 @@ def generate_chapter_visual_bundle(book_root, chapter_filename, chapter_text, co
     if notes_only:
         task += "本次只生成文案。illustrations 必须为空数组，无需调用图像工具。直接依据本章正文撰写，无需查阅其他历史会话或已有插图。\n"
     else:
-        task += f"""必须调用你实际可用的 generate_image 图像生成工具绘制 {count} 张不同场景。
+        task += f"""必须调用你实际可用的真实图像生成工具绘制 {count} 张不同场景。
+Antigravity 使用 generate_image，ChatGPT（Codex）使用 imagegen 技能及 image_gen.imagegen 工具。
 画风统一为2D中国水墨场景插画，宣纸肌理，水墨晕染、淡彩、留白和真实场景纵深。
 主体是本章真实场景与人物行动，人物造型与时代服饰保持一致。横向16:9构图。
 禁止生成文字卡片、海报、信息图、界面、网格、标题、印章、水印、拼图或用PIL/SVG绘制代替。
@@ -69,9 +73,9 @@ def generate_chapter_visual_bundle(book_root, chapter_filename, chapter_text, co
 文件全部写入完成后再写result.json，作为此次任务完成回执。回执写入后立即结束，禁止再改动或删除任何输出。
 """
     if progress:
-        progress("正在连接 Antigravity，为当前章节构思互动文案" if notes_only else "正在调用 Antigravity 图像工具绘制二维水墨场景")
-    conversation = agent_client.new_conversation(task, f"【{'章节文案' if notes_only else '水墨插画'}】{chapter_filename}", model)
-    result = agent_client.wait_for_receipt(receipt_path, conversation, progress)
+        progress(f"正在连接 {engine}，为当前章节构思互动文案" if notes_only else f"正在调用 {engine} 图像工具绘制二维水墨场景")
+    conversation = desktop_agents.new_conversation(task, f"【{'章节文案' if notes_only else '水墨插画'}】{chapter_filename}", model, engine, reasoning_effort)
+    result = desktop_agents.wait_for_receipt(receipt_path, conversation, progress, engine)
     note = result.get("author_note")
     comments = result.get("chapter_comments")
     if not isinstance(note, str) or not note.strip() or not isinstance(comments, list) or not comments:
@@ -116,7 +120,8 @@ def generate_chapter_visual_bundle(book_root, chapter_filename, chapter_text, co
             "chapter_filename": chapter_filename, "chapter_code": chapter_dir,
             "source_sha256": hashlib.sha256(chapter_text.encode()).hexdigest(),
             "count": len(metadata), "generated_at": int(time.time()),
-            "conversation_id": conversation, "custom_prompt": custom_prompt,
+            "conversation_id": conversation, "engine": engine, "reasoning_effort": reasoning_effort,
+            "permission_mode": "full-access", "custom_prompt": custom_prompt,
             "author_note": note.strip(), "chapter_comments": comments,
             "illustrations": metadata, "revision": run_id}
     # Publication happens on the cloud after upload validation. Keep local output for retry.

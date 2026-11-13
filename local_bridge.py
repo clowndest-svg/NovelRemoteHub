@@ -28,6 +28,8 @@ import uuid
 from pathlib import Path
 from storage import atomic_json, atomic_write, within, safe_component
 import agent_client
+import desktop_agents
+from agent_workspace import canonical_engine
 import novel_manager
 
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
@@ -289,33 +291,25 @@ def sync_all_books_to_cloud():
 
 # 7. 执行 Antigravity 唤醒 (具备网络代理自愈重试 + 额度熔断自动降级机制)
 def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro",
-                     model_tier="gemini-3.8-flash-high", progress_cb=None):
-    ready, message = ensure_antigravity_running(progress_cb)
-    if not ready:
-        return False, message
+                     model_tier=None, progress_cb=None, reasoning_effort=None):
+    engine_mode = canonical_engine(engine_mode)
+    if engine_mode == "antigravity":
+        ready, message = ensure_antigravity_running(progress_cb)
+        if not ready:
+            return False, message
     receipt = Path(BOOKS_ROOT) / ".hub-results" / (uuid.uuid4().hex + ".json")
     receipt.parent.mkdir(parents=True, exist_ok=True)
     prompt += f"""\n完成所有操作后，最后一步将 UTF-8 JSON 回执写入 {receipt}。
 结构为 {{"summary":"实际完成内容","files":["实际写入文件的绝对路径"]}}。
 如果执行失败，写入 {{"error":"具体失败原因"}}。回执必须在全部操作完成后才写入。
 """
-    models = [model_tier, "flash"] if model_tier != "flash" else ["flash", "pro"]
     try:
-        conversation = None
-        for model in models:
-            try:
-                conversation = agent_client.new_conversation(prompt, title, model)
-                break
-            except RuntimeError as error:
-                if not any(word in str(error).lower() for word in ("quota", "429", "resource_exhausted", "capacity")):
-                    raise
-                if progress_cb:
-                    progress_cb("所选模型额度不足，尝试备用模型")
-        if not conversation:
-            raise RuntimeError("所选模型与备用模型均不可用")
-        result = agent_client.wait_for_receipt(receipt, conversation, progress_cb)
+        conversation = desktop_agents.new_conversation(prompt, title, model_tier, engine_mode, reasoning_effort)
+        if progress_cb:
+            progress_cb(f"已在小说工作区建立 {engine_mode} 会话 {conversation}，完全访问权限已校验")
+        result = desktop_agents.wait_for_receipt(receipt, conversation, progress_cb, engine_mode)
         if not isinstance(result.get("summary"), str) or not result["summary"].strip() or not isinstance(result.get("files"), list):
-            raise ValueError("Antigravity 完成回执缺少有效总结或成果列表")
+            raise ValueError("执行端完成回执缺少有效总结或成果列表")
         for filename in result["files"]:
             target = Path(filename).resolve()
             if not target.is_relative_to(Path(BOOKS_ROOT).resolve()) or not target.is_file():
@@ -323,6 +317,15 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
         return True, f"会话 {conversation} 已返回完成回执。\n{result.get('summary', '')}"
     except Exception as error:
         return False, str(error)
+
+
+def sync_agent_catalog():
+    while True:
+        try:
+            api_post("sync_agents", desktop_agents.catalog())
+        except Exception as error:
+            print(f"[Agents] 模型列表同步失败: {error}")
+        time.sleep(60)
 
 
 def heartbeat_loop():
@@ -336,8 +339,8 @@ def run_bridge_loop():
     global ACTIVE_TASK
     ensure_single_instance()
     threading.Thread(target=heartbeat_loop, daemon=True).start()
+    threading.Thread(target=sync_agent_catalog, daemon=True).start()
     prevent_sleep()
-    ensure_antigravity_running()
     ok, c_cnt, s_cnt = sync_all_books_to_cloud()
     print(f"[Sync] 初始同步完成: 多书架章节总数={c_cnt}, 设定文档={s_cnt}")
 
@@ -360,6 +363,8 @@ def run_bridge_loop():
         try:
             # 1. 轮询云端任务
             data = api_get("pending_task")
+            if data and data.get("refresh_agents"):
+                api_post("sync_agents", desktop_agents.catalog())
             if data and data.get("task"):
                 task = data["task"]
                 tid = task["id"]
@@ -369,8 +374,9 @@ def run_bridge_loop():
                 extra_data = task.get("extra_data", {})
                 user_prompt = task.get("prompt", "")
                 book_id = safe_component(task.get("book_id", DEFAULT_BOOK))
-                engine = task.get("engine_mode", "antigravity_pro")
-                model_tier = extra_data.get("model_tier", "gemini-3.8-flash-high") if extra_data else "gemini-3.8-flash-high"
+                engine = canonical_engine(task.get("engine_mode", "antigravity_pro"))
+                model_tier = extra_data.get("model_tier")
+                reasoning_effort = extra_data.get("reasoning_effort")
 
                 print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
 
@@ -381,7 +387,14 @@ def run_bridge_loop():
                 # A. 远程唤醒/健康检查指令
                 if action == "wake_antigravity":
                     report_progress("正在对电脑端 Antigravity 客户端及后台语言服务进行健康检查与唤醒...")
-                    ensure_ok, ensure_msg = ensure_antigravity_running(progress_cb=report_progress)
+                    if engine == "codex":
+                        desktop_agents.codex_client.CLIENT.wake()
+                        ensure_ok, ensure_msg = True, "ChatGPT（Codex）小说工作区已连接"
+                    else:
+                        ensure_ok, ensure_msg = ensure_antigravity_running(progress_cb=report_progress)
+                    if not ensure_ok:
+                        raise RuntimeError(ensure_msg)
+                    api_post("sync_agents", desktop_agents.catalog())
                     proxy_ok, proxy_msg = check_proxy_health()
                     log_text = f"✅ 电脑端健康检测完毕：\n1. 引擎状态：{ensure_msg}\n2. 网络代理：{proxy_msg}"
                     api_post("task_progress", {"id": tid, "status": "completed", "log": log_text})
@@ -466,13 +479,14 @@ def run_bridge_loop():
                         raise RuntimeError("读取云端章节素材版本失败，请重试")
                     base_revision = (previous.get("meta") or {}).get("revision", "")
                     import illustration_generator
-                    ready, message = ensure_antigravity_running(report_progress)
-                    if not ready:
-                        raise RuntimeError(message)
+                    if engine == "antigravity":
+                        ready, message = ensure_antigravity_running(report_progress)
+                        if not ready:
+                            raise RuntimeError(message)
                     meta_res = illustration_generator.generate_chapter_visual_bundle(
                         bpath, filename, chapter_text, image_count,
                         extra_data.get("custom_prompt", user_prompt), report_progress,
-                        notes_only=notes_only, model=model_tier)
+                        notes_only=notes_only, model=model_tier, engine=engine, reasoning_effort=reasoning_effort)
                     import base64
                     illu_dir = Path(bpath) / "02_插图" / meta_res["chapter_code"]
                     filenames = [item[key] for item in meta_res["illustrations"]
@@ -659,8 +673,8 @@ def run_bridge_loop():
 """
                         task_title = f"【手机遥控】《{book_id}》智能推演"
 
-                report_progress(f"正在唤醒 Antigravity (模型: {model_tier})，开启智能创作会话...")
-                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier, progress_cb=report_progress)
+                report_progress(f"正在连接 {engine}（模型 {model_tier}，思考等级 {reasoning_effort}），准备在小说工作区执行…")
+                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier, progress_cb=report_progress, reasoning_effort=reasoning_effort)
                 
                 if ok:
                     synced, _, _ = sync_all_books_to_cloud()

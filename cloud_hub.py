@@ -27,6 +27,7 @@ import hmac
 import hashlib
 import base64
 from storage import atomic_json, atomic_write, safe_component, within
+from agent_workspace import canonical_engine, selected_model, is_workspace
 from urllib.parse import urlparse, parse_qs
 
 # 引入小说管理工作流
@@ -81,10 +82,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 10,
-    "versionName": "1.8.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.8.0",
-    "changelog": "二维水墨场景插画，独立章节互动文案编辑与保存，查询加速，任务回执校验及同步安全修复。",
+    "versionCode": 11,
+    "versionName": "1.9.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.9.0",
+    "changelog": "Antigravity / ChatGPT（Codex）类型选择，动态模型与思考等级，小说工作区绑定及完全访问权限。",
     "forceUpdate": False
 }
 
@@ -348,50 +349,12 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(APP_VERSION_INFO)
             return
 
-        # 引擎与模型详细说明接口 (公网免密)
-        if path == "/api/engines" or path == "/novel/api/engines":
-            self.send_json({
-                "active_model": {
-                    "name": "Gemini 3.8 Flash High",
-                    "full_name": "Google Gemini 3.8 Flash High (主力创作旗舰 · 量大管饱)",
-                    "tier": "gemini-3.8-flash-high",
-                    "provider": "通过本地 Antigravity 客户端调用",
-                    "auth": "模型权限与额度由 Antigravity 账号决定",
-                    "proxy": "Clash Verge TUN 虚拟网卡专属高速通道 · 具备故障自愈重试",
-                    "workspace": "D:\\小说",
-                    "features": "超大上下文窗口、极速吞吐与密集爽点输出，全自动额度熔断与代理自愈降级"
-                },
-                "models": [
-                    {
-                        "id": "gemini-3.8-flash-high",
-                        "tier": "gemini-3.8-flash-high",
-                        "name": "🚀 Gemini 3.8 Flash High (主力 · 量大管饱 · 推荐)",
-                        "desc": "按已配置的模型标识发送至 Antigravity，实际可用性由客户端及账号决定。",
-                        "recommended": True
-                    },
-                    {
-                        "id": "claude-sonnet-4-6",
-                        "tier": "claude-sonnet-4-6",
-                        "name": "🧠 Claude Sonnet 4.6 (深度思考 · 细纲伏笔)",
-                        "desc": "长链条深度思考模型，适合全书大纲推演、复杂战力设定冲突排查与高潮反转构思。",
-                        "recommended": False
-                    },
-                    {
-                        "id": "gemini-flash",
-                        "tier": "flash",
-                        "name": "⚡ Gemini Flash (标准极速)",
-                        "desc": "标准轻量极速模型，适合快速短评、错字校正、灵感片段记录。",
-                        "recommended": False
-                    },
-                    {
-                        "id": "gemini-pro",
-                        "tier": "pro",
-                        "name": "🏛️ Gemini Pro (高维推理)",
-                        "desc": "复杂系统宏观推理模型，适合文明科技跨度推导与严谨物理法则架构。",
-                        "recommended": False
-                    }
-                ]
-            })
+        if path in ("/api/engines", "/novel/api/engines"):
+            if not self.check_auth():
+                self.send_json({"error": "Unauthorized", "need_login": True}, 401)
+                return
+            catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": [], "updated_at": 0})
+            self.send_json({**catalog, "stale": time.time() - catalog.get("updated_at", 0) > 180})
             return
 
         # 检查公司电脑是否在线
@@ -653,6 +616,7 @@ class HubHandler(BaseHTTPRequestHandler):
             LOCAL_STATUS["online"] = True
             LOCAL_STATUS["last_seen"] = time.time()
             now = time.time()
+            refresh_agents = LOCAL_STATUS.pop("refresh_agents", False)
             for tid, t in list(TASKS.items()):
                 if t["status"] == "running" and now - t.get("heartbeat_at", t.get("assigned_at", now)) > 180:
                     t.update(status="failed", completed_at=now)
@@ -663,9 +627,9 @@ class HubHandler(BaseHTTPRequestHandler):
                     t["status"] = "assigned"
                     t["assigned_at"] = now
                     save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
-                    self.send_json({"task": t})
+                    self.send_json({"task": t, "refresh_agents": refresh_agents})
                     return
-            self.send_json({"task": None})
+            self.send_json({"task": None, "refresh_agents": refresh_agents})
             return
 
         # 任务状态查询接口
@@ -757,6 +721,49 @@ class HubHandler(BaseHTTPRequestHandler):
                 invalidate_cache(f"novel:cache:settings:{book_id}")
 
             self.send_json({"ok": True, "chapters_count": len(chapters), "settings_count": len(settings)})
+            return
+
+        if path in ("/api/refresh_agents", "/novel/api/refresh_agents"):
+            LOCAL_STATUS["refresh_agents"] = True
+            self.send_json({"ok": True})
+            return
+
+        if path in ("/api/sync_agents", "/novel/api/sync_agents"):
+            engines = body.get("engines")
+            if not isinstance(engines, list) or len(engines) != 2:
+                raise ValueError("执行端目录格式无效")
+            cleaned = []
+            for entry in engines:
+                engine = canonical_engine(entry["id"])
+                available = bool(entry.get("available"))
+                if available and (not is_workspace(entry.get("workspace", "")) or entry.get("project_name") != "小说" or not entry.get("project_id")):
+                    raise ValueError("执行端必须绑定小说工作区")
+                models = entry.get("models", [])
+                if not isinstance(models, list) or len(models) > 100:
+                    raise ValueError("模型目录格式无效")
+                filtered = []
+                for model in models:
+                    identifier, name = model.get("id"), model.get("name")
+                    efforts = model.get("efforts", [])
+                    if not isinstance(identifier, str) or not identifier or len(identifier) > 150 or not isinstance(name, str) or len(name) > 200:
+                        raise ValueError("模型名称无效")
+                    if not isinstance(efforts, list) or not efforts or len(efforts) > 12:
+                        raise ValueError("模型思考等级格式无效")
+                    if any(not isinstance(effort.get("id"), str) or len(effort["id"]) > 30 for effort in efforts):
+                        raise ValueError("模型思考等级无效")
+                    filtered.append({"id": identifier, "name": name, "disabled": bool(model.get("disabled")),
+                        "is_default": bool(model.get("is_default")), "default_effort": model.get("default_effort"),
+                        "efforts": [{"id": effort["id"], "name": str(effort.get("name", effort["id"]))[:100]} for effort in efforts],
+                        "effort_models": model.get("effort_models", {}), "quota_remaining": model.get("quota_remaining")})
+                cleaned.append({"id": engine, "name": "Antigravity" if engine == "antigravity" else "ChatGPT（Codex）",
+                    "available": available, "models": filtered, "project_id": entry.get("project_id"),
+                    "project_name": entry.get("project_name"), "workspace": entry.get("workspace"),
+                    "permission_mode": "full-access", "capabilities": {"text": True, "images": bool(entry.get("capabilities", {}).get("images"))},
+                    "error": str(entry.get("error", ""))[:500]})
+            if {entry["id"] for entry in cleaned} != {"antigravity", "codex"}:
+                raise ValueError("执行端类型重复")
+            save_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": cleaned, "updated_at": time.time()})
+            self.send_json({"ok": True})
             return
 
         if path in ("/api/heartbeat", "/novel/api/heartbeat"):
@@ -920,14 +927,26 @@ class HubHandler(BaseHTTPRequestHandler):
             action = body.get("action", "creative_instruction")
             prompt = body.get("prompt", "")
             book_id = body.get("book_id") or body.get("book") or "给政哥讲量子力学，他竟肉身硬抗二向箔"
-            engine_mode = body.get("engine_mode", "antigravity_pro")
+            engine_mode = canonical_engine(body.get("engine_mode", "antigravity"))
             sub_action = body.get("sub_action", "")
             extra_data = body.get("extra_data") or {}
 
             # 智能平铺兼容：无论前端是嵌套在 extra_data 里，还是直接平铺在 body 顶层，全部自动合并到 extra_data
-            for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "instructions"]:
+            for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "reasoning_effort", "instructions"]:
                 if k in body and k not in extra_data:
                     extra_data[k] = body[k]
+
+            catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": []})
+            agent = next((entry for entry in catalog["engines"] if entry["id"] == engine_mode), {})
+            if action == "wake_antigravity":
+                model, effort = {"id": None}, None
+            else:
+                model, effort = selected_model(agent, extra_data.get("model_tier"), extra_data.get("reasoning_effort"))
+            extra_data["model_tier"] = model.get("effort_models", {}).get(effort, model["id"])
+            extra_data["reasoning_effort"] = effort
+            extra_data["permission_mode"] = "full-access"
+            if action == "generate_chapter_illustrations" and not agent.get("capabilities", {}).get("images"):
+                raise ValueError("当前客户端未开放图像生成工具，可生成章节互动文案")
 
             # 别名字段规范化
             if "target_chapter" in extra_data and "chapter_file" not in extra_data:
@@ -949,6 +968,9 @@ class HubHandler(BaseHTTPRequestHandler):
                 for existing in TASKS.values():
                     if (existing["status"] in ("pending", "assigned", "running")
                             and existing.get("book_id") == book_id and existing.get("action") == action
+                            and canonical_engine(existing.get("engine_mode", "antigravity")) == engine_mode
+                            and existing.get("extra_data", {}).get("model_tier") == extra_data["model_tier"]
+                            and existing.get("extra_data", {}).get("reasoning_effort") == effort
                             and existing.get("extra_data", {}).get("chapter_file") == chapter_file):
                         self.send_json({"ok": True, "task_id": existing["id"], "task": existing})
                         return
@@ -967,6 +989,9 @@ class HubHandler(BaseHTTPRequestHandler):
                 "prompt": prompt,
                 "book_id": book_id,
                 "engine_mode": engine_mode,
+                "workspace": "D:\\小说",
+                "project_id": agent.get("project_id"),
+                "permission_mode": "full-access",
                 "extra_data": extra_data,
                 "status": "pending",
                 "progress_log": [f"[{time.strftime('%H:%M:%S')}] 任务已建立，等待公司电脑接收..."],

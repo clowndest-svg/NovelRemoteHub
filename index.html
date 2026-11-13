@@ -1423,6 +1423,11 @@
             .illustration-prompt-row { flex-wrap:wrap; }
             .illustrations-gallery-grid { grid-template-columns:minmax(0,1fr); }
         }
+        .agent-controls { max-width:1160px; margin:12px auto; padding:0 14px; display:grid; grid-template-columns:minmax(140px,1fr) minmax(180px,2fr) minmax(110px,1fr) auto; gap:8px; align-items:end; }
+        .agent-controls label { min-width:0; font-size:11px; color:var(--text-sub); }
+        .agent-controls select { margin-top:4px; width:100%; }
+        #agent-connection-status { grid-column:1/-1; font-size:11px; color:var(--text-sub); overflow-wrap:anywhere; }
+        @media(max-width:600px) { .agent-controls { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } }
     </style>
 </head>
 <body>
@@ -1466,6 +1471,13 @@
         </button>
     </div>
 
+    <div class="agent-controls">
+        <label>执行类型<select id="agent-type-select" class="select-box" onchange="selectAgent(this.value)"><option value="antigravity">Antigravity</option><option value="codex">ChatGPT（Codex）</option></select></label>
+        <label>模型<select id="agent-model-select" class="select-box" onchange="selectAgentModel(this.value)" disabled><option value="">正在读取客户端模型…</option></select></label>
+        <label>思考等级<select id="agent-effort-select" class="select-box" onchange="selectReasoningEffort(this.value)" disabled></select></label>
+        <button class="tool-btn" onclick="refreshAgentCatalog()">刷新模型</button>
+        <span id="agent-connection-status" role="status">等待本地客户端目录…</span>
+    </div>
     <main>
         <!-- 1. 阅读器面板 -->
         <section id="panel-reader" class="panel">
@@ -1559,34 +1571,17 @@
                 <div class="ai-intel-header">
                     <div class="ai-intel-title">
                         <span>🤖 底座智脑</span>
-                        <span id="active-model-name" class="ai-model-tag" style="background:linear-gradient(135deg, rgba(234, 179, 8, 0.28), rgba(202, 138, 4, 0.4)); border:1px solid #eab308; color:#fef08a;">Gemini 3.8 Flash High</span>
+                        <span id="active-model-name" class="ai-model-tag" style="background:linear-gradient(135deg, rgba(234, 179, 8, 0.28), rgba(202, 138, 4, 0.4)); border:1px solid #eab308; color:#fef08a;">等待客户端模型</span>
                     </div>
                     <div style="display:flex; align-items:center; gap:6px;">
-                        <button class="tool-btn" style="padding:4px 8px; font-size:11px; background:rgba(234, 179, 8, 0.15); border-color:rgba(234, 179, 8, 0.4); color:#fef08a;" onclick="wakeAntigravity()" title="远程健康检测或拉起本电脑 Antigravity 客户端">⚡ 唤醒检测</button>
-                        <span style="font-size:11px; color:#4ade80;">● 专线连通</span>
+                        <button class="tool-btn" style="padding:4px 8px; font-size:11px; background:rgba(234, 179, 8, 0.15); border-color:rgba(234, 179, 8, 0.4); color:#fef08a;" onclick="wakeAntigravity()" title="检测所选桌面执行端">⚡ 唤醒检测</button>
+                        <span style="font-size:11px; color:#4ade80;">模型与连接状态见上方</span>
                     </div>
                 </div>
-                <div class="ai-meta-grid">
-                    <div class="meta-line"><span>👑 算力：</span><span style="color:#fcd34d;">Google Gemini 3.8 Flash (主力 · 量大管饱)</span></div>
-                    <div class="meta-line"><span>🌐 通道：</span><span style="color:#7dd3fc;">Clash Verge TUN 专线 · 故障自动重试</span></div>
-                    <div class="meta-line"><span>💻 终端：</span><span style="color:#e2e8f0;">办公室 Antigravity 桌面 IDE (支持自动唤醒)</span></div>
-                    <div class="meta-line"><span>📚 根区：</span><span style="color:#e2e8f0;">D:\小说 (严格C盘0占用)</span></div>
-                </div>
+                <div id="agent-runtime-summary" style="color:var(--text-sub);font-size:12px;">等待执行类型与模型</div>
 
-                <!-- 4大模型自由切换矩阵 -->
-                <div class="model-tier-switcher">
-                    <div id="btn-model-38flash" class="model-tier-btn active" onclick="switchModelTier('gemini-3.8-flash-high')">
-                        🚀 3.8 Flash High (主力推荐)
-                    </div>
-                    <div id="btn-model-claude" class="model-tier-btn" onclick="switchModelTier('claude-sonnet-4-6')">
-                        🧠 Claude 4.6 (深度构思)
-                    </div>
-                    <div id="btn-model-flash" class="model-tier-btn" onclick="switchModelTier('flash')">
-                        ⚡ Gemini Flash (标准极速)
-                    </div>
-                    <div id="btn-model-pro" class="model-tier-btn" onclick="switchModelTier('pro')">
-                        🏛️ Gemini Pro (高维推理)
-                    </div>
+
+            </div>
                 </div>
             </div>
 
@@ -1672,7 +1667,7 @@
                     <span style="font-size:10px; color:var(--text-dim);">直接落盘 D:\小说</span>
                 </div>
                 <div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">
-                    选择模式后输入指令，Antigravity 将自动扩充细节并落盘至设定集！
+                    选择模式后输入指令，所选执行端将自动扩充细节并落盘至设定集！
                 </div>
 
                 <div class="quick-chips-row">
@@ -1685,7 +1680,7 @@
                 <textarea id="setting-prompt-box" class="prompt-textarea" style="height:80px;" placeholder="输入设定演化需求..."></textarea>
 
                 <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="launchSettingEvolution()">
-                    ⚡ 唤醒 Antigravity 执行设定演进
+                    ⚡ 执行当前类型，更新设定
                 </button>
             </div>
         </section>
@@ -1904,11 +1899,11 @@
     <div id="new-book-modal" class="modal-overlay" onclick="closeNewBookModal(event)">
         <div class="modal-box" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <div class="modal-title">🚀 Antigravity 新书架构工坊</div>
+                <div class="modal-title">🚀 新书架构工坊</div>
                 <button class="close-btn" onclick="closeNewBookModal()">&times;</button>
             </div>
             <div style="font-size:12px; color:var(--text-sub); margin-bottom:12px; line-height:1.4;">
-                输入新书构想，Antigravity 将自动在公司电脑建立工程、构思分卷大纲、生成全套世界观与设定集文档！
+                输入新书构想，所选执行端将自动在公司电脑建立工程、构思分卷大纲、生成全套世界观与设定集文档！
             </div>
 
             <div class="input-group">
@@ -1927,7 +1922,7 @@
             </div>
 
             <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="submitNewNovelArchitecture()">
-                🔥 唤醒 Antigravity 自动生成全套架构与设定集
+                🔥 执行当前类型，生成架构与设定集
             </button>
         </div>
     </div>
@@ -1977,7 +1972,7 @@
             </div>
 
             <button class="btn-launch-big" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; font-weight:800;" onclick="submitChapterRepairTask()">
-                🚀 唤醒 Antigravity 定点重构并安全备份落盘
+                🚀 执行当前类型，备份并重构本章
             </button>
         </div>
     </div>
@@ -1993,8 +1988,8 @@
         let CHAPTERS = [];
         let FILTERED_CHAPTERS = [];
         let CURRENT_INDEX = 0;
-        let CURRENT_ENGINE = "antigravity_pro";
-        let CURRENT_MODEL_TIER = "gemini-3.8-flash-high"; // 默认主力模型: Google Gemini 3.8 Flash High
+        let CURRENT_ENGINE = localStorage.getItem("novel_agent") === "codex" ? "codex" : "antigravity";
+        let CURRENT_MODEL_TIER = ""; // 默认主力模型: Google Gemini 3.8 Flash High
         let ACTIVE_TASK_ID = null;
         let TASK_POLL_TIMER = null;
         let SORT_DESC = true;
@@ -2024,6 +2019,8 @@
         async function initApp() {
             checkStatus();
             setInterval(checkStatus, 10000);
+            loadAgentCatalog();
+            setInterval(loadAgentCatalog, 60000);
             await loadBooks();
             await loadChapters();
             switchWorkflowTab('serial');
@@ -2034,6 +2031,15 @@
         let LOGIN_PROMISE = null;
 
         async function fetchAPI(url, opts = {}) {
+            if (opts.method === "POST" && /\/(dispatch_task|task)$/.test(url)) {
+                const agent = currentAgent();
+                const payload = typeof opts.body === "string" ? JSON.parse(opts.body) : opts.body;
+                if (payload.action !== "wake_antigravity" && (!agent.available || !CURRENT_MODEL_TIER || !CURRENT_REASONING_EFFORT)) return { error: agent.error || "请等待客户端模型列表加载完成" };
+                payload.engine_mode = CURRENT_ENGINE;
+                payload.extra_data = { ...payload.extra_data, model_tier: CURRENT_MODEL_TIER,
+                    reasoning_effort: CURRENT_REASONING_EFFORT, permission_mode: "full-access" };
+                opts = { ...opts, body: JSON.stringify(payload) };
+            }
             const isGet = !opts.method || opts.method === "GET";
             if (isGet && INFLIGHT_GETS.has(url)) return INFLIGHT_GETS.get(url);
             const request = async () => {
@@ -2099,42 +2105,108 @@
             }
         }
 
-        // 4大模型能级切换
-        function switchModelTier(tier) {
-            CURRENT_MODEL_TIER = tier;
-            const btns = {
-                "gemini-3.8-flash-high": document.getElementById("btn-model-38flash"),
-                "claude-sonnet-4-6": document.getElementById("btn-model-claude"),
-                "flash": document.getElementById("btn-model-flash"),
-                "pro": document.getElementById("btn-model-pro")
-            };
-            Object.keys(btns).forEach(k => {
-                if (btns[k]) btns[k].classList.toggle("active", k === tier);
-            });
-            const tag = document.getElementById("active-model-name");
-            if (tag) {
-                if (tier === "gemini-3.8-flash-high") {
-                    tag.innerText = "Gemini 3.8 Flash High";
-                    tag.style.background = "linear-gradient(135deg, rgba(234, 179, 8, 0.28), rgba(202, 138, 4, 0.4))";
-                    tag.style.borderColor = "#eab308";
-                    tag.style.color = "#fef08a";
-                } else if (tier === "claude-sonnet-4-6") {
-                    tag.innerText = "Claude Sonnet 4.6";
-                    tag.style.background = "rgba(168, 85, 247, 0.25)";
-                    tag.style.borderColor = "#a855f7";
-                    tag.style.color = "#d8b4fe";
-                } else if (tier === "flash") {
-                    tag.innerText = "Gemini Flash";
-                    tag.style.background = "rgba(56, 189, 248, 0.25)";
-                    tag.style.borderColor = "#38bdf8";
-                    tag.style.color = "#bae6fd";
-                } else {
-                    tag.innerText = "Gemini Pro";
-                    tag.style.background = "rgba(16, 185, 129, 0.25)";
-                    tag.style.borderColor = "#10b981";
-                    tag.style.color = "#a7f3d0";
-                }
+        let AGENT_CATALOG = { engines: [] };
+        let CURRENT_REASONING_EFFORT = '';
+        const AGENT_PREFERENCES = (() => {
+            try {
+                const value = JSON.parse(localStorage.getItem('novel_agent_preferences') || '{}');
+                return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
             }
+            catch (error) { return {}; }
+        })();
+
+        function currentAgent() { return AGENT_CATALOG.engines.find(agent => agent.id === CURRENT_ENGINE) || {}; }
+        function currentModel() { return (currentAgent().models || []).find(model => model.id === CURRENT_MODEL_TIER); }
+        function currentAgentName() { return currentAgent().name || CURRENT_ENGINE; }
+
+        async function loadAgentCatalog() {
+            const result = await fetchAPI(`${API}/engines`);
+            if (!result.engines) {
+                document.getElementById('agent-connection-status').innerText = result.error || '模型目录读取失败';
+                return;
+            }
+            AGENT_CATALOG = result;
+            applyAgentSelection();
+        }
+
+        async function refreshAgentCatalog() {
+            document.getElementById('agent-connection-status').innerText = '正在请求电脑读取两个客户端的模型目录…';
+            const result = await fetchAPI(`${API}/refresh_agents`, { method: 'POST', body: '{}' });
+            if (result.error) return showToast(result.error);
+            const previous = AGENT_CATALOG.updated_at || 0;
+            for (let attempt = 0; attempt < 15; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                await loadAgentCatalog();
+                if (AGENT_CATALOG.updated_at > previous) return;
+            }
+            document.getElementById('agent-connection-status').innerText = '电脑暂未返回新目录，请检查桥接器连接';
+        }
+
+        function selectAgent(identifier) {
+            CURRENT_ENGINE = identifier;
+            localStorage.setItem('novel_agent', identifier);
+            CURRENT_MODEL_TIER = '';
+            CURRENT_REASONING_EFFORT = '';
+            applyAgentSelection();
+        }
+
+        function applyAgentSelection() {
+            const agent = currentAgent();
+            const models = agent.models || [];
+            const preference = AGENT_PREFERENCES[CURRENT_ENGINE] || {};
+            const active = models.find(model => model.id === CURRENT_MODEL_TIER && !model.disabled)
+                || models.find(model => model.id === preference.model && !model.disabled)
+                || models.find(model => model.is_default && !model.disabled)
+                || models.find(model => !model.disabled);
+            const picker = document.getElementById('agent-model-select');
+            picker.replaceChildren();
+            for (const model of models) {
+                const option = new Option(model.name + (model.disabled ? '（当前不可用）' : ''), model.id);
+                option.disabled = !!model.disabled;
+                picker.add(option);
+            }
+            if (!active) picker.add(new Option('尚未获取可用模型', ''));
+            CURRENT_MODEL_TIER = active ? active.id : '';
+            picker.value = CURRENT_MODEL_TIER;
+            picker.disabled = !agent.available || !active;
+            const effortPicker = document.getElementById('agent-effort-select');
+            effortPicker.replaceChildren();
+            const efforts = active ? active.efforts || [] : [];
+            const labels = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高', ultra: 'Ultra', default: '模型内置思考' };
+            for (const effort of efforts) effortPicker.add(new Option(labels[effort.id] || effort.name || effort.id, effort.id));
+            CURRENT_REASONING_EFFORT = efforts.some(effort => effort.id === CURRENT_REASONING_EFFORT) ? CURRENT_REASONING_EFFORT
+                : (efforts.some(effort => effort.id === preference.effort) ? preference.effort : (active ? active.default_effort : ''));
+            effortPicker.value = CURRENT_REASONING_EFFORT;
+            effortPicker.disabled = !active || !agent.available || efforts.length < 2;
+            document.getElementById('agent-type-select').value = CURRENT_ENGINE;
+            document.getElementById('active-model-name').innerText = active ? active.name : '等待客户端模型';
+            document.getElementById('agent-connection-status').innerText = agent.available
+                ? `${agent.name} · 小说工作区 · 完全访问${AGENT_CATALOG.stale ? ' · 目录待刷新' : ''}`
+                : (agent.error || '等待本地桥接器连接客户端');
+            document.getElementById('agent-runtime-summary').innerText = `${currentAgentName()} · ${active ? active.name : '等待模型'} · ${labels[CURRENT_REASONING_EFFORT] || CURRENT_REASONING_EFFORT}`;
+            refreshExtrasTaskUI();
+            updateNextLabel();
+        }
+
+        function selectAgentModel(identifier) {
+            CURRENT_MODEL_TIER = identifier;
+            CURRENT_REASONING_EFFORT = '';
+            AGENT_PREFERENCES[CURRENT_ENGINE] = { model: identifier, effort: '' };
+            applyAgentSelection();
+            saveAgentPreference();
+        }
+
+        function selectReasoningEffort(effort) {
+            CURRENT_REASONING_EFFORT = effort;
+            const model = currentModel();
+            if (model && model.effort_models && model.effort_models[effort]) CURRENT_MODEL_TIER = model.effort_models[effort];
+            saveAgentPreference();
+            applyAgentSelection();
+        }
+
+        function saveAgentPreference() {
+            AGENT_PREFERENCES[CURRENT_ENGINE] = { model: CURRENT_MODEL_TIER, effort: CURRENT_REASONING_EFFORT };
+            localStorage.setItem('novel_agent_preferences', JSON.stringify(AGENT_PREFERENCES));
         }
 
         // 远程唤醒检测 Antigravity
@@ -2153,6 +2225,7 @@
                     book_id: CURRENT_BOOK
                 })
             });
+            if (res && res.error) { showToast(res.error); return; }
             const tid = res ? (res.task_id || (res.task && res.task.id)) : null;
             if (tid) {
                 ACTIVE_TASK_ID = tid;
@@ -2439,7 +2512,7 @@
             if (tag) tag.innerText = `待写第 ${padNum} 章`;
             const btn = document.getElementById("dispatch-btn");
             if (btn && !btn.disabled) {
-                btn.innerText = `🔥 唤醒办公室 Antigravity (创作第${padNum}章)`;
+                btn.innerText = `执行当前类型任务 (创作第${padNum}章)`;
             }
         }
 
@@ -2640,7 +2713,7 @@
                     <div class="chip" onclick="applyPromptTag('清空')">🧹 清空输入框</div>
                 `;
                 pbox.value = "";
-                pbox.placeholder = "请输入你的自定义自由指令，Antigravity (Gemini Pro) 将全权自主理解并执行...";
+                pbox.placeholder = "请输入你的自定义自由指令，所选执行端将理解并执行...";
             }
         }
 
@@ -2679,12 +2752,12 @@
                 if (res.ok) {
                     ACTIVE_TASK_ID = res.task.id;
                     document.getElementById("term-container").style.display = "block";
-                    const modelDisplayName = CURRENT_MODEL_TIER==='gemini-3.8-flash-high' ? 'Gemini 3.8 Flash High (主力)' : CURRENT_MODEL_TIER==='claude-sonnet-4-6' ? 'Claude Sonnet 4.6 (深度思考)' : CURRENT_MODEL_TIER==='flash' ? 'Gemini Flash (标准)' : 'Gemini Pro (高维推理)';
+                    const modelDisplayName = (currentModel() || {}).name || CURRENT_MODEL_TIER;
                     document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 ${modelDisplayName} 执行任务...`;
-                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在连接公司电脑 Antigravity IDE...`;
+                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 任务已建立 (${ACTIVE_TASK_ID})\n正在连接所选桌面执行端...`;
                     startPolling(async () => {
                         await loadChapters();
-                        alert("🎉 Antigravity 创作完成！新章节已同步，快去阅读吧！");
+                        alert("🎉 创作任务完成！新章节已同步，快去阅读吧！");
                     });
                 } else {
                     alert("指令下发失败: " + res.error);
@@ -3303,9 +3376,9 @@
             const task = EXTRAS_TASKS.get(extrasKey(CURRENT_BOOK, CURRENT_TOMATO_FILE));
             const imageButton = document.getElementById("btn-launch-illu");
             const notesButton = document.getElementById("btn-generate-notes");
-            imageButton.disabled = !!task;
-            notesButton.disabled = !!task;
-            imageButton.innerText = task ? "素材生成中…" : "绘制二维水墨插画";
+            imageButton.disabled = !!task || !currentAgent().available || !(currentAgent().capabilities || {}).images;
+            notesButton.disabled = !!task || !currentAgent().available;
+            imageButton.innerText = task ? "素材生成中…" : ((currentAgent().capabilities || {}).images ? "绘制二维水墨插画" : "当前通道支持文字创作");
             if (task) document.getElementById("extras-status-badge").innerText = task.message || "等待本地电脑接收…";
         }
 
