@@ -116,6 +116,33 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(self.request('/api/sync_agents', catalog)[0], 200)
         self.assertEqual(self.dispatch(action='generate_chapter_illustrations', engine_mode='codex')[0], 200)
 
+    def test_login_handles_unicode_password_input(self):
+        self.assertEqual(self.request('/api/login', {'password': '错误口令'}, auth=False)[0], 401)
+        with patch('cloud_hub.PASSWORD', '测试口令'):
+            status, data = self.request('/api/login', {'password': '测试口令'}, auth=False)
+        self.assertEqual(status, 200)
+        self.assertTrue(hub.valid_access_token(data['token']))
+
+    def test_login_session_expires_after_seven_days(self):
+        with patch('cloud_hub.time.time', return_value=1000):
+            session = hub.issue_session()
+        self.assertEqual(session['expires_at'], 1000 + 604800)
+        with patch('cloud_hub.time.time', return_value=1000 + 604799):
+            self.assertTrue(hub.valid_access_token(session['token']))
+        with patch('cloud_hub.time.time', return_value=1000 + 604800):
+            self.assertFalse(hub.valid_access_token(session['token']))
+
+    def test_signed_session_accepts_cookie_and_rejects_tampering(self):
+        session = hub.issue_session()
+        request = urllib.request.Request(self.url + '/api/books', headers={'Cookie': 'novel_token=' + session['token']})
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request) as response:
+            self.assertEqual(response.status, 200)
+        token = session['token']
+        self.assertFalse(hub.valid_access_token(token[:-1] + ('0' if token[-1] != '0' else '1')))
+        self.assertFalse(hub.valid_access_token(token.replace('session.', 'other.', 1)))
+        self.assertNotEqual(hub.issue_session()['token'], token)
+        self.assertFalse(hub.valid_access_token('无效令牌'))
+
     def test_catalog_requires_auth(self):
         self.assertEqual(self.request('/api/engines', auth=False)[0], 401)
 
@@ -166,6 +193,10 @@ class RegressionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             choose_project(projects + [projects[0]], lambda entry: [entry['path']])
 
+    def test_html_entry_has_no_store_cache_policy(self):
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(self.url + '/novel/') as response:
+            self.assertEqual(response.headers.get('Cache-Control'), 'no-store')
+
     def test_get_requires_auth(self):
         self.assertEqual(self.request('/api/books', auth=False)[0], 401)
 
@@ -185,7 +216,9 @@ class RegressionTests(unittest.TestCase):
     def test_login_issues_random_token(self):
         status, data = self.request('/api/login', {'password': hub.PASSWORD}, auth=False)
         self.assertEqual(status, 200)
-        self.assertEqual(data['token'], hub.AUTH_TOKEN)
+        self.assertNotEqual(data['token'], hub.AUTH_TOKEN)
+        self.assertTrue(hub.valid_access_token(data['token']))
+        self.assertEqual(data['expires_in'], 7 * 24 * 60 * 60)
         self.assertNotEqual(data['token'], 'daqin_authorized')
 
     def test_public_old_token_rejected(self):

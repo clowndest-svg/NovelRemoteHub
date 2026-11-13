@@ -153,7 +153,7 @@ def build():
     shutil.copyfile(signed_apks[0], universal_apk)
 
     size_mb = os.path.getsize(OUTPUT_APK) / (1024 * 1024)
-    print(f"\n🎉 SUCCESS! 【智笔云枢 · NovelRemoteHub】(v1.9.0) 官方正式版 APK 已完成 Zipalign 4字节对齐与 v1/v2/v3 工业级签名！")
+    print(f"\n🎉 SUCCESS! 【智笔云枢 · NovelRemoteHub】(v1.9.1) 官方正式版 APK 已完成 Zipalign 4字节对齐与 v1/v2/v3 工业级签名！")
     print(f"📦 Output path: {OUTPUT_APK} / {universal_apk} ({size_mb:.2f} MB)")
 
 if __name__ == "__main__":

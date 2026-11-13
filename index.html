@@ -1431,6 +1431,16 @@
     </style>
 </head>
 <body>
+    <div id="access-login-modal" class="modal-overlay" style="z-index:10000" role="dialog" aria-modal="true" aria-labelledby="access-login-title">
+        <form class="modal-box" id="access-login-form" onsubmit="submitAccessLogin(event)">
+            <h2 id="access-login-title" class="modal-title">访问口令登录</h2>
+            <p style="color:var(--text-sub);line-height:1.7">输入智笔云枢访问口令，登录后加载章节、设定和模型。此设备七天内免重复登录。</p>
+            <label for="access-password">访问口令</label>
+            <input id="access-password" type="password" autocomplete="current-password" required class="input-box" style="width:100%;box-sizing:border-box;margin:8px 0" placeholder="请输入访问口令">
+            <p id="access-login-error" role="status" aria-live="polite" style="color:#fca5a5;min-height:24px;overflow-wrap:anywhere"></p>
+            <button id="access-login-submit" type="submit" class="tool-btn" style="width:100%">登录并加载</button>
+        </form>
+    </div>
 
     <!-- 顶部原生 App 状态栏 -->
     <header>
@@ -1453,7 +1463,7 @@
                 <span id="status-text">检测中</span>
             </div>
             <!-- 官方域名下载链接 (App 内自动隐藏) -->
-            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.4.0" class="btn-apk-pill" download>
+            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.9.1" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
         </div>
@@ -1521,11 +1531,11 @@
 
                 <div class="catalog-stats-grid">
                     <div class="stat-item">
-                        <div class="stat-val gold" id="stat-chapters-count">11</div>
+                        <div class="stat-val gold" id="stat-chapters-count">—</div>
                         <div class="stat-lbl">已创章节</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-val" id="stat-words-count">5.2万</div>
+                        <div class="stat-val" id="stat-words-count">—</div>
                         <div class="stat-lbl">全书字数</div>
                     </div>
                     <div class="stat-item">
@@ -1533,7 +1543,7 @@
                         <div class="stat-lbl">设定文档</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-val" id="stat-last-time">刚刚</div>
+                        <div class="stat-val" id="stat-last-time">—</div>
                         <div class="stat-lbl">最新创作</div>
                     </div>
                 </div>
@@ -1710,7 +1720,7 @@
                 <div id="tomato-health-card" class="tomato-score-card">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <span id="tomato-score-badge" class="score-badge">🏆 98 分</span>
+                            <span id="tomato-score-badge" class="score-badge">等待机审</span>
                             <span id="tomato-score-title" style="font-size:13px; font-weight:800; color:#fef08a;">番茄黄金过审级</span>
                         </div>
                         <div style="display:flex; gap:6px;">
@@ -1981,8 +1991,26 @@
         // 全站统一官方域名基准
         const OFFICIAL_DOMAIN = "https://scientificexploration.art";
         const API = `${location.origin}/novel/api`;
+        const SESSION_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
         let TOKEN = localStorage.getItem("novel_token") || "";
-        try { document.cookie = "novel_token=" + encodeURIComponent(TOKEN) + "; path=/; max-age=31536000; SameSite=Strict; Secure"; } catch(e){}
+        let TOKEN_EXPIRES_AT = Number(localStorage.getItem("novel_token_expires_at")) || 0;
+        if (TOKEN && !TOKEN_EXPIRES_AT) {
+            TOKEN_EXPIRES_AT = TOKEN.startsWith('session.') ? Number(TOKEN.split('.')[1]) * 1000 : Date.now() + SESSION_CACHE_MS;
+            localStorage.setItem('novel_token_expires_at', String(TOKEN_EXPIRES_AT));
+        }
+        function clearAccessSession() {
+            TOKEN = '';
+            TOKEN_EXPIRES_AT = 0;
+            localStorage.removeItem('novel_token');
+            localStorage.removeItem('novel_token_expires_at');
+            for (const path of ['/', '/novel/']) document.cookie = `novel_token=; path=${path}; max-age=0; SameSite=Strict; Secure`;
+        }
+        function syncAccessCookie() {
+            const remaining = Math.max(0, Math.floor((TOKEN_EXPIRES_AT - Date.now()) / 1000));
+            for (const path of ['/', '/novel/']) document.cookie = `novel_token=${encodeURIComponent(TOKEN)}; path=${path}; max-age=${remaining}; SameSite=Strict; Secure`;
+        }
+        if (TOKEN && (!Number.isFinite(TOKEN_EXPIRES_AT) || Date.now() >= TOKEN_EXPIRES_AT)) clearAccessSession();
+        syncAccessCookie();
         let BOOKS = [];
         let CURRENT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔";
         let CHAPTERS = [];
@@ -2019,9 +2047,9 @@
         async function initApp() {
             checkStatus();
             setInterval(checkStatus, 10000);
-            loadAgentCatalog();
+            if (!TOKEN) await requestAccessLogin();
+            await Promise.all([loadAgentCatalog(), loadBooks()]);
             setInterval(loadAgentCatalog, 60000);
-            await loadBooks();
             await loadChapters();
             switchWorkflowTab('serial');
             restoreExtrasTasks();
@@ -2029,8 +2057,66 @@
 
         const INFLIGHT_GETS = new Map();
         let LOGIN_PROMISE = null;
+        let LOGIN_RESOLVE = null;
+
+        async function fetchWithTimeout(url, options) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 20000);
+            try { return await fetch(url, { ...options, signal: controller.signal }); }
+            finally { clearTimeout(timer); }
+        }
+
+        function requestAccessLogin() {
+            if (LOGIN_PROMISE) return LOGIN_PROMISE;
+            LOGIN_PROMISE = new Promise(resolve => { LOGIN_RESOLVE = resolve; });
+            document.getElementById('access-login-error').innerText = '';
+            document.getElementById('access-login-modal').classList.add('show');
+            setTimeout(() => document.getElementById('access-password').focus(), 0);
+            return LOGIN_PROMISE;
+        }
+
+        async function submitAccessLogin(event) {
+            event.preventDefault();
+            const button = document.getElementById('access-login-submit');
+            if (button.disabled) return;
+            const password = document.getElementById('access-password').value;
+            if (!password) return;
+            const message = document.getElementById('access-login-error');
+            button.disabled = true;
+            button.innerText = '正在登录…';
+            message.innerText = '';
+            try {
+                const response = await fetchWithTimeout(`${API}/login`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok || !data.token) {
+                    message.innerText = data.error || '登录失败，请检查口令后重试';
+                    return;
+                }
+                TOKEN = data.token;
+                TOKEN_EXPIRES_AT = Number(data.expires_at) * 1000;
+                if (!Number.isFinite(TOKEN_EXPIRES_AT) || TOKEN_EXPIRES_AT <= Date.now()) throw new Error('登录有效期无效');
+                localStorage.setItem('novel_token', TOKEN);
+                localStorage.setItem('novel_token_expires_at', String(TOKEN_EXPIRES_AT));
+                syncAccessCookie();
+                document.getElementById('access-password').value = '';
+                document.getElementById('access-login-modal').classList.remove('show');
+                const resolve = LOGIN_RESOLVE;
+                LOGIN_PROMISE = null;
+                LOGIN_RESOLVE = null;
+                if (resolve) resolve(true);
+            } catch (error) {
+                message.innerText = error.name === 'AbortError' ? '登录请求超时，请检查网络后重试' : '无法连接服务器，请检查网络后重试';
+            } finally {
+                button.disabled = false;
+                button.innerText = '登录并加载';
+            }
+        }
 
         async function fetchAPI(url, opts = {}) {
+            if (TOKEN && Date.now() >= TOKEN_EXPIRES_AT) clearAccessSession();
             if (opts.method === "POST" && /\/(dispatch_task|task)$/.test(url)) {
                 const agent = currentAgent();
                 const payload = typeof opts.body === "string" ? JSON.parse(opts.body) : opts.body;
@@ -2043,40 +2129,18 @@
             const isGet = !opts.method || opts.method === "GET";
             if (isGet && INFLIGHT_GETS.has(url)) return INFLIGHT_GETS.get(url);
             const request = async () => {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 20000);
                 try {
-                    const headers = { ...opts.headers, "X-Novel-Token": TOKEN };
+                    const headers = { ...opts.headers };
                     if (opts.body) headers["Content-Type"] = "application/json";
-                    const response = await fetch(url, { ...opts, headers, signal: controller.signal });
+                    const attemptedToken = TOKEN;
+                    let response = await fetchWithTimeout(url, { ...opts, headers: { ...headers, "X-Novel-Token": attemptedToken } });
                     if (response.status === 401) {
-                        if (!LOGIN_PROMISE) {
-                            LOGIN_PROMISE = (async () => {
-                                const password = prompt("请输入智笔云枢访问口令");
-                                if (!password) return false;
-                                const login = await fetch(`${API}/login`, {
-                                    method: "POST", headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ password }), signal: controller.signal
-                                });
-                                const data = await login.json();
-                                if (!data.ok) { showToast(data.error || "登录失败"); return false; }
-                                TOKEN = data.token;
-                                localStorage.setItem("novel_token", TOKEN);
-                                document.cookie = `novel_token=${encodeURIComponent(TOKEN)}; path=/novel/; SameSite=Strict; Secure`;
-                                return true;
-                            })();
-                        }
-                        const loggedIn = await LOGIN_PROMISE;
-                        LOGIN_PROMISE = null;
-                        if (!loggedIn) return { error: "请登录后重试" };
-                        const retry = await fetch(url, { ...opts, headers: { ...headers, "X-Novel-Token": TOKEN }, signal: controller.signal });
-                        return await retry.json();
+                        if (TOKEN === attemptedToken) await requestAccessLogin();
+                        response = await fetchWithTimeout(url, { ...opts, headers: { ...headers, "X-Novel-Token": TOKEN } });
                     }
                     return await response.json();
                 } catch (error) {
                     return { error: error.name === "AbortError" ? "请求超时，请重试" : error.message };
-                } finally {
-                    clearTimeout(timeout);
                 }
             };
             const pending = request();
@@ -2123,6 +2187,8 @@
             const result = await fetchAPI(`${API}/engines`);
             if (!result.engines) {
                 document.getElementById('agent-connection-status').innerText = result.error || '模型目录读取失败';
+                const picker = document.getElementById('agent-model-select');
+                picker.replaceChildren(new Option('读取失败，请刷新重试', ''));
                 return;
             }
             AGENT_CATALOG = result;
@@ -2432,6 +2498,11 @@
                 if (data && data.chapters) {
                     CLIENT_CACHE.chapters[book] = data.chapters;
                     if (book === CURRENT_BOOK) applyChaptersData(data.chapters);
+                } else if (data && data.error && book === CURRENT_BOOK && !CLIENT_CACHE.chapters[book]) {
+                    document.getElementById('chapters-cards-container').innerText = data.error + '，请点击上方刷新重试。';
+                    document.getElementById('chapter-content').innerText = data.error + '，请在章节卷宗中刷新重试。';
+                    const picker = document.getElementById('tomato-chapter-select');
+                    if (picker) picker.replaceChildren(new Option('加载失败，请刷新重试', ''));
                 }
             } catch (err) {}
         }
@@ -3633,6 +3704,12 @@
             try {
                 const res = await fetchAPI(`${API}/settings?book=${encodeURIComponent(CURRENT_BOOK)}`);
                 if (book !== CURRENT_BOOK) return;
+                if (res && res.error) {
+                    if (tabs) tabs.innerText = res.error;
+                    if (dropdown) dropdown.replaceChildren(new Option('加载失败，请刷新重试', ''));
+                    document.getElementById("setting-content").innerText = res.error + '，可点击上方刷新重试。';
+                    return;
+                }
                 if (res && res.settings && res.settings.length > 0) {
                     CLIENT_CACHE.settings[CURRENT_BOOK] = res.settings;
                     renderSettingsPillsAndDropdown(res.settings);

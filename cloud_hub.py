@@ -72,6 +72,33 @@ else:
     AUTH_TOKEN = secrets.token_urlsafe(48)
     atomic_write(TOKEN_FILE, AUTH_TOKEN)
     os.chmod(TOKEN_FILE, 0o600)
+SESSION_SECONDS = 7 * 24 * 60 * 60
+
+
+def issue_session():
+    expires_at = int(time.time()) + SESSION_SECONDS
+    payload = f"session.{expires_at}.{secrets.token_urlsafe(24)}"
+    signature = hmac.new(AUTH_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return {"ok": True, "token": payload + "." + signature, "expires_at": expires_at, "expires_in": SESSION_SECONDS}
+
+
+def valid_access_token(token):
+    if not isinstance(token, str) or len(token) > 1024:
+        return False
+    if hmac.compare_digest(token.encode(), AUTH_TOKEN.encode()):
+        return True
+    parts = token.split('.')
+    if len(parts) != 4 or parts[0] != 'session':
+        return False
+    try:
+        if int(parts[1]) <= time.time():
+            return False
+    except ValueError:
+        return False
+    expected = hmac.new(AUTH_TOKEN.encode(), '.'.join(parts[:3]).encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(parts[3].encode(), expected.encode())
+
+
 WRITE_LOCK = threading.RLock()
 CACHE_LOCK = threading.RLock()
 TASKS = {}
@@ -82,10 +109,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 11,
-    "versionName": "1.9.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.9.0",
-    "changelog": "Antigravity / ChatGPT（Codex）类型选择，动态模型与思考等级，小说工作区绑定及完全访问权限。",
+    "versionCode": 12,
+    "versionName": "1.9.1",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.9.1",
+    "changelog": "修复 Android 首次登录口令输入，页面内登录与失效恢复，补充 WebView 弹窗支持。",
     "forceUpdate": False
 }
 
@@ -206,6 +233,7 @@ class HubHandler(BaseHTTPRequestHandler):
         body = html_text.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         
         accept_enc = self.headers.get("Accept-Encoding", "")
         if "gzip" in accept_enc and len(body) > 1024:
@@ -235,7 +263,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 item = item.strip()
                 if item.startswith("novel_token="):
                     token = item[len("novel_token="):]
-        return isinstance(token, str) and hmac.compare_digest(token, AUTH_TOKEN)
+        return valid_access_token(token)
 
     def get_json_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -651,8 +679,8 @@ class HubHandler(BaseHTTPRequestHandler):
         # 登录认证
         if path == "/api/login" or path == "/novel/api/login":
             pwd = body.get("password", "")
-            if isinstance(pwd, str) and hmac.compare_digest(pwd, PASSWORD):
-                self.send_json({"ok": True, "token": AUTH_TOKEN})
+            if isinstance(pwd, str) and hmac.compare_digest(pwd.encode(), PASSWORD.encode()):
+                self.send_json(issue_session())
             else:
                 self.send_json({"ok": False, "error": "口令错误，请重新输入"}, 401)
             return
