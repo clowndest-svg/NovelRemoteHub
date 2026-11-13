@@ -28,6 +28,7 @@ import hashlib
 import base64
 from storage import atomic_json, atomic_write, safe_component, within
 from agent_workspace import canonical_engine, selected_model, is_workspace
+from sync_protocol import content_fingerprint
 from urllib.parse import urlparse, parse_qs
 
 # 引入小说管理工作流
@@ -99,6 +100,63 @@ def valid_access_token(token):
     return hmac.compare_digest(parts[3].encode(), expected.encode())
 
 
+def issue_reading_link():
+    expires_at = int(time.time()) + SESSION_SECONDS
+    payload = f"reader.{expires_at}.{secrets.token_urlsafe(24)}"
+    signature = hmac.new(AUTH_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return {"ok": True, "url": "/novel/read/#" + payload + "." + signature,
+            "expires_at": expires_at, "expires_in": SESSION_SECONDS}
+
+
+def valid_reading_token(token):
+    if not isinstance(token, str) or len(token) > 512:
+        return False
+    parts = token.split(".")
+    if len(parts) != 4 or parts[0] != "reader":
+        return False
+    try:
+        if int(parts[1]) <= time.time():
+            return False
+    except ValueError:
+        return False
+    expected = hmac.new(AUTH_TOKEN.encode(), ".".join(parts[:3]).encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(parts[3].encode(), expected.encode())
+
+
+def chapter_catalog(book_id):
+    """Reuse unchanged chapter metadata even when another chapter was updated."""
+    book_path, title = novel_manager.get_book_path(book_id, BOOKS_DIR)
+    chapters = []
+    for filename in novel_manager.chapter_files(book_path):
+        stat = os.stat(filename)
+        identity = hashlib.sha256(filename.encode()).hexdigest()
+        key = f"novel:cache:metadata:{identity}:{stat.st_mtime_ns}:{stat.st_size}"
+        metadata = get_cached(key)
+        if metadata is None:
+            with open(filename, encoding="utf-8", errors="ignore") as stream:
+                cleaned = novel_manager.clean_for_tomato(stream.read(), os.path.basename(filename))
+            metadata = {"filename": os.path.basename(filename), "title": cleaned["title"],
+                        "raw_title": os.path.basename(filename)[:-3], "char_count": cleaned["char_count"],
+                        "size": stat.st_size, "mtime": stat.st_mtime}
+            set_cached(key, metadata, ttl=86400)
+        chapters.append(metadata)
+    return {"book_title": title, "chapters": chapters}
+
+
+def chapter_document(book_id, filename):
+    safe_component(filename)
+    key = f"novel:cache:chapter:{book_id}:{filename}"
+    cached = get_cached(key)
+    if cached is not None:
+        return cached
+    content = novel_manager.read_chapter(book_id, filename, BOOKS_DIR)
+    cleaned = novel_manager.clean_for_tomato(content, filename)
+    result = {"book_title": book_id, "filename": filename, "title": cleaned["title"],
+              "content": content, "char_count": cleaned["char_count"]}
+    set_cached(key, result, ttl=600)
+    return result
+
+
 WRITE_LOCK = threading.RLock()
 CACHE_LOCK = threading.RLock()
 TASKS = {}
@@ -109,10 +167,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 12,
-    "versionName": "1.9.1",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.9.1",
-    "changelog": "修复 Android 首次登录口令输入，页面内登录与失效恢复，补充 WebView 弹窗支持。",
+    "versionCode": 13,
+    "versionName": "1.10.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.0",
+    "changelog": "新增七天免密只读分享，修复同步失败重试与任务期间同步，合并阅读查询并复用章节索引。",
     "forceUpdate": False
 }
 
@@ -174,6 +232,78 @@ def save_json_file(path, data):
     atomic_json(path, data)
 
 
+def sync_book(body):
+    book_id = safe_component(body.get("book_id"))
+    book_path = within(BOOKS_DIR, book_id)
+    chapters, settings = body.get("chapters", []), body.get("settings", [])
+    for documents in (chapters, settings):
+        if not isinstance(documents, list):
+            raise ValueError("同步文档必须为列表")
+        names = set()
+        for document in documents:
+            filename = safe_component(document["filename"])
+            if not filename.endswith(".md") or not isinstance(document["content"], str):
+                raise ValueError("同步文档必须为 Markdown 文本")
+            if filename in names:
+                raise ValueError("同步章节或设定存在同名文件")
+            names.add(filename)
+    fingerprint = content_fingerprint(chapters, settings)
+    authoritative = body.get("sync_version") == 2
+    if authoritative and body.get("fingerprint") != fingerprint:
+        raise ValueError("同步内容摘要不一致")
+    changed = False
+    try:
+        for kind, documents in (("01_正文", chapters), ("00_设定集", settings)):
+            existing = (novel_manager.chapter_files(book_path) if kind == "01_正文" else
+                        glob.glob(os.path.join(book_path, kind, "*.md")))
+            by_name = {}
+            for filename in existing:
+                name = os.path.basename(filename)
+                if name in by_name:
+                    raise ValueError("云端存在同名章节，请核对分卷")
+                by_name[name] = filename
+            for document in documents:
+                name = document["filename"]
+                target = by_name.pop(name, None)
+                if target is None:
+                    directory = os.path.join(book_path, kind)
+                    if kind == "01_正文":
+                        directory = os.path.join(directory, "第一卷_人界篇")
+                    target = os.path.join(directory, name)
+                old = None
+                if os.path.isfile(target):
+                    with open(target, encoding="utf-8", errors="ignore") as stream:
+                        old = stream.read()
+                if old != document["content"]:
+                    atomic_write(target, document["content"])
+                    changed = True
+            if authoritative:
+                for name, filename in by_name.items():
+                    archive = os.path.join(book_path, ".sync-archive", uuid.uuid4().hex, kind, name)
+                    os.makedirs(os.path.dirname(archive), exist_ok=True)
+                    os.replace(filename, archive)
+                    changed = True
+        conversations = body.get("conversations", [])
+        if conversations:
+            save_json_file(os.path.join(DATA_DIR, "conversations.json"), conversations)
+    finally:
+        if changed:
+            # Invalidate once per book, including public reading responses.
+            invalidate_cache(book_id)
+            invalidate_cache("novel:cache:books")
+    actual_chapters = []
+    actual_settings = []
+    for filename in novel_manager.chapter_files(book_path):
+        with open(filename, encoding="utf-8", errors="ignore") as stream:
+            actual_chapters.append({"filename": os.path.basename(filename), "content": stream.read()})
+    for filename in glob.glob(os.path.join(book_path, "00_设定集", "*.md")):
+        with open(filename, encoding="utf-8", errors="ignore") as stream:
+            actual_settings.append({"filename": os.path.basename(filename), "content": stream.read()})
+    receipt = content_fingerprint(actual_chapters, actual_settings)
+    return {"ok": True, "chapters_count": len(chapters), "settings_count": len(settings),
+            "fingerprint": receipt}
+
+
 class BoundedHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 32
@@ -204,6 +334,8 @@ class HubHandler(BaseHTTPRequestHandler):
         super().log_message("%s", message)
 
     def end_headers(self):
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Novel-Token")
@@ -282,7 +414,9 @@ class HubHandler(BaseHTTPRequestHandler):
                 safe_component(query["book"][0])
             if query.get("file"):
                 safe_component(query["file"][0])
-            if self.path.split("?")[0].rstrip("/").endswith(("/pending_task", "/task_status")):
+            if self.path.split("?")[0].rstrip("/").endswith((
+                    "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
+                    "/settings", "/setting", "/tomato_clean", "/chapter_extras")):
                 with WRITE_LOCK:
                     self.handle_get()
             else:
@@ -319,6 +453,45 @@ class HubHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         qs = parse_qs(parsed.query)
+
+        if path in ("/novel/read", "/read"):
+            with open(os.path.join(os.path.dirname(__file__), "reader.html"), encoding="utf-8") as stream:
+                self.send_html(stream.read())
+            return
+
+        if path.startswith(("/api/read/", "/novel/api/read/")):
+            if not valid_reading_token(self.headers.get("X-Reading-Token")):
+                self.send_json({"error": "阅读链接已失效，请向作者索取新链接"}, 403)
+                return
+            resource = path.rsplit("/", 1)[-1]
+            if resource == "books":
+                cached = get_cached("novel:cache:books")
+                if cached is None:
+                    cached = {"books": novel_manager.list_books(BOOKS_DIR)}
+                    set_cached("novel:cache:books", cached, ttl=180)
+                self.send_json({"books": [{key: book[key] for key in ("id", "title", "chapter_count")}
+                                           for book in cached["books"] if book["chapter_count"]]})
+            elif resource == "chapters":
+                book = qs.get("book", [""])[0]
+                cache_key = f"novel:cache:chapters:{book}"
+                catalog = get_cached(cache_key)
+                if catalog is None:
+                    catalog = chapter_catalog(book)
+                    set_cached(cache_key, catalog)
+                self.send_json(catalog)
+            elif resource == "chapter":
+                book, filename = qs.get("book", [""])[0], qs.get("file", [""])[0]
+                key = f"novel:cache:reading:{book}:{filename}"
+                chapter = get_cached(key)
+                if chapter is None:
+                    raw = novel_manager.read_chapter(book, filename, BOOKS_DIR)
+                    chapter = novel_manager.clean_for_tomato(raw, filename)
+                    chapter = {"title": chapter["title"], "content": chapter["content"]}
+                    set_cached(key, chapter)
+                self.send_json(chapter)
+            else:
+                self.send_json({"error": "Not Found"}, 404)
+            return
 
         # 根路径访问前端页面
         if path == "" or path == "/novel":
@@ -417,6 +590,34 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(res)
             return
 
+        if path in ("/api/library", "/novel/api/library"):
+            books = get_cached("novel:cache:books")
+            if books is None:
+                books = {"books": novel_manager.list_books(BOOKS_DIR)}
+                set_cached("novel:cache:books", books, ttl=180)
+            selected = qs.get("book", [""])[0]
+            if not any(book["id"] == selected for book in books["books"]):
+                selected = books["books"][0]["id"] if books["books"] else ""
+            catalog = {"chapters": []}
+            latest = None
+            if selected:
+                key = f"novel:cache:chapters:{selected}"
+                catalog = get_cached(key)
+                if catalog is None:
+                    catalog = chapter_catalog(selected)
+                    set_cached(key, catalog)
+                if catalog["chapters"]:
+                    latest = chapter_document(selected, catalog["chapters"][-1]["filename"])
+            self.send_json({**books, **catalog, "book": selected, "latest": latest})
+            return
+
+        if path in ("/api/sync_status", "/novel/api/sync_status"):
+            self.send_json({**load_json_file(os.path.join(DATA_DIR, "sync_status.json"), {}),
+                            "online": LOCAL_STATUS["online"],
+                            "requested_at": LOCAL_STATUS.get("sync_requested_at", 0),
+                            "completed_request": LOCAL_STATUS.get("sync_completed_request", 0)})
+            return
+
         # 获取章节列表 (支持 ?book=xxx，启用缓存)
         if path == "/api/chapters" or path == "/novel/api/chapters":
             book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
@@ -426,24 +627,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json(cached)
                 return
 
-            bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
-            c_dir = os.path.join(bpath, "01_正文")
-            files = novel_manager.chapter_files(bpath)
-            chapters = []
-            for f in files:
-                fname = os.path.basename(f)
-                with open(f, "r", encoding="utf-8", errors="ignore") as fp:
-                    content = fp.read()
-                clean_res = novel_manager.clean_for_tomato(content, fname)
-                chapters.append({
-                    "filename": fname,
-                    "title": clean_res["title"] or fname.replace(".md", ""),
-                    "raw_title": fname.replace(".md", ""),
-                    "char_count": clean_res["char_count"],
-                    "size": os.path.getsize(f),
-                    "mtime": os.path.getmtime(f)
-                })
-            res = {"book_title": btitle, "chapters": chapters}
+            res = chapter_catalog(book_id)
             set_cached(cache_key, res, ttl=300)
             self.send_json(res)
             return
@@ -456,32 +640,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Missing file param"}, 400)
                 return
 
-            cache_key = f"novel:cache:chapter:{book_id}:{fname}"
-            cached = get_cached(cache_key)
-            if cached:
-                self.send_json(cached)
-                return
-
-            bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
-            candidates = [p for p in novel_manager.chapter_files(bpath) if os.path.basename(p) == fname]
-            if len(candidates) > 1:
-                raise ValueError("章节文件名重复，请检查分卷名称")
-            if candidates and os.path.exists(candidates[0]):
-                target = candidates[0]
-                with open(target, "r", encoding="utf-8", errors="ignore") as fp:
-                    content = fp.read()
-                clean_res = novel_manager.clean_for_tomato(content, fname)
-                res = {
-                    "book_title": btitle,
-                    "filename": fname,
-                    "title": clean_res["title"] or os.path.basename(fname).replace(".md", ""),
-                    "content": content,
-                    "char_count": clean_res["char_count"]
-                }
-                set_cached(cache_key, res, ttl=600)
-                self.send_json(res)
-            else:
-                self.send_json({"error": "Chapter not found"}, 404)
+            self.send_json(chapter_document(book_id, fname))
             return
 
         # 番茄小说清洗与全维度机审预检接口 (启用缓存加速)
@@ -699,70 +858,34 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": "口令错误，请重新输入"}, 401)
             return
 
-        # 本地桥接器多书架全量同步 (写入后立即失效缓存)
-        if path == "/api/sync_data" or path == "/novel/api/sync_data":
-            LOCAL_STATUS["online"] = True
-            LOCAL_STATUS["last_seen"] = time.time()
-            book_id = body.get("book_id", "给政哥讲量子力学，他竟肉身硬抗二向箔")
-            bpath = within(BOOKS_DIR, book_id)
-            os.makedirs(os.path.join(bpath, "01_正文", "第一卷_人界篇"), exist_ok=True)
-            os.makedirs(os.path.join(bpath, "00_设定集"), exist_ok=True)
+        if path in ("/api/reading_link", "/novel/api/reading_link"):
+            self.send_json(issue_reading_link())
+            return
 
-            chapters = body.get("chapters", [])
-            settings = body.get("settings", [])
-            if not isinstance(chapters, list) or not isinstance(settings, list):
-                raise ValueError("同步文档必须为列表")
-            for item in chapters + settings:
-                safe_component(item["filename"])
-                if not item["filename"].endswith(".md") or not isinstance(item["content"], str):
-                    raise ValueError("同步文档必须为 Markdown 文本")
-            # Only changed files are replaced, and cache invalidation follows each write.
-            has_chapter_changes = False
-            for c in chapters:
-                fpath = os.path.join(bpath, "01_正文", "第一卷_人界篇", safe_component(c["filename"]))
-                old_text = ""
-                if os.path.exists(fpath):
-                    try:
-                        with open(fpath, "r", encoding="utf-8", errors="ignore") as fp:
-                            old_text = fp.read()
-                    except Exception:
-                        pass
-                if old_text != c["content"]:
-                    atomic_write(fpath, c["content"])
-                    has_chapter_changes = True
-                    invalidate_cache(c["filename"])
+        if path in ("/api/request_sync", "/novel/api/request_sync"):
+            LOCAL_STATUS["sync_requested_at"] = time.time()
+            self.send_json({"ok": True, "requested_at": LOCAL_STATUS["sync_requested_at"]})
+            return
 
-            # 同步设定
-            settings = body.get("settings", [])
-            has_setting_changes = False
-            for s in settings:
-                fpath = os.path.join(bpath, "00_设定集", safe_component(s["filename"]))
-                old_text = ""
-                if os.path.exists(fpath):
-                    try:
-                        with open(fpath, "r", encoding="utf-8", errors="ignore") as fp:
-                            old_text = fp.read()
-                    except Exception:
-                        pass
-                if old_text != s["content"]:
-                    atomic_write(fpath, s["content"])
-                    has_setting_changes = True
-                    invalidate_cache(s["filename"])
+        if path in ("/api/sync_report", "/novel/api/sync_report"):
+            report = {"ok": body.get("ok") is True, "error": str(body.get("error", ""))[:500],
+                      "reported_at": time.time(), "books_count": body.get("books_count", 0),
+                      "chapters_count": body.get("chapters_count", 0),
+                      "settings_count": body.get("settings_count", 0)}
+            if report["ok"]:
+                report["last_success_at"] = time.time()
+                LOCAL_STATUS["sync_completed_request"] = body.get("request_id", 0)
+            else:
+                old = load_json_file(os.path.join(DATA_DIR, "sync_status.json"), {})
+                report["last_success_at"] = old.get("last_success_at", 0)
+            save_json_file(os.path.join(DATA_DIR, "sync_status.json"), report)
+            self.send_json({"ok": True})
+            return
 
-            # 同步对话
-            conversations = body.get("conversations", [])
-            if conversations:
-                save_json_file(os.path.join(DATA_DIR, "conversations.json"), conversations)
-
-            # 仅在有实际内容变更时失效目录总览缓存
-            if has_chapter_changes or has_setting_changes:
-                invalidate_cache("novel:cache:books")
-            if has_chapter_changes:
-                invalidate_cache(f"novel:cache:chapters:{book_id}")
-            if has_setting_changes:
-                invalidate_cache(f"novel:cache:settings:{book_id}")
-
-            self.send_json({"ok": True, "chapters_count": len(chapters), "settings_count": len(settings)})
+        if path in ("/api/sync_data", "/novel/api/sync_data"):
+            result = sync_book(body)
+            LOCAL_STATUS.update(online=True, last_seen=time.time())
+            self.send_json(result)
             return
 
         if path in ("/api/refresh_agents", "/novel/api/refresh_agents"):
@@ -813,7 +936,7 @@ class HubHandler(BaseHTTPRequestHandler):
             tid = body.get("id")
             if tid in TASKS and TASKS[tid]["status"] == "running":
                 TASKS[tid]["heartbeat_at"] = time.time()
-            self.send_json({"ok": True})
+            self.send_json({"ok": True, "sync_requested_at": LOCAL_STATUS.get("sync_requested_at", 0)})
             return
 
         if path in ("/api/save_chapter_notes", "/novel/api/save_chapter_notes"):

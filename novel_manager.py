@@ -37,7 +37,7 @@ def list_books(root_dir=None):
     for entry in os.scandir(base):
         if entry.is_dir() and not entry.name.startswith("."):
             bpath = entry.path
-            chapters = glob.glob(os.path.join(bpath, "01_正文", "**", "*.md"), recursive=True)
+            chapters = chapter_files(bpath)
             settings = glob.glob(os.path.join(bpath, "00_设定集", "*.md"))
             books.append({
                 "id": entry.name,
@@ -63,7 +63,11 @@ def get_book_path(book_id=None, root_dir=None):
 
 
 def chapter_files(book_path):
-    files = glob.glob(os.path.join(book_path, "01_正文", "**", "*.md"), recursive=True)
+    files = []
+    for directory, subdirs, names in os.walk(os.path.join(book_path, "01_正文")):
+        subdirs[:] = [name for name in subdirs if not name.startswith(".")]
+        files.extend(os.path.join(directory, name) for name in names
+                     if name.endswith(".md") and not name.startswith("."))
     def order(path):
         match = re.search(r"第(\d+)章", os.path.basename(path))
         return (int(match.group(1)) if match else 0, path)

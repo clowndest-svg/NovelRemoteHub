@@ -1463,7 +1463,7 @@
                 <span id="status-text">检测中</span>
             </div>
             <!-- 官方域名下载链接 (App 内自动隐藏) -->
-            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.9.1" class="btn-apk-pill" download>
+            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.0" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
         </div>
@@ -1479,6 +1479,26 @@
         <button class="btn-new-book-quick" onclick="openNewBookModal()">
             <span>➕ 构思新书</span>
         </button>
+    </div>
+
+    <div class="sync-share-strip" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;">
+        <span id="sync-state" role="status" style="flex:1;min-width:160px;color:var(--text-dim)">正在查询同步状态…</span>
+        <button id="sync-now" class="btn-new-book-quick" onclick="requestImmediateSync()">立即同步</button>
+        <button class="btn-new-book-quick" onclick="openReadingShare()">分享阅读</button>
+    </div>
+    <div id="reading-share-modal" class="modal-overlay" onclick="if(event.target===this)this.classList.remove('show')">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="reading-share-title" style="width:min(92vw,520px);padding:24px;">
+            <h3 id="reading-share-title">分享全部小说</h3>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.7">持有链接的人可免密浏览全部小说的目录与正文。链接自生成起一周有效。</p>
+            <textarea id="reading-share-url" readonly aria-label="阅读链接" style="width:100%;height:110px;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;background:var(--bg-secondary);color:var(--text-main);border:1px solid var(--border);border-radius:8px;font-size:12px;"></textarea>
+            <p id="reading-share-state" role="status" style="font-size:12px;line-height:1.6"></p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <button id="reading-share-generate" class="btn-new-book-quick" onclick="generateReadingLink()">生成七天链接</button>
+                <button class="btn-new-book-quick" onclick="copyReadingLink()">复制链接</button>
+                <a id="reading-share-open" class="btn-new-book-quick" hidden>打开阅读页面</a>
+                <button class="btn-new-book-quick" onclick="document.getElementById('reading-share-modal').classList.remove('show')">关闭</button>
+            </div>
+        </div>
     </div>
 
     <div class="agent-controls">
@@ -2052,16 +2072,113 @@
             checkStatus();
             setInterval(checkStatus, 10000);
             if (!TOKEN) await requestAccessLogin();
-            await Promise.all([loadAgentCatalog(), loadBooks()]);
+            loadAgentCatalog();
             setInterval(loadAgentCatalog, 60000);
-            await loadChapters();
+            await loadLibrary();
+            refreshSyncStatus();
+            setInterval(refreshSyncStatus, 10000);
             switchWorkflowTab('serial');
             restoreExtrasTasks();
         }
 
         const INFLIGHT_GETS = new Map();
+        let SYNC_PENDING_AT = 0;
+        let LAST_SYNC_SUCCESS = 0;
         let LOGIN_PROMISE = null;
         let LOGIN_RESOLVE = null;
+
+        async function loadLibrary() {
+            const data = await fetchAPI(`${API}/library?book=${encodeURIComponent(CURRENT_BOOK)}`);
+            if (!data.books || !data.chapters) {
+                await loadBooks();
+                await loadChapters();
+                return;
+            }
+            CURRENT_BOOK = data.book || CURRENT_BOOK;
+            CLIENT_CACHE.books = data.books;
+            applyBooksData(data.books);
+            CLIENT_CACHE.chapters[CURRENT_BOOK] = data.chapters;
+            if (data.latest) {
+                const latest = data.chapters[data.chapters.length - 1];
+                const key = `${CURRENT_BOOK}_${latest.filename}`;
+                CLIENT_CACHE.chapterVersions = CLIENT_CACHE.chapterVersions || {};
+                CLIENT_CACHE.chapterVersions[key] = `${latest.mtime}:${latest.size}`;
+                CLIENT_CACHE.chapterContent[key] = data.latest.content;
+                CLIENT_CACHE.chapterFetchedAt = CLIENT_CACHE.chapterFetchedAt || {};
+                CLIENT_CACHE.chapterFetchedAt[key] = Date.now();
+            }
+            applyChaptersData(data.chapters);
+        }
+
+        async function refreshSyncStatus() {
+            const result = await fetchAPI(`${API}/sync_status`);
+            const label = document.getElementById('sync-state');
+            if (result.error && result.ok !== false) { label.innerText = result.error; return; }
+            const pending = Math.max(SYNC_PENDING_AT, result.requested_at || 0);
+            const waiting = pending > (result.completed_request || 0);
+            const success = result.last_success_at || 0;
+            if (result.ok === false) label.innerText = `同步失败，自动重试中 · ${result.error || '请检查电脑和网络'}`;
+            else if (waiting) label.innerText = result.online ? '等待电脑校验并同步…' : '电脑离线，上线后同步';
+            else if (success) label.innerText = `同步已校验 · ${new Date(success * 1000).toLocaleTimeString('zh-CN', {hour12:false})}${result.online ? '' : ' · 电脑离线'}`;
+            else label.innerText = result.online ? '等待首次同步校验' : '电脑离线，等待同步';
+            document.getElementById('sync-now').disabled = waiting && result.online;
+            if (success > LAST_SYNC_SUCCESS && LAST_SYNC_SUCCESS > 0) {
+                CLIENT_CACHE.books = null;
+                CLIENT_CACHE.chapters = {};
+                CLIENT_CACHE.settings = {};
+                CLIENT_CACHE.settingContent = {};
+                await loadBooks();
+                await loadChapters();
+                if (CHAPTERS.length) openChapter(Math.min(CURRENT_INDEX, CHAPTERS.length - 1), false);
+            }
+            LAST_SYNC_SUCCESS = success;
+        }
+
+        async function requestImmediateSync() {
+            const button = document.getElementById('sync-now');
+            button.disabled = true;
+            const result = await fetchAPI(`${API}/request_sync`, {method:'POST', body:'{}'});
+            if (result.ok) SYNC_PENDING_AT = result.requested_at;
+            else document.getElementById('sync-state').innerText = result.error || '请求同步失败，请重试';
+            button.disabled = false;
+            if (result.ok) refreshSyncStatus();
+        }
+
+        function openReadingShare() {
+            document.getElementById('reading-share-modal').classList.add('show');
+        }
+
+        async function generateReadingLink() {
+            const button = document.getElementById('reading-share-generate');
+            const state = document.getElementById('reading-share-state');
+            button.disabled = true;
+            state.innerText = '正在生成…';
+            try {
+                const result = await fetchAPI(`${API}/reading_link`, {method:'POST', body:'{}'});
+                if (!result.ok) throw Error(result.error || '生成失败，请重试');
+                const url = new URL(result.url, location.origin).href;
+                document.getElementById('reading-share-url').value = url;
+                const link = document.getElementById('reading-share-open');
+                link.href = url;
+                link.hidden = false;
+                state.innerText = `有效至 ${new Date(Date.now() + result.expires_in * 1000).toLocaleString('zh-CN', {hour12:false})}`;
+                button.innerText = '重新生成七天链接';
+            } catch (error) { state.innerText = error.message; }
+            finally { button.disabled = false; }
+        }
+
+        async function copyReadingLink() {
+            const input = document.getElementById('reading-share-url');
+            if (!input.value) { document.getElementById('reading-share-state').innerText = '请先生成阅读链接'; return; }
+            try {
+                await navigator.clipboard.writeText(input.value);
+                document.getElementById('reading-share-state').innerText = '链接已复制';
+            } catch (error) {
+                input.focus();
+                input.select();
+                document.getElementById('reading-share-state').innerText = document.execCommand('copy') ? '链接已复制' : '请长按链接复制';
+            }
+        }
 
         async function fetchWithTimeout(url, options) {
             const controller = new AbortController();
@@ -2547,17 +2664,14 @@
                     window.hasLoadedFirst = true;
                     openChapter(CHAPTERS.length - 1, false);
                 }
-                // 【极速预热】后台静默预取最新章节的番茄机审数据，用户点开番茄发布模块直接 0 毫秒秒开！
-                setTimeout(() => {
-                    prefetchTomatoAudit(latestFile);
-                }, 300);
             }
         }
 
         async function fetchLastHook(filename) {
             const book = CURRENT_BOOK;
             try {
-                const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(filename)}`);
+                const key = `${book}_${filename}`;
+                const res = CLIENT_CACHE.chapterContent[key] ? {content:CLIENT_CACHE.chapterContent[key]} : await fetchAPI(`${API}/chapter?book=${encodeURIComponent(book)}&file=${encodeURIComponent(filename)}`);
                 if (res && res.content) {
                     if (book !== CURRENT_BOOK) return;
                     const lines = res.content.trim().split("\n");
@@ -2677,10 +2791,13 @@
             }
 
             try {
-                const res = await fetchAPI(`${API}/chapter?book=${encodeURIComponent(book)}&file=${encodeURIComponent(c.filename)}`);
+                const fresh = CLIENT_CACHE.chapterContent[cacheKey] && Date.now() - (CLIENT_CACHE.chapterFetchedAt?.[cacheKey] || 0) < 10000;
+                const res = fresh ? {content:CLIENT_CACHE.chapterContent[cacheKey]} : await fetchAPI(`${API}/chapter?book=${encodeURIComponent(book)}&file=${encodeURIComponent(c.filename)}`);
                 if (CURRENT_BOOK !== book || (CHAPTERS[CURRENT_INDEX] || {}).filename !== c.filename) return;
                 if (res && res.content) {
                     CLIENT_CACHE.chapterContent[cacheKey] = res.content;
+                    CLIENT_CACHE.chapterFetchedAt = CLIENT_CACHE.chapterFetchedAt || {};
+                    if (!fresh) CLIENT_CACHE.chapterFetchedAt[cacheKey] = Date.now();
                     if (CURRENT_BOOK !== book || (CHAPTERS[CURRENT_INDEX] || {}).filename !== c.filename) return;
                     document.getElementById("chapter-content").innerText = res.content;
                 } else if (!CLIENT_CACHE.chapterContent[cacheKey]) {

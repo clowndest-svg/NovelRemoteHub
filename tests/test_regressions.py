@@ -397,6 +397,143 @@ class RegressionTests(unittest.TestCase):
             codes = list(executor.map(lambda _: self.request('/api/tomato_clean?' + self.query)[0], range(36)))
         self.assertEqual(codes, [200]*36)
 
+    def reading_request(self, resource, token=None, data=None):
+        link = token or hub.issue_reading_link()['url'].split('#')[1]
+        raw = json.dumps(data).encode() if data is not None else None
+        request = urllib.request.Request(self.url + '/api/read/' + resource, data=raw,
+                                         headers={'X-Reading-Token': link})
+        try:
+            response = urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=5)
+        except urllib.error.HTTPError as failure:
+            response = failure
+        with response:
+            return response.status, json.load(response)
+
+    def test_reading_link_generation_requires_login(self):
+        self.assertEqual(self.request('/api/reading_link', {}, auth=False)[0], 401)
+        code, link = self.request('/api/reading_link', {})
+        self.assertEqual(code, 200)
+        self.assertEqual(link['expires_in'], 7 * 24 * 60 * 60)
+        self.assertNotEqual(link['url'], self.request('/api/reading_link', {})[1]['url'])
+        self.assertEqual(self.request('/novel/read/', auth=False)[0], 200)
+
+    def test_library_contains_matching_catalog_and_latest_content(self):
+        code, library = self.request('/api/library?' + self.query)
+        self.assertEqual(code, 200)
+        self.assertEqual(library['book'], self.book)
+        self.assertEqual(library['latest']['filename'], library['chapters'][-1]['filename'])
+        self.assertEqual(library['latest']['content'], self.text)
+        self.assertEqual(self.request('/api/library', auth=False)[0], 401)
+
+    def test_reading_hierarchy_and_private_files(self):
+        code, books = self.reading_request('books')
+        self.assertEqual(code, 200)
+        self.assertTrue(any(book['id'] == self.book for book in books['books']))
+        self.assertTrue(all(set(book) == {'id', 'title', 'chapter_count'} for book in books['books']))
+        self.assertEqual(self.reading_request('chapters?' + self.query)[0], 200)
+        code, chapter = self.reading_request('chapter?' + self.query)
+        self.assertEqual(code, 200)
+        self.assertIn('顾见微', chapter['content'])
+        self.assertEqual(self.reading_request('settings?' + self.query)[0], 404)
+        self.assertEqual(self.reading_request('chapter?' + urllib.parse.urlencode({'book':self.book, 'file':'世界观.md'}))[0], 404)
+
+    def test_reading_token_cannot_be_used_for_admin(self):
+        token = hub.issue_reading_link()['url'].split('#')[1]
+        for endpoint in ('/api/books', '/api/settings?' + self.query, '/api/conversations'):
+            self.assertEqual(self.request(endpoint + ('&' if '?' in endpoint else '?') + 'token=' + token, auth=False)[0], 401)
+        for endpoint in ('/api/sync_data', '/api/dispatch_task', '/api/reading_link', '/api/request_sync'):
+            request = urllib.request.Request(self.url + endpoint, data=b'{}', headers={'X-Novel-Token': token})
+            with self.assertRaises(urllib.error.HTTPError) as result:
+                urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request)
+            self.assertEqual(result.exception.code, 401)
+            result.exception.close()
+        self.assertEqual(self.reading_request('chapter?' + self.query, data={})[0], 401)
+
+    def test_reading_expiry_and_tamper_rechecked_on_cache_hits(self):
+        with patch.object(hub.time, 'time', return_value=1000):
+            link = hub.issue_reading_link()
+        token = link['url'].split('#')[1]
+        with patch.object(hub.time, 'time', return_value=link['expires_at'] - 1):
+            self.assertEqual(self.reading_request('chapter?' + self.query, token)[0], 200)
+        with patch.object(hub.time, 'time', return_value=link['expires_at']):
+            self.assertEqual(self.reading_request('chapter?' + self.query, token)[0], 403)
+        self.assertEqual(self.reading_request('books', token + 'x')[0], 403)
+        self.assertEqual(self.reading_request('books', hub.AUTH_TOKEN)[0], 403)
+        self.assertFalse(hub.valid_access_token(token))
+
+    def test_sync_v2_receipt_archive_and_public_cache_refresh(self):
+        from sync_protocol import content_fingerprint
+        chapters = [{'filename': self.file, 'content': '修订后的正文'}]
+        settings = [{'filename':'世界观.md', 'content':'设定'}]
+        payload = dict(book_id=self.book, chapters=chapters, settings=settings, sync_version=2,
+                       fingerprint=content_fingerprint(chapters, settings))
+        self.reading_request('chapter?' + self.query)
+        code, response = self.request('/api/sync_data', payload)
+        self.assertEqual(code, 200)
+        self.assertEqual(response['fingerprint'], payload['fingerprint'])
+        self.assertIn('修订后的正文', self.reading_request('chapter?' + self.query)[1]['content'])
+        chapters = [{'filename':'第014章_改名.md', 'content':'改名正文'}]
+        payload.update(chapters=chapters, fingerprint=content_fingerprint(chapters, settings))
+        self.assertEqual(self.request('/api/sync_data', payload)[0], 200)
+        self.assertEqual(self.reading_request('chapter?' + self.query)[0], 404)
+        self.assertEqual(len(manager.chapter_files(self.path)), 1)
+        self.assertTrue(list((self.path / '.sync-archive').rglob(self.file)))
+        # Restore fixture layout for tests sharing this temporary book.
+        for filename in manager.chapter_files(self.path):
+            Path(filename).unlink()
+        atomic_write(self.path / '01_正文/第一卷' / self.file, self.text)
+
+    def test_sync_v2_rejects_wrong_digest_before_writing(self):
+        code, _ = self.request('/api/sync_data', dict(book_id=self.book, chapters=[], settings=[], sync_version=2, fingerprint='wrong'))
+        self.assertEqual(code, 400)
+        self.assertEqual(manager.read_chapter(self.book, self.file, hub.BOOKS_DIR), self.text)
+
+    def test_read_cache_cannot_cross_a_sync_write(self):
+        entered = threading.Event()
+        release = threading.Event()
+        original = manager.read_chapter
+        def paused_read(*args, **kwargs):
+            text = original(*args, **kwargs)
+            entered.set()
+            release.wait(3)
+            return text
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            with patch.object(manager, 'read_chapter', side_effect=paused_read):
+                reading = executor.submit(self.request, '/api/chapter?' + self.query)
+                self.assertTrue(entered.wait(2))
+                uploading = executor.submit(self.request, '/api/sync_data', dict(book_id=self.book,
+                    chapters=[{'filename':self.file, 'content':'并发更新正文'}]))
+                self.assertFalse(uploading.done())
+                release.set()
+                self.assertEqual(reading.result()[0], 200)
+                self.assertEqual(uploading.result()[0], 200)
+        self.assertEqual(self.request('/api/chapter?' + self.query)[1]['content'], '并发更新正文')
+
+    def test_sync_request_and_report_status(self):
+        requested = self.request('/api/request_sync', {})[1]['requested_at']
+        self.assertEqual(self.request('/api/heartbeat', {})[1]['sync_requested_at'], requested)
+        self.request('/api/sync_report', {'ok':True, 'request_id':requested, 'chapters_count':1})
+        status = self.request('/api/sync_status')[1]
+        self.assertEqual(status['completed_request'], requested)
+        success = status['last_success_at']
+        self.request('/api/sync_report', {'ok':False, 'error':'网络失败'})
+        status = self.request('/api/sync_status')[1]
+        self.assertFalse(status['ok'])
+        self.assertEqual(status['last_success_at'], success)
+        self.assertEqual(self.request('/api/sync_status', auth=False)[0], 401)
+
+    def test_catalog_reuses_metadata_after_another_chapter_changes(self):
+        hub.chapter_catalog(self.book)
+        with patch.object(manager, 'clean_for_tomato', wraps=manager.clean_for_tomato) as clean:
+            atomic_write(self.path / '01_正文/第一卷/第014章_新增.md', '新增')
+            hub.chapter_catalog(self.book)
+            self.assertEqual(clean.call_count, 1)
+        (self.path / '01_正文/第一卷/第014章_新增.md').unlink()
+
+    def test_chapter_backups_are_excluded(self):
+        atomic_write(self.path / '01_正文/.backup/第000章_备份.md', '备份私稿')
+        self.assertFalse(any('备份' in filename for filename in manager.chapter_files(self.path)))
+
     def test_no_wrong_typo_changes(self):
         result = manager.auto_fix_tomato_content('甘拜下风，叹为观止，账单，制订计划。')
         self.assertEqual(result['replaced_count'], 0)
@@ -729,6 +866,78 @@ class SerialWritingTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn('历史正文发生变化', result)
 
+
+
+class SyncBridgeTests(unittest.TestCase):
+    def setUp(self):
+        import local_bridge
+        self.bridge = local_bridge
+        self.temporary = tempfile.TemporaryDirectory(dir='.test-data')
+        self.root = Path(self.temporary.name)
+        self.file = self.root / '作品/01_正文/第一卷/第001章_开头.md'
+        atomic_write(self.file, '旧正文')
+        self.patch = patch.object(self.bridge, 'BOOKS_ROOT', str(self.root))
+        self.patch.start()
+        self.bridge.SYNC_RECEIPTS.clear()
+        self.bridge.SYNC_REPORT_PENDING = False
+        self.sent = []
+
+    def tearDown(self):
+        self.patch.stop()
+        self.temporary.cleanup()
+
+    def post(self, endpoint, payload):
+        from sync_protocol import content_fingerprint
+        if endpoint == 'sync_data':
+            self.sent.append(payload)
+            return {'ok': True, 'fingerprint': content_fingerprint(payload['chapters'], payload['settings'])}
+        return {'ok': True}
+
+    def test_content_change_detected_with_restored_timestamp_and_same_size(self):
+        with patch.object(self.bridge, 'api_post', side_effect=self.post):
+            self.assertTrue(self.bridge.sync_all_books_to_cloud(False)[0])
+            stat = self.file.stat()
+            atomic_write(self.file, '新正文')
+            os.utime(self.file, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            self.assertTrue(self.bridge.sync_all_books_to_cloud(False)[0])
+            self.assertEqual(len(self.sent), 2)
+            self.assertEqual(self.sent[-1]['chapters'][0]['content'], '新正文')
+            self.assertTrue(self.bridge.sync_all_books_to_cloud(False)[0])
+            self.assertEqual(len(self.sent), 2)
+
+    def test_failed_upload_retries_identical_content(self):
+        with patch.object(self.bridge, 'api_post', return_value=None):
+            self.assertFalse(self.bridge.sync_all_books_to_cloud(False)[0])
+        with patch.object(self.bridge, 'api_post', side_effect=self.post):
+            self.assertTrue(self.bridge.sync_all_books_to_cloud(False)[0])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_bad_receipt_retries_identical_content(self):
+        with patch.object(self.bridge, 'api_post', return_value={'ok': True, 'fingerprint':'bad'}):
+            self.assertFalse(self.bridge.sync_all_books_to_cloud(False)[0])
+        self.assertEqual(self.bridge.SYNC_RECEIPTS, {})
+        with patch.object(self.bridge, 'api_post', side_effect=self.post):
+            self.assertTrue(self.bridge.sync_all_books_to_cloud(False)[0])
+
+    def test_forced_reconcile_uploads_unchanged_files(self):
+        with patch.object(self.bridge, 'api_post', side_effect=self.post):
+            self.bridge.sync_all_books_to_cloud(False)
+            self.bridge.sync_all_books_to_cloud(True)
+        self.assertEqual(len(self.sent), 2)
+
+    def test_report_failure_is_retried_without_reupload(self):
+        def fail_report(endpoint, payload):
+            return self.post(endpoint, payload) if endpoint == 'sync_data' else None
+        with patch.object(self.bridge, 'api_post', side_effect=fail_report):
+            self.assertFalse(self.bridge.sync_all_books_to_cloud(False)[0])
+        with patch.object(self.bridge, 'api_post', side_effect=self.post) as request:
+            self.assertTrue(self.bridge.sync_all_books_to_cloud(False)[0])
+            self.assertEqual(request.call_args.args[0], 'sync_report')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_missing_source_root_is_failure(self):
+        with patch.object(self.bridge, 'BOOKS_ROOT', str(self.root / 'missing')), patch.object(self.bridge, 'api_post', side_effect=self.post):
+            self.assertFalse(self.bridge.sync_all_books_to_cloud()[0])
 
 if __name__ == '__main__':
     unittest.main()

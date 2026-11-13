@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <title>小说书架 · 智笔云枢</title>
+    <style>
+        :root { color-scheme: light; --paper: #f6f2e9; --ink: #262b28; --muted: #66716b; --line: #d8dcd2; --accent: #236c59; --card: #fffdf7; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Source Sans 3", "Microsoft YaHei", sans-serif; }
+        header { border-bottom: 1px solid var(--line); background: var(--card); }
+        .bar { max-width: 1060px; margin: auto; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .brand { font-weight: 700; letter-spacing: .08em; }
+        button, input { font: inherit; }
+        button { cursor: pointer; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 10px 16px; }
+        button:hover { border-color: var(--accent); color: var(--accent); }
+        button:disabled { opacity: .4; cursor: default; }
+        button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #5baa90; outline-offset: 3px; }
+        main { max-width: 1060px; margin: auto; padding: 36px 24px 70px; }
+        #breadcrumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; color: var(--muted); overflow-wrap: anywhere; }
+        #breadcrumbs button { border: 0; background: transparent; padding: 0; color: var(--accent); }
+        h1 { font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-weight: 600; font-size: clamp(25px, 4vw, 36px); line-height: 1.5; margin: 0 0 20px; overflow-wrap: anywhere; }
+        .summary { color: var(--muted); margin: 0 0 24px; }
+        #search { width: min(100%, 400px); padding: 12px 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); margin-bottom: 24px; color: var(--ink); }
+        #list.books { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 18px; }
+        .book { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; text-align: left; padding: 28px; min-height: 180px; border-top: 3px solid var(--accent); }
+        .book strong { font-family: SimSun, serif; font-size: 22px; line-height: 1.6; overflow-wrap: anywhere; }
+        .book span { color: var(--muted); font-size: 14px; margin-top: 20px; }
+        #list.chapters { border-top: 1px solid var(--line); }
+        .chapter { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; width: 100%; padding: 18px 0; text-align: left; display: flex; align-items: baseline; gap: 15px; justify-content: space-between; }
+        .chapter strong { font-size: 16px; font-weight: 500; overflow-wrap: anywhere; }
+        .chapter span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+        #reading { max-width: 760px; margin: auto; }
+        #reading-tools { display: flex; align-items: center; gap: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 28px; }
+        #reading-tools span { color: var(--muted); margin-right: auto; }
+        #text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: "Noto Serif SC", "Songti SC", SimSun, serif; font-size: var(--reader-size, 20px); line-height: 2.1; letter-spacing: .03em; }
+        #chapter-nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--line); }
+        #message { padding: 28px 0; color: var(--muted); line-height: 1.8; }
+        #message:empty { display: none; }
+        #expiry { color: var(--muted); font-size: 12px; text-align: right; }
+        [hidden] { display: none !important; }
+        @media (max-width: 480px) { main { padding: 25px 18px 50px; } .bar { padding: 16px 18px; } #expiry { max-width: 160px; } .chapter { gap: 8px; } #chapter-nav button { padding: 10px 12px; } }
+    </style>
+</head>
+<body>
+    <header><div class="bar"><span class="brand">智笔云枢 · 阅读</span><span id="expiry"></span></div></header>
+    <main>
+        <nav id="breadcrumbs" aria-label="当前位置"></nav>
+        <h1 id="title">小说书架</h1>
+        <p id="summary" class="summary"></p>
+        <input id="search" type="search" aria-label="搜索书名或章节" placeholder="搜索书名" hidden>
+        <div id="message" role="status" aria-live="polite">正在打开书架…</div>
+        <button id="retry" hidden>重新加载</button>
+        <section id="list" aria-label="小说与章节"></section>
+        <article id="reading" hidden>
+            <div id="reading-tools"><span>正文字号</span><button id="smaller" aria-label="缩小字号">A−</button><button id="larger" aria-label="放大字号">A＋</button></div>
+            <div id="text"></div>
+            <nav id="chapter-nav" aria-label="章节翻页"><button id="previous">上一章</button><button id="catalog">返回目录</button><button id="next">下一章</button></nav>
+        </article>
+    </main>
+    <script>
+        const token = location.hash.slice(1);
+        const expiry = Number(token.split('.')[1]) * 1000;
+        const api = `${location.origin}/novel/api/read/`;
+        const element = id => document.getElementById(id);
+        let books = [];
+        let chapters = [];
+        let currentBook = '';
+        let currentFile = '';
+        let catalogBook = '';
+        let catalogLoadedAt = 0;
+        let sequence = 0;
+        let expired = false;
+        let fontSize = Number(localStorage.getItem('novel_reader_size')) || 20;
+
+        function setFont(delta) {
+            fontSize = Math.max(16, Math.min(30, fontSize + delta));
+            document.documentElement.style.setProperty('--reader-size', `${fontSize}px`);
+            localStorage.setItem('novel_reader_size', String(fontSize));
+        }
+
+        function expire() {
+            expired = true;
+            sequence++;
+            books = [];
+            chapters = [];
+            element('list').replaceChildren();
+            element('breadcrumbs').replaceChildren();
+            element('text').textContent = '';
+            element('title').textContent = '阅读链接已失效';
+            element('summary').textContent = '';
+            element('reading').hidden = true;
+            element('search').hidden = true;
+            element('retry').hidden = true;
+            element('message').textContent = '请向作者索取新生成的阅读链接。每个链接自生成起有效期为一周。';
+            element('expiry').textContent = '链接已失效';
+        }
+
+        async function request(resource) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            try {
+                const response = await fetch(api + resource, { headers: { 'X-Reading-Token': token }, signal: controller.signal, cache: 'no-store', credentials: 'omit' });
+                const data = await response.json();
+                if (response.status === 403) { expire(); throw Error(data.error); }
+                if (!response.ok) throw Error(data.error || '读取失败，请重试');
+                return data;
+            } finally { clearTimeout(timer); }
+        }
+
+        function button(label, action) {
+            const node = document.createElement('button');
+            node.textContent = label;
+            node.onclick = action;
+            return node;
+        }
+
+        function navigate(book = '', file = '') {
+            const url = new URL(location.href);
+            url.search = new URLSearchParams({ ...(book ? { book } : {}), ...(file ? { file } : {}) });
+            history.pushState(null, '', url);
+            render();
+        }
+
+        function showList() {
+            const query = element('search').value.trim().toLowerCase();
+            const listing = element('list');
+            listing.replaceChildren();
+            const items = currentBook ? chapters : books;
+            const filtered = items.filter(item => item.title.toLowerCase().includes(query));
+            for (const item of filtered) {
+                const node = button('', () => currentBook ? navigate(currentBook, item.filename) : navigate(item.id));
+                node.className = currentBook ? 'chapter' : 'book';
+                const title = document.createElement('strong');
+                title.textContent = item.title;
+                const detail = document.createElement('span');
+                detail.textContent = currentBook ? `${item.char_count} 字` : `${item.chapter_count} 章 · 打开目录`;
+                node.append(title, detail);
+                listing.append(node);
+            }
+            element('message').textContent = filtered.length ? '' : query ? '没有匹配的内容' : '作者尚未上传正文';
+        }
+
+        async function render() {
+            if (expired || !token.startsWith('reader.') || !Number.isFinite(expiry) || Date.now() >= expiry) { expire(); return; }
+            const requestId = ++sequence;
+            const params = new URLSearchParams(location.search);
+            currentBook = params.get('book') || '';
+            currentFile = params.get('file') || '';
+            element('reading').hidden = true;
+            element('text').textContent = '';
+            element('list').replaceChildren();
+            element('search').hidden = true;
+            element('search').value = '';
+            element('retry').hidden = true;
+            element('summary').textContent = '';
+            element('message').textContent = '正在读取…';
+            element('breadcrumbs').replaceChildren(button('小说书架', () => navigate()));
+            element('title').textContent = currentBook || '小说书架';
+            try {
+                if (!currentBook) {
+                    const result = await request('books');
+                    if (requestId !== sequence) return;
+                    books = result.books;
+                    element('summary').textContent = `共 ${books.length} 部作品`;
+                } else {
+                    const book = currentBook;
+                    const filename = currentFile;
+                    const cachedCatalog = filename && catalogBook === book && Date.now() - catalogLoadedAt < 30000;
+                    const [result, chapter] = await Promise.all([
+                        cachedCatalog ? Promise.resolve({chapters}) : request('chapters?' + new URLSearchParams({ book })),
+                        filename ? request('chapter?' + new URLSearchParams({ book, file: filename })) : Promise.resolve(null)
+                    ]);
+                    if (requestId !== sequence) return;
+                    chapters = result.chapters;
+                    if (!cachedCatalog) catalogLoadedAt = Date.now();
+                    catalogBook = book;
+                    element('breadcrumbs').append(document.createTextNode(' / '), button(book, () => navigate(book)));
+                    element('summary').textContent = `共 ${chapters.length} 章`;
+                    if (currentFile) {
+                        element('title').textContent = chapter.title;
+                        element('text').textContent = chapter.content;
+                        element('reading').hidden = false;
+                        element('message').textContent = '';
+                        const index = chapters.findIndex(item => item.filename === filename);
+                        element('previous').disabled = index <= 0;
+                        element('next').disabled = index < 0 || index >= chapters.length - 1;
+                        element('previous').onclick = () => navigate(book, chapters[index - 1].filename);
+                        element('next').onclick = () => navigate(book, chapters[index + 1].filename);
+                        element('catalog').onclick = () => navigate(book);
+                        window.scrollTo(0, 0);
+                        return;
+                    }
+                }
+                element('list').className = currentBook ? 'chapters' : 'books';
+                element('search').placeholder = currentBook ? '搜索章节' : '搜索书名';
+                element('search').hidden = false;
+                showList();
+            } catch (error) {
+                if (requestId !== sequence || expired) return;
+                element('message').textContent = error.name === 'AbortError' ? '读取超时，请重试' : error.message;
+                element('retry').hidden = false;
+            }
+        }
+
+        element('search').oninput = showList;
+        element('retry').onclick = render;
+        element('smaller').onclick = () => setFont(-2);
+        element('larger').onclick = () => setFont(2);
+        window.addEventListener('popstate', render);
+        window.addEventListener('hashchange', () => location.reload());
+        document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() >= expiry) expire(); });
+        if (Number.isFinite(expiry) && expiry > Date.now()) {
+            element('expiry').textContent = `有效至 ${new Date(expiry).toLocaleString('zh-CN', { hour12: false })}`;
+            setTimeout(expire, Math.min(expiry - Date.now(), 2147483647));
+        }
+        setFont(0);
+        render();
+    </script>
+</body>
+</html>

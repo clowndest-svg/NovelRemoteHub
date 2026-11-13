@@ -30,8 +30,8 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
-    private int myVersionCode = 12;
-    private String myVersionName = "1.9.1";
+    private int myVersionCode = 13;
+    private String myVersionName = "1.10.0";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

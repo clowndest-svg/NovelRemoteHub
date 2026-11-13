@@ -31,6 +31,7 @@ import agent_client
 import desktop_agents
 from agent_workspace import canonical_engine
 import novel_manager
+from sync_protocol import content_fingerprint
 
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
 class SafeDaemonLogStream:
@@ -85,6 +86,11 @@ CONFIG_PATH = Path(__file__).with_name(".bridge-config.json")
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) if CONFIG_PATH.exists() else {}
 TOKEN = os.environ.get("NOVEL_HUB_TOKEN") or CONFIG.get("token", "")
 ACTIVE_TASK = None
+SYNC_LOCK = threading.Lock()
+SYNC_REQUEST = threading.Event()
+SYNC_REQUEST_ID = 0
+SYNC_RECEIPTS = {}
+SYNC_REPORT_PENDING = False
 
 # 忽略 SSL 证书校验 (安全直连)
 SSL_CTX = ssl.create_default_context()
@@ -128,6 +134,7 @@ def api_post(endpoint, data):
         with CLOUD_OPENER.open(req, timeout=60 if len(body) > 1024 * 1024 else 15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
+        print(f"[api_post error] {endpoint}: {e}")
         return None
 
 def api_get(endpoint):
@@ -139,6 +146,7 @@ def api_get(endpoint):
         with CLOUD_OPENER.open(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
+        print(f"[api_post error] {endpoint}: {e}")
         return None
 
 # 3. Antigravity 进程健康检测与自动唤醒拉起
@@ -264,31 +272,79 @@ def collect_all_conversations():
     return conversations[-50:]
 
 # 6. 全量同步多书架至云端
-def sync_all_books_to_cloud():
+def sync_all_books_to_cloud(force=True):
+    with SYNC_LOCK:
+        return _sync_all_books_to_cloud(force)
+
+
+def _sync_all_books_to_cloud(force):
+    global SYNC_REPORT_PENDING
     total_chapters = 0
     total_settings = 0
     convs = collect_all_conversations()
     all_ok = True
-
-    if os.path.exists(BOOKS_ROOT):
+    books_count = 0
+    attempted = False
+    request_id = SYNC_REQUEST_ID
+    error = ""
+    try:
         for entry in os.scandir(BOOKS_ROOT):
             if entry.is_dir() and not entry.name.startswith("."):
                 book_id = entry.name
                 chapters, settings = collect_book_data(book_id)
+                fingerprint = content_fingerprint(chapters, settings)
+                total_chapters += len(chapters)
+                total_settings += len(settings)
+                books_count += 1
+                if not force and SYNC_RECEIPTS.get(book_id) == fingerprint:
+                    continue
+                attempted = True
                 payload = {
                     "book_id": book_id,
                     "chapters": chapters,
                     "settings": settings,
-                    "conversations": convs
+                    "conversations": convs,
+                    "sync_version": 2,
+                    "fingerprint": fingerprint
                 }
                 res = api_post("sync_data", payload)
-                if res and res.get("ok"):
-                    total_chapters += len(chapters)
-                    total_settings += len(settings)
+                if res and res.get("ok") and res.get("fingerprint") == fingerprint:
+                    SYNC_RECEIPTS[book_id] = fingerprint
                 else:
                     all_ok = False
-
+                    SYNC_RECEIPTS.pop(book_id, None)
+                    error = f"《{book_id}》同步未确认，将自动重试"
+    except Exception as failure:
+        all_ok = False
+        error = str(failure)
+    if attempted or force or not all_ok or SYNC_REPORT_PENDING:
+        report = api_post("sync_report", {"ok": all_ok, "error": error, "request_id": request_id,
+                          "books_count": books_count, "chapters_count": total_chapters,
+                          "settings_count": total_settings})
+        SYNC_REPORT_PENDING = not report or not report.get("ok")
+        if SYNC_REPORT_PENDING:
+            all_ok = False
+    if error:
+        print(f"[Sync] {error}")
     return all_ok, total_chapters, total_settings
+
+
+def sync_loop():
+    last_reconcile = 0
+    while True:
+        try:
+            requested = SYNC_REQUEST.is_set()
+            if requested:
+                SYNC_REQUEST.clear()
+            force = requested or time.monotonic() - last_reconcile >= 60
+            ok, _, _ = sync_all_books_to_cloud(force=force)
+            if ok and force:
+                last_reconcile = time.monotonic()
+            elif not ok and requested:
+                SYNC_REQUEST.set()
+        except Exception as error:
+            print(f"[Sync] 同步检查失败，将自动重试: {error}")
+        time.sleep(5)
 
 # 7. 在所选桌面端执行并校验任务成果回执
 def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro",
@@ -425,8 +481,13 @@ def sync_agent_catalog():
 
 
 def heartbeat_loop():
+    global SYNC_REQUEST_ID
     while True:
-        api_post("heartbeat", {"id": ACTIVE_TASK})
+        result = api_post("heartbeat", {"id": ACTIVE_TASK})
+        requested = result.get("sync_requested_at", 0) if result else 0
+        if requested > SYNC_REQUEST_ID:
+            SYNC_REQUEST_ID = requested
+            SYNC_REQUEST.set()
         time.sleep(10)
 
 
@@ -438,6 +499,7 @@ def run_bridge_loop():
     threading.Thread(target=sync_agent_catalog, daemon=True).start()
     prevent_sleep()
     ok, c_cnt, s_cnt = sync_all_books_to_cloud()
+    threading.Thread(target=sync_loop, daemon=True).start()
     print(f"[Sync] 初始同步完成: 多书架章节总数={c_cnt}, 设定文档={s_cnt}")
 
     print("\n" + "="*50)
@@ -446,14 +508,6 @@ def run_bridge_loop():
     print("🤖 执行端: Antigravity / ChatGPT（Codex），按任务选择模型与思考等级")
     print(f"📚 多书架工作区: {BOOKS_ROOT}")
     print("="*50 + "\n")
-
-    last_sync_time = time.time()
-    last_file_count = 0
-    last_sync_mtime = 0
-    if os.path.exists(BOOKS_ROOT):
-        md_files = glob.glob(os.path.join(BOOKS_ROOT, "**", "*.md"), recursive=True)
-        last_file_count = len(md_files)
-        last_sync_mtime = max((os.path.getmtime(f) for f in md_files), default=0)
 
     while True:
         try:
@@ -761,19 +815,6 @@ def run_bridge_loop():
                         "status": "failed", 
                         "log": output
                     })
-
-            # 2. 定时检查本地是否有新文件或内容变动 (只在真正有变动时才同步，避免频繁无意义刷空缓存)
-            if time.time() - last_sync_time > 15:
-                if os.path.exists(BOOKS_ROOT):
-                    current_md_files = glob.glob(os.path.join(BOOKS_ROOT, "**", "*.md"), recursive=True)
-                    current_count = len(current_md_files)
-                    current_max_mtime = max((os.path.getmtime(f) for f in current_md_files), default=0)
-                    if current_count != last_file_count or current_max_mtime > last_sync_mtime:
-                        print(f"[Sync] 检测到文件数量或修改时间变化 ({last_file_count} -> {current_count})，立即自动同步至云端！")
-                        sync_all_books_to_cloud()
-                        last_file_count = current_count
-                        last_sync_mtime = current_max_mtime
-                last_sync_time = time.time()
 
         except Exception as e:
             print(f"[Loop Exception] {e}")

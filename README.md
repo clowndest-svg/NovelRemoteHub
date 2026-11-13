@@ -7,6 +7,8 @@
 ## 已实现功能
 
 - 多书架与章节搜索、排序、阅读主题、字号调节、前后章切换。
+- 分享全部小说的免密只读链接，七天后失效，阅读页按小说、目录、正文逐级浏览。
+- 同步状态与立即同步入口，独立线程检查本地改动，失败自动重试并校验内容摘要。
 - 浏览设定集，新建作品架构，新增或演进设定，推演大纲与检查设定一致性。
 - 本地守护进程轮询任务，远程唤醒 Antigravity，通过客户端本地接口调用用户选择的模型。
 - 自动续写支持下拉选择 1–10 章，逐章读取最新前章和对应细纲，完成校验与同步后继续，进度按完成章数显示。
@@ -21,6 +23,10 @@
 ## 架构
 
 云端 `cloud_hub.py` 提供 HTTP API、带鉴权的文件读取、任务队列和缓存。本地 `local_bridge.py` 同步 `D:/小说` 的章节与设定，接收任务并运行所选桌面客户端。`agent_client.py` 自动发现当前语言服务地址和 CSRF，通过本地原生接口完整传递多行指令。完成回执写入后再同步并确认任务结果。
+
+本地章节与设定作为同步依据。桥接线程每五秒检查内容摘要，每分钟强制复核云端，创作期间持续同步。上传失败或回执摘要不一致时保留重试状态。文件改名或移除后，云端旧文件移入作品的 `.sync-archive`，阅读目录跟随本地更新。隐藏备份目录排除在章节列表之外。
+
+“分享阅读”可生成、复制和打开阅读链接。每个链接独立计时七天，读者持有链接即可访问全部有正文的作品，以及有效期内新增的同步内容。链接使用独立用途签名，服务端每次读取校验期限。阅读页提供搜索、字号和前后章导航。首页通过合并接口获取书架、目录及最新正文，模型列表独立加载。
 
 云端需要 Python 3.10+ 和 Pillow，可选安装 redis Python 包以启用 Redis 缓存。继续使用文件存储及现有 Redis。缓存只操作 `novel:cache:*` 前缀。HTTP 并发限制为 16，写请求串行化，JSON 和文本使用原子替换。任务持久化在 `tasks.json`，领取、进度及终态更新使用同一写锁。
 
@@ -60,7 +66,7 @@ python local_bridge.py
 
 ## 云端部署
 
-云端运行需要 `cloud_hub.py`、`storage.py`、`novel_manager.py`、`agent_workspace.py`、`index.html` 和 `assets/`。本地桥接器还需要 `local_bridge.py`、`illustration_generator.py`、`agent_client.py`、`desktop_agents.py`、`codex_client.py`、`codex_desktop.py` 及 `desktop_app_bridge.mjs`。Codex 桌面接口使用系统 Node.js 或客户端内置 Node 运行时。
+云端运行需要 `cloud_hub.py`、`storage.py`、`sync_protocol.py`、`novel_manager.py`、`agent_workspace.py`、`index.html`、`reader.html` 和 `assets/`。本地桥接器还需要 `local_bridge.py`、`illustration_generator.py`、`agent_client.py`、`desktop_agents.py`、`codex_client.py`、`codex_desktop.py` 及 `desktop_app_bridge.mjs`。Codex 桌面接口使用系统 Node.js 或客户端内置 Node 运行时。
 
 脚本默认监听 `127.0.0.1:8899`。本机生产 service 通过 `NOVEL_HUB_BIND=172.17.0.1` 适配现有 Docker HTTPS 反向代理，转发 `/novel/`。数据默认保存于 `/root/novel_hub_data`，下载目录为 `/opt/novel_hub/download`。
 
@@ -76,8 +82,10 @@ python -m py_compile cloud_hub.py local_bridge.py novel_manager.py illustration_
 python build_apk.py
 ```
 
-前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实绘图需要所选客户端具备可用账号及图像工具。Android 构建继续使用原签名文件，版本 1.9.1，versionCode 12。实体手机安装、后台限制和系统下载行为需在实际设备验证。
+前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实绘图需要所选客户端具备可用账号及图像工具。Android 构建继续使用原签名文件，版本 1.10.0，versionCode 13。实体手机安装、后台限制和系统下载行为需在实际设备验证。
 
 Android 首次登录与七天登录缓存的验收见 [1.9.1 登录修复记录](docs/android-login-2026-11-13.md)。
+
+同步与只读分享的规则、测试和发布记录见 [1.10.0 验收记录](docs/reading-share-sync-2026-11-13.md)。
 
 详细审查、修复方案和本次验收记录见 [修复与优化方案](docs/repair-plan-2026-11-12.md)。
