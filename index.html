@@ -2255,8 +2255,10 @@
                         <div class="input-group">
                             <label class="input-label">🎯 默认创作模型偏好</label>
                             <select id="setting-deepseek-model" class="select-box">
-                                <option value="deepseek-chat">DeepSeek-V3 (极速满血版 671B · 绝美文笔)</option>
-                                <option value="deepseek-reasoner">DeepSeek-R1 (深度思维链推理 · 伏笔战力统筹)</option>
+                                <option value="deepseek-flash">deepseek-flash (DeepSeek-V4.1-Flash 官方主力 · 1M 上下文)</option>
+                                <option value="deepseek-v4-pro">deepseek-v4-pro (DeepSeek-V4-Pro 旗舰专业 · 宏大架构)</option>
+                                <option value="deepseek-chat">deepseek-chat (通用对话兼容模型)</option>
+                                <option value="deepseek-reasoner">deepseek-reasoner (深度逻辑推理经典模型)</option>
                             </select>
                         </div>
                         <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
@@ -3218,7 +3220,7 @@
                         document.getElementById("setting-deepseek-url").value = s.deepseek_base_url || "https://api.deepseek.com";
                     }
                     if (document.getElementById("setting-deepseek-model")) {
-                        document.getElementById("setting-deepseek-model").value = s.deepseek_default_model || "deepseek-chat";
+                        document.getElementById("setting-deepseek-model").value = s.deepseek_default_model || "deepseek-flash";
                     }
                     toggleDeepSeekFields();
                 }

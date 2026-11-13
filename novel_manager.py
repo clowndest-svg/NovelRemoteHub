@@ -157,7 +157,7 @@ def get_user_settings(config_dir=None):
         "deepseek_enabled": False,
         "deepseek_api_key": "",
         "deepseek_base_url": "https://api.deepseek.com",
-        "deepseek_default_model": "deepseek-chat"
+        "deepseek_default_model": "deepseek-flash"
     }
     if os.path.exists(cfg_path):
         try:

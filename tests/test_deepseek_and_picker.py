@@ -39,8 +39,10 @@ class DeepSeekAndPickerTest(unittest.TestCase):
 
         disc2 = deepseek_client.discover(self.test_dir)
         self.assertTrue(disc2["available"])
-        self.assertEqual(len(disc2["models"]), 2)
+        self.assertEqual(len(disc2["models"]), 4)
         model_ids = [m["id"] for m in disc2["models"]]
+        self.assertIn("deepseek-flash", model_ids)
+        self.assertIn("deepseek-v4-pro", model_ids)
         self.assertIn("deepseek-chat", model_ids)
         self.assertIn("deepseek-reasoner", model_ids)
 
