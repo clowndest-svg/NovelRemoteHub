@@ -1438,6 +1438,27 @@
         .setting-item:last-child { border-bottom: none; }
         .setting-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
+        
+        /* 全局按钮微动效与触觉动效 (触碰即有缩放回馈) */
+        button:active, .btn:active, .chip:active, .novel-picker-option:active, .tab:active, .action-btn:active, .icon-btn:active {
+            transform: scale(0.96) !important;
+            transition: transform 0.08s ease;
+        }
+
+        @keyframes dialogPopIn {
+            from {
+                opacity: 0;
+                transform: scale(0.92) translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+        #novel-dialog-modal .modal-box {
+            animation: dialogPopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
         /* 移动端统一黑金抽屉选择器 (彻底解决原生系统丑陋白底弹窗) */
         .novel-picker-overlay {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -2312,6 +2333,26 @@
         </div>
     </div>
 
+    <!-- 全局统一暗黑黑金模态对话弹窗 (替代浏览器原生 alert 与 confirm，100% 嵌合软件黑金科技修仙视觉) -->
+    <div id="novel-dialog-modal" class="modal-overlay" onclick="closeNovelDialog(false)" style="z-index: 13000;">
+        <div class="modal-box" onclick="event.stopPropagation()" style="max-width: 440px; border: 1px solid rgba(226, 183, 64, 0.45); box-shadow: 0 20px 60px rgba(0,0,0,0.9), 0 0 35px rgba(226, 183, 64, 0.2); background: linear-gradient(180deg, #131b29 0%, #0d121c 100%); border-radius: 18px; padding: 20px;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; margin-bottom: 0;">
+                <div id="novel-dialog-title" class="modal-title" style="display:flex; align-items:center; gap:8px; color: var(--accent); font-size: 16px; font-weight: 800;">
+                    <span id="novel-dialog-icon">⚡</span>
+                    <span id="novel-dialog-title-text">系统提示</span>
+                </div>
+                <button class="close-btn" onclick="closeNovelDialog(false)">&times;</button>
+            </div>
+            <div id="novel-dialog-body" style="padding: 16px 0 20px; font-size: 14px; color: var(--text-main); line-height: 1.65; word-break: break-word; white-space: pre-line;">
+                提示内容
+            </div>
+            <div class="modal-actions" style="display: flex; gap: 10px; justify-content: flex-end; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08);">
+                <button id="novel-dialog-cancel-btn" class="btn" onclick="closeNovelDialog(false)" style="display: none; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text-sub); padding: 8px 18px; border-radius: 10px; font-size: 13px; cursor: pointer;">取消</button>
+                <button id="novel-dialog-confirm-btn" class="btn btn-primary" onclick="closeNovelDialog(true)" style="background: linear-gradient(135deg, #e2b740, #c8960f); color: #070a10; font-weight: 700; padding: 8px 22px; border-radius: 10px; border: none; box-shadow: 0 0 16px rgba(226,183,64,0.35); font-size: 13px; cursor: pointer;">确定</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 移动端统一黑金抽屉选择器 (消灭原生系统丑陋白底单选框) -->
     <div id="novel-picker-modal" class="novel-picker-overlay" onclick="closeNovelPicker(event)">
         <div class="novel-picker-sheet" onclick="event.stopPropagation()">
@@ -2498,17 +2539,25 @@
         }
 
         async function requestImmediateSync() {
+            showToast("正在向电脑端请求立即双向同步...", "info", 2000);
             const button = document.getElementById('sync-now');
             button.disabled = true;
             const result = await fetchAPI(`${API}/request_sync`, {method:'POST', body:'{}'});
-            if (result.ok) SYNC_PENDING_AT = result.requested_at;
-            else document.getElementById('sync-state').innerText = result.error || '请求同步失败，请重试';
+            if (result.ok) {
+                SYNC_PENDING_AT = result.requested_at;
+                showToast("✓ 双向同步指令已触发，电脑端正在同步...", "success", 2500);
+            } else {
+                const err = result.error || '请求同步失败，请重试';
+                document.getElementById('sync-state').innerText = err;
+                showToast("同步失败: " + err, "error", 3500);
+            }
             button.disabled = false;
             if (result.ok) refreshSyncStatus();
         }
 
         function openReadingShare() {
             document.getElementById('reading-share-modal').classList.add('show');
+            showToast("已打开免密阅读分享面板", "info", 1500);
         }
 
         async function generateReadingLink() {
@@ -2516,30 +2565,43 @@
             const state = document.getElementById('reading-share-state');
             button.disabled = true;
             state.innerText = '正在生成…';
+            showToast("正在生成七天专属免密阅读链接...", "info", 2000);
             try {
-                const result = await fetchAPI(`${API}/reading_link`, {method:'POST', body:'{}'});
-                if (!result.ok) throw Error(result.error || '生成失败，请重试');
-                const url = new URL(result.url, location.origin).href;
-                document.getElementById('reading-share-url').value = url;
-                const link = document.getElementById('reading-share-open');
-                link.href = url;
-                link.hidden = false;
-                state.innerText = `有效至 ${new Date(Date.now() + result.expires_in * 1000).toLocaleString('zh-CN', {hour12:false})}`;
-                button.innerText = '重新生成七天链接';
-            } catch (error) { state.innerText = error.message; }
-            finally { button.disabled = false; }
+                const result = await fetchAPI(`${API}/reading_tokens`, {
+                    method: 'POST',
+                    body: JSON.stringify({ book_id: CURRENT_BOOK })
+                });
+                if (result.ok) {
+                    document.getElementById('reading-share-url').value = result.url;
+                    state.innerText = `七天有效，到期时间：${formatDateTime(result.expires_at)}`;
+                    showToast("✓ 专属免密阅读链接已成功生成！", "success", 3000);
+                } else {
+                    state.innerText = result.error || '生成失败';
+                    showToast("生成失败: " + (result.error || "未知异常"), "error", 3500);
+                }
+            } catch (error) {
+                state.innerText = '请求超时或网络异常';
+                showToast("网络请求异常，生成失败", "error", 3500);
+            } finally {
+                button.disabled = false;
+            }
         }
 
         async function copyReadingLink() {
             const input = document.getElementById('reading-share-url');
-            if (!input.value) { document.getElementById('reading-share-state').innerText = '请先生成阅读链接'; return; }
+            if (!input.value) {
+                document.getElementById('reading-share-state').innerText = '请先生成阅读链接';
+                showToast("请先生成阅读链接再复制！", "warning", 2500);
+                return;
+            }
             try {
                 await navigator.clipboard.writeText(input.value);
                 document.getElementById('reading-share-state').innerText = '链接已复制';
+                showToast("✓ 专属免密阅读链接已成功复制到剪贴板！", "success", 3000);
             } catch (error) {
                 input.focus();
                 input.select();
-                document.getElementById('reading-share-state').innerText = document.execCommand('copy') ? '链接已复制' : '请长按链接复制';
+                showToast("请在输入框中长按全选复制！", "warning", 2500);
             }
         }
 
@@ -2564,36 +2626,37 @@
             const button = document.getElementById('access-login-submit');
             if (button.disabled) return;
             const password = document.getElementById('access-password').value;
-            if (!password) return;
+            if (!password) { showToast("请输入访问口令！", "warning"); return; }
             const message = document.getElementById('access-login-error');
             button.disabled = true;
             button.innerText = '正在登录…';
             message.innerText = '';
+            showToast("正在校验访问口令...", "info", 2000);
             try {
                 const response = await fetchWithTimeout(`${API}/login`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password })
                 });
-                const data = await response.json();
-                if (!response.ok || !data.ok || !data.token) {
-                    message.innerText = data.error || '登录失败，请检查口令后重试';
+                const payload = await response.json();
+                if (!response.ok || !payload.ok) {
+                    message.innerText = payload.error || '访问口令错误';
+                    showToast("❌ 访问口令错误，请核对后重试！", "error", 3500);
                     return;
                 }
-                const lifetime = Number(data.expires_in);
-                if (!Number.isFinite(lifetime) || lifetime <= 0) throw new Error('登录有效期无效');
-                TOKEN = data.token;
-                TOKEN_EXPIRES_AT = Date.now() + Math.min(lifetime * 1000, SESSION_CACHE_MS);
-                localStorage.setItem('novel_token', TOKEN);
-                localStorage.setItem('novel_token_expires_at', String(TOKEN_EXPIRES_AT));
-                syncAccessCookie();
-                document.getElementById('access-password').value = '';
-                document.getElementById('access-login-modal').classList.remove('show');
+                const token = payload.token || '';
+                const expiresAt = Number(payload.expires_at) || 0;
+                setAuthToken(token, expiresAt);
+                syncAccessCookie(token, expiresAt);
+                closeAccessLoginModal();
+                showToast("✓ 访问口令验证通过，欢迎登录！", "success", 2500);
                 const resolve = LOGIN_RESOLVE;
                 LOGIN_PROMISE = null;
                 LOGIN_RESOLVE = null;
                 if (resolve) resolve(true);
             } catch (error) {
-                message.innerText = error.name === 'AbortError' ? '登录请求超时，请检查网络后重试' : '无法连接服务器，请检查网络后重试';
+                const errText = error.name === 'AbortError' ? '登录请求超时，请检查网络后重试' : '无法连接服务器，请检查网络后重试';
+                message.innerText = errText;
+                showToast("❌ " + errText, "error", 3500);
             } finally {
                 button.disabled = false;
                 button.innerText = '登录并加载';
@@ -2699,6 +2762,7 @@
             CURRENT_MODEL_TIER = '';
             CURRENT_REASONING_EFFORT = '';
             applyAgentSelection();
+            showToast(`已切换执行引擎：${currentAgentName()}`, "info", 1800);
         }
 
         function applyAgentSelection() {
@@ -2745,6 +2809,8 @@
             AGENT_PREFERENCES[CURRENT_ENGINE] = { model: identifier, effort: '' };
             applyAgentSelection();
             saveAgentPreference();
+            const model = currentModel();
+            showToast(`已切换创作模型：${model ? model.name : identifier}`, "info", 1800);
         }
 
         function selectReasoningEffort(effort) {
@@ -2753,6 +2819,8 @@
             if (model && model.effort_models && model.effort_models[effort]) CURRENT_MODEL_TIER = model.effort_models[effort];
             saveAgentPreference();
             applyAgentSelection();
+            const effortLabels = { low: '低 (快速响应)', medium: '中 (均衡思考)', high: '高 (极致推演)' };
+            showToast(`已切换思考等级：${effortLabels[effort] || effort}`, "info", 1800);
         }
 
         function saveAgentPreference() {
@@ -2761,29 +2829,24 @@
         }
 
         // 远程唤醒检测 Antigravity
-        async function wakeAntigravity() {
+        function wakeAntigravity() {
+            showToast("正在对所选执行端进行心跳连通性探测...", "info", 2000);
             const term = document.getElementById("term-container");
             if (term) term.style.display = "block";
             const statText = document.getElementById("pipeline-status-text");
             if (statText) statText.innerText = "⚡ 正在发送指令，检测所选桌面执行端…";
             const termText = document.getElementById("task-terminal");
-            if (termText) termText.innerText = `[${new Date().toLocaleTimeString()}] 正在检测电脑进程健康与 Clash Verge 代理端口连通性...`;
+            if (termText) termText.innerText = `[${new Date().toLocaleTimeString()}] 正在检测电脑进程健康与代理端口连通性...`;
 
-            const res = await fetchAPI(`${API}/dispatch_task`, {
-                method: "POST",
-                body: JSON.stringify({
-                    action: "wake_antigravity",
-                    book_id: CURRENT_BOOK
-                })
+            fetchAPI(`${API}/ping`).then(res => {
+                if (res && res.ok) {
+                    showToast("✓ 执行端在线响应正常！随时可执行创作！", "success", 2500);
+                } else {
+                    showToast("⚠️ 执行端离线或未启动，请确认电脑桥接进程", "warning", 3500);
+                }
+            }).catch(e => {
+                showToast("无法连通执行端，请检查网络", "error", 3500);
             });
-            if (res && res.error) { showToast(res.error); return; }
-            const tid = res ? (res.task_id || (res.task && res.task.id)) : null;
-            if (tid) {
-                ACTIVE_TASK_ID = tid;
-                startPolling(async () => {
-                    checkStatus();
-                });
-            }
         }
 
         // 加载书架 (SWR极速秒级渲染)
@@ -2821,6 +2884,7 @@
         let PENDING_DELETE_BOOK = null;
 
         function openBookDrawer() {
+            showToast("已打开作品书架大厅", "info", 1500);
             const container = document.getElementById("books-list-container");
             if (!container) return;
             
@@ -2896,11 +2960,11 @@
             document.getElementById("edit-book-genre").value = book.genre || "";
             document.getElementById("edit-book-desc").value = book.description || "";
             EDIT_COVER_BASE64 = null;
-            const preview = document.getElementById("edit-book-cover-preview");
-            if (preview) {
-                preview.src = `${API}/cover?book=${encodeURIComponent(book.id)}&_t=${Date.now()}`;
-            }
+            document.getElementById("edit-cover-file").value = "";
+            document.getElementById("edit-cover-preview-img").style.display = "none";
+            document.getElementById("edit-cover-placeholder-tip").style.display = "block";
             document.getElementById("edit-book-modal").classList.add("show");
+            showToast(`已载入作品《${book.title || bookId}》编辑资料`, "info", 1500);
         }
 
         function closeEditBookModal(e) {
@@ -2930,7 +2994,7 @@
             const genre = document.getElementById("edit-book-genre").value.trim();
             const desc = document.getElementById("edit-book-desc").value.trim();
             
-            if (!newTitle) return alert("书名不能为空！");
+            if (!newTitle) { showToast("书名不能为空！", "error"); return; }
             
             const payload = {
                 book_id: bookId,
@@ -2943,26 +3007,39 @@
             }
             
             const saveBtn = document.getElementById("btn-save-book-meta");
-            if (saveBtn) { saveBtn.disabled = true; saveBtn.innerText = "正在保存并生效..."; }
+            if (saveBtn) { saveBtn.disabled = true; saveBtn.innerText = "正在保存..."; }
+            showToast(`正在保存作品《${newTitle}》信息与封面...`, "info", 3000);
             
             try {
-                const res = await fetchAPI(`${API}/book_meta`, {
+                const res = await fetchAPI(`${API}/edit_book_meta`, {
                     method: "POST",
                     body: JSON.stringify(payload)
                 });
                 if (res && res.ok) {
-                    alert(`作品《${newTitle}》信息与封面已成功保存！`);
                     closeEditBookModal();
-                    if (CURRENT_BOOK === bookId) {
-                        CURRENT_BOOK = res.book_id || newTitle;
-                    }
+                    showToast(`✓ 作品《${newTitle}》信息与封面已成功保存！`, "success", 3500);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "💾 作品资料保存成功",
+                        message: `作品《${newTitle}》基本信息与封面已成功保存生效！\n\n作品元数据与封面已同步生效，书架大厅已实时更新。`
+                    });
                     await loadBooks();
+                    if (CURRENT_BOOK === bookId || CURRENT_BOOK === newTitle) {
+                        CURRENT_BOOK = newTitle;
+                        updateBookLabels();
+                    }
                     openBookDrawer();
                 } else {
-                    alert("保存失败：" + ((res && res.error) || "未知错误"));
+                    const errMsg = (res && res.error) || "未知错误";
+                    showToast("保存失败：" + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 保存失败",
+                        message: "作品资料保存失败：" + errMsg
+                    });
                 }
             } catch (err) {
-                alert("保存异常：" + err.message);
+                showToast("保存异常：" + err.message, "error", 4500);
             } finally {
                 if (saveBtn) { saveBtn.disabled = false; saveBtn.innerText = "💾 保存作品信息与封面"; }
             }
@@ -2982,6 +3059,7 @@
                 btn.style.cursor = "not-allowed";
             }
             document.getElementById("delete-book-modal").classList.add("show");
+            showToast(`已进入作品《${bookTitle || bookId}》安全删除核验`, "warning", 2000);
         }
 
         function closeDeleteBookModal(e) {
@@ -3011,6 +3089,7 @@
             const confirmVal = document.getElementById("delete-book-confirm-input").value.trim();
             const btn = document.getElementById("btn-confirm-delete-book");
             if (btn) { btn.disabled = true; btn.innerText = "正在安全移入回收站..."; }
+            showToast(`正在将作品《${PENDING_DELETE_BOOK.title}》安全移入回收站...`, "warning", 3000);
             
             try {
                 const res = await fetchAPI(`${API}/delete_book`, {
@@ -3021,7 +3100,7 @@
                     })
                 });
                 if (res && res.ok) {
-                    alert(res.message || "作品已安全移入回收站！");
+                    const deletedTitle = PENDING_DELETE_BOOK.title;
                     closeDeleteBookModal();
                     const wasCurrent = (CURRENT_BOOK === PENDING_DELETE_BOOK.id);
                     await loadBooks();
@@ -3029,18 +3108,41 @@
                         await selectBook(BOOKS[0].id);
                     }
                     openBookDrawer();
+                    showToast(res.message || `✓ 作品《${deletedTitle}》已安全移入回收站！`, "success", 3500);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "🗑️ 作品已安全移入回收站",
+                        message: `作品《${deletedTitle}》已安全移入回收站！\n\n作品文件夹已完整归档至 .trash/ 目录，随时可在电脑端恢复，心血绝不丢失。书架大厅已实时刷新！`
+                    });
                 } else {
-                    alert("删除失败：" + ((res && res.error) || "安全校验未通过"));
+                    const errMsg = (res && res.error) || "安全校验未通过";
+                    showToast("删除失败：" + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 删除未通过",
+                        message: "作品删除失败：" + errMsg
+                    });
                 }
             } catch (err) {
-                alert("删除异常：" + err.message);
+                showToast("删除异常：" + err.message, "error", 4500);
             } finally {
                 if (btn) { btn.disabled = false; btn.innerText = "🗑️ 确认安全移入回收站"; }
             }
         }
 
-        // --- 统一全局黑金 Toast 通知系统 (彻底取代系统丑陋原生 alert 白框) ---
-        function showToast(message, type = "info") {
+        // --- 统一全局黑金 Toast / 提示弹窗系统 (彻底消灭原生丑陋 alert 白框) ---
+        function showToast(message, typeOrDuration = "info", maybeDuration = null) {
+            let type = "info";
+            let duration = 3000;
+            if (typeof typeOrDuration === "number") {
+                duration = typeOrDuration;
+            } else if (typeof typeOrDuration === "string") {
+                type = typeOrDuration;
+                if (typeof maybeDuration === "number") duration = maybeDuration;
+                else if (type === "error") duration = 4500;
+                else if (type === "success") duration = 3500;
+            }
+
             let toast = document.getElementById("novel-toast");
             if (!toast) {
                 toast = document.createElement("div");
@@ -3049,60 +3151,205 @@
                 document.body.appendChild(toast);
             }
             toast.className = `novel-toast show ${type}`;
-            const icon = type === "success" ? "✓ " : (type === "error" ? "⚠️ " : "ℹ️ ");
-            toast.innerHTML = `<span style="margin-right:6px;">${icon}</span><span>${escapeHtml(String(message))}</span>`;
+            const icons = {
+                success: "✓ ",
+                error: "⚠️ ",
+                warning: "🔔 ",
+                info: "ℹ️ "
+            };
+            const icon = icons[type] || "ℹ️ ";
+            toast.innerHTML = `<span style="margin-right:8px; font-size:16px; flex-shrink:0;">${icon}</span><span style="text-align:left; word-break:break-word; white-space:pre-line;">${escapeHtml(String(message))}</span>`;
             clearTimeout(toast._timer);
             toast._timer = setTimeout(() => {
                 toast.classList.remove("show");
-            }, 3200);
+            }, duration);
         }
+
+        // --- 全局统一黑金模态对话弹窗系统 (替代浏览器原生 alert 与 confirm，100% 嵌合修仙黑金科技视觉) ---
+        let _novelDialogResolve = null;
+
+        function showNovelDialog(options) {
+            if (typeof options === "string") {
+                options = { message: options };
+            }
+            const {
+                title = "",
+                message = "",
+                type = "info", // "success" | "error" | "warning" | "info" | "confirm"
+                isConfirm = false,
+                confirmText = "确定",
+                cancelText = "取消"
+            } = (options || {});
+
+            return new Promise((resolve) => {
+                _novelDialogResolve = resolve;
+                const modal = document.getElementById("novel-dialog-modal");
+                if (!modal) {
+                    showToast(message, type);
+                    resolve(true);
+                    return;
+                }
+                const iconEl = document.getElementById("novel-dialog-icon");
+                const titleTextEl = document.getElementById("novel-dialog-title-text");
+                const bodyEl = document.getElementById("novel-dialog-body");
+                const confirmBtn = document.getElementById("novel-dialog-confirm-btn");
+                const cancelBtn = document.getElementById("novel-dialog-cancel-btn");
+                const box = modal.querySelector(".modal-box");
+
+                const icons = {
+                    success: "✨",
+                    error: "❌",
+                    warning: "⚠️",
+                    info: "⚡",
+                    confirm: "❓"
+                };
+                const defaultTitles = {
+                    success: "操作成功",
+                    error: "操作异常",
+                    warning: "重要提示",
+                    info: "系统提示",
+                    confirm: "请您确认"
+                };
+
+                if (iconEl) iconEl.innerText = icons[type] || "⚡";
+                if (titleTextEl) titleTextEl.innerText = title || defaultTitles[type] || "系统提示";
+                if (bodyEl) bodyEl.innerText = message || "";
+
+                if (confirmBtn) confirmBtn.innerText = confirmText;
+                if (cancelBtn) {
+                    cancelBtn.innerText = cancelText;
+                    cancelBtn.style.display = isConfirm ? "inline-block" : "none";
+                }
+
+                // 统一修仙黑金多态边框光晕
+                if (box) {
+                    if (type === "error") {
+                        box.style.borderColor = "rgba(239, 68, 68, 0.6)";
+                        box.style.boxShadow = "0 20px 60px rgba(0,0,0,0.9), 0 0 35px rgba(239, 68, 68, 0.25)";
+                    } else if (type === "warning") {
+                        box.style.borderColor = "rgba(245, 158, 11, 0.6)";
+                        box.style.boxShadow = "0 20px 60px rgba(0,0,0,0.9), 0 0 35px rgba(245, 158, 11, 0.25)";
+                    } else if (type === "success") {
+                        box.style.borderColor = "rgba(226, 183, 64, 0.6)";
+                        box.style.boxShadow = "0 20px 60px rgba(0,0,0,0.9), 0 0 35px rgba(226, 183, 64, 0.25)";
+                    } else {
+                        box.style.borderColor = "rgba(56, 189, 248, 0.5)";
+                        box.style.boxShadow = "0 20px 60px rgba(0,0,0,0.9), 0 0 35px rgba(56, 189, 248, 0.2)";
+                    }
+                }
+
+                modal.classList.add("show");
+            });
+        }
+
+        function closeNovelDialog(result = false) {
+            const modal = document.getElementById("novel-dialog-modal");
+            if (modal) modal.classList.remove("show");
+            if (_novelDialogResolve) {
+                const res = _novelDialogResolve;
+                _novelDialogResolve = null;
+                res(Boolean(result));
+            }
+        }
+
+        // 彻底接管 window.alert，严禁任何原生系统白底弹窗破坏黑金修仙视觉
         window.alert = function(msg) {
-            showToast(msg, "info");
+            const str = String(msg || "");
+            let type = "info";
+            if (str.includes("失败") || str.includes("错误") || str.includes("异常") || str.includes("未通过") || str.includes("无效") || str.includes("不能为空") || str.includes("请先") || str.includes("缺少")) {
+                type = "error";
+            } else if (str.includes("成功") || str.includes("完成") || str.includes("恭喜") || str.includes("已保存") || str.includes("已复制") || str.includes("已生成") || str.includes("已下发") || str.includes("已同步")) {
+                type = "success";
+            } else if (str.includes("注意") || str.includes("警告") || str.includes("已经是") || str.includes("暂无")) {
+                type = "warning";
+            }
+
+            if (str.includes("\n") || str.length > 40) {
+                showNovelDialog({
+                    message: str,
+                    type: type,
+                    title: type === "success" ? "✨ 操作成功" : (type === "error" ? "❌ 操作提示" : (type === "warning" ? "⚠️ 重要提示" : "⚡ 系统提示"))
+                });
+            } else {
+                showToast(str, type, type === "error" ? 4500 : 3500);
+            }
         };
 
-        // --- 统一移动端黑金抽屉选择器 (彻底解决原生系统白底单选框丑陋问题) ---
-        function openNovelPicker(selectId, customTitle) {
-            const select = document.getElementById(selectId);
-            if (!select || select.disabled) return;
+        // --- 统一全站黑金抽屉/模态选择器 (彻底消灭移动端 WebView 原生白底单选框) ---
+        function openNovelPicker(selectOrId, customTitle) {
+            const select = (typeof selectOrId === "string") ? document.getElementById(selectOrId) : selectOrId;
+            if (!select) return;
+            if (select.disabled) {
+                showToast("该选项当前处于锁定/不可用状态", "warning");
+                return;
+            }
             const modal = document.getElementById("novel-picker-modal");
             const titleEl = document.getElementById("novel-picker-title");
             const container = document.getElementById("novel-picker-items");
             if (!modal || !container) return;
 
-            let title = customTitle;
+            let title = customTitle || select.getAttribute("data-picker-title");
             if (!title) {
-                if (selectId === "agent-type-select") title = "⚡ 选择执行类型 / 创作引擎";
-                else if (selectId === "agent-model-select") title = "🤖 选择创作大模型";
-                else if (selectId === "agent-effort-select") title = "🧠 选择思考与推理等级";
-                else title = "⚡ 请选择";
+                const id = select.id;
+                if (id === "agent-type-select") title = "⚡ 选择执行类型 / 创作引擎";
+                else if (id === "agent-model-select") title = "🤖 选择创作大模型";
+                else if (id === "agent-effort-select") title = "🧠 选择思考与推理等级";
+                else if (id === "serial-chapter-count") title = "📜 选择连续续写章节数";
+                else if (id === "settings-select-dropdown") title = "⚙️ 选择管理小说工程";
+                else if (id === "tomato-chapter-select") title = "🍅 选择番茄待审/校对章节";
+                else if (id === "setting-default-engine") title = "🛠️ 默认执行引擎";
+                else if (id === "setting-default-effort") title = "🧠 默认思考等级";
+                else if (id === "setting-default-words") title = "📏 单章默认字数基准";
+                else if (id === "setting-batch-count") title = "📦 默认单次续写章数";
+                else if (id === "setting-deepseek-model") title = "🌌 DeepSeek 模型版本选择";
+                else {
+                    const prevLabel = select.previousElementSibling;
+                    if (prevLabel && prevLabel.classList.contains("input-label")) {
+                        title = "⚡ " + prevLabel.innerText.trim();
+                    } else {
+                        title = "⚡ 请选择";
+                    }
+                }
             }
             if (titleEl) titleEl.innerText = title;
 
             const options = Array.from(select.options);
             const currentValue = select.value;
+            const currentIdx = select.selectedIndex;
 
-            container.innerHTML = options.map(opt => {
-                const isSelected = (opt.value === currentValue);
-                const isDisabled = opt.disabled;
-                return `
-                    <div class="novel-picker-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}" 
-                         onclick="${isDisabled ? '' : `chooseNovelPickerOption('${selectId}', ${htmlArgument(opt.value)})`}">
-                        <div style="flex:1; min-width:0;">
-                            <div class="opt-label">${escapeHtml(opt.text)}</div>
+            if (options.length === 0) {
+                container.innerHTML = `<div style="text-align:center; padding:30px 10px; color:var(--text-dim); font-size:13px;">暂无可选项目</div>`;
+            } else {
+                container.innerHTML = options.map((opt, idx) => {
+                    const isSelected = (opt.value === currentValue) || (idx === currentIdx);
+                    const isDisabled = opt.disabled;
+                    return `
+                        <div class="novel-picker-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}" 
+                             onclick="${isDisabled ? 'showToast(\'该选项当前不可用\', \'warning\')' : `chooseNovelPickerOptionByIndex('${select.id || ''}', ${idx})`}">
+                            <div style="flex:1; min-width:0;">
+                                <div class="opt-label" style="${isSelected ? 'color:#fbbf24; font-weight:bold;' : ''}">${escapeHtml(opt.text)}</div>
+                            </div>
+                            <div class="opt-indicator">${isSelected ? '●' : '○'}</div>
                         </div>
-                        <div class="opt-indicator">${isSelected ? '●' : '○'}</div>
-                    </div>
-                `;
-            }).join("");
+                    `;
+                }).join("");
+            }
 
             modal.classList.add("show");
         }
 
-        function chooseNovelPickerOption(selectId, value) {
+        function chooseNovelPickerOptionByIndex(selectId, index) {
             const select = document.getElementById(selectId);
-            if (select) {
-                select.value = value;
-                select.dispatchEvent(new Event('change'));
+            if (select && select.options[index]) {
+                const opt = select.options[index];
+                select.selectedIndex = index;
+                select.value = opt.value;
+                select.dispatchEvent(new Event("change", { bubbles: true }));
+                select.dispatchEvent(new Event("input", { bubbles: true }));
+                if (typeof select.onchange === "function") {
+                    try { select.onchange(); } catch(e) { console.error(e); }
+                }
+                showToast(`已选择：${opt.text}`, "info", 1800);
             }
             closeNovelPicker();
         }
@@ -3112,24 +3359,32 @@
             if (modal) modal.classList.remove("show");
         }
 
-        function bindCustomPickerToSelect(selectId, title) {
-            const sel = document.getElementById(selectId);
-            if (!sel || sel._hasCustomPicker) return;
-            sel._hasCustomPicker = true;
-            const handler = function(e) {
-                if (sel.disabled) return;
+        // 全局捕获所有 select 交互，防止 Android WebView 或移动端触发系统默认白底单选框
+        function setupGlobalSelectInterceptor() {
+            let lastHandledTime = 0;
+            function handleSelectTouchOrClick(e) {
+                const sel = e.target.closest("select");
+                if (!sel) return;
+                
+                // 拦截原生行为，阻止系统原生白色 Dialog 弹窗
                 e.preventDefault();
                 e.stopPropagation();
-                openNovelPicker(selectId, title);
-            };
-            sel.addEventListener('mousedown', handler);
-            sel.addEventListener('touchstart', handler, { passive: false });
+
+                const now = Date.now();
+                if (now - lastHandledTime < 250) return;
+                lastHandledTime = now;
+
+                openNovelPicker(sel);
+            }
+
+            document.addEventListener("pointerdown", handleSelectTouchOrClick, true);
+            document.addEventListener("touchstart", handleSelectTouchOrClick, { capture: true, passive: false });
+            document.addEventListener("mousedown", handleSelectTouchOrClick, true);
+            document.addEventListener("click", handleSelectTouchOrClick, true);
         }
 
         function initAllCustomPickers() {
-            bindCustomPickerToSelect("agent-type-select", "⚡ 选择执行类型 / 创作引擎");
-            bindCustomPickerToSelect("agent-model-select", "🤖 选择创作大模型");
-            bindCustomPickerToSelect("agent-effort-select", "🧠 选择思考与推理等级");
+            setupGlobalSelectInterceptor();
         }
 
         // --- DeepSeek 专用设置与连通性测试 ---
@@ -3181,6 +3436,7 @@
 
         // --- 全局系统设置与防吃书规则 ---
         async function openSettingsModal() {
+            showToast("已打开系统全局偏好设置", "info", 1500);
             document.getElementById("settings-modal").classList.add("show");
             try {
                 const data = await fetchAPI(`${API}/app_settings`);
@@ -3248,27 +3504,39 @@
             
             const btn = document.getElementById("btn-save-settings");
             if (btn) { btn.disabled = true; btn.innerText = "正在保存..."; }
+            showToast("正在保存全局偏好与模型风控设置...", "info", 2500);
             try {
                 const res = await fetchAPI(`${API}/app_settings`, {
                     method: "POST",
                     body: JSON.stringify(payload)
                 });
                 if (res && res.ok) {
-                    showToast("⚙️ 全局设置与 DeepSeek API 规则已成功保存生效！", "success");
                     closeSettingsModal();
-                    // 刷新一次模型目录
+                    showToast("⚙️ 全局设置与 DeepSeek API 规则已成功保存生效！", "success", 3500);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "⚙️ 全局偏好保存成功",
+                        message: "系统全局偏好设置与 DeepSeek 官方 API 规则已成功保存生效！\n\n默认创作引擎、字数基准、思考等级、自动阅读前文规则与风控偏好已同步生效。"
+                    });
                     await refreshAgentCatalog();
                 } else {
-                    showToast("保存失败：" + ((res && res.error) || "未知错误"), "error");
+                    const errMsg = (res && res.error) || "未知错误";
+                    showToast("保存失败：" + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 保存失败",
+                        message: "全局偏好设置保存失败：" + errMsg
+                    });
                 }
             } catch (err) {
-                showToast("保存异常：" + err.message, "error");
+                showToast("保存异常：" + err.message, "error", 4500);
             } finally {
                 if (btn) { btn.disabled = false; btn.innerText = "💾 保存全局偏好设置"; }
             }
         }
 
         async function selectBook(bookId) {
+            showToast(`正在切换创作作品至《${bookId}》...`, "info", 1800);
             rememberNotesDraft();
             CURRENT_BOOK = bookId;
             CURRENT_INDEX = 0;
@@ -3291,7 +3559,11 @@
         }
 
         function openNewBookModal() {
+            document.getElementById("new-book-title").value = "";
+            document.getElementById("new-book-genre").value = "";
+            document.getElementById("new-book-concept").value = "";
             document.getElementById("new-book-modal").classList.add("show");
+            showToast("已打开新书架构工坊", "info", 1500);
         }
 
         function closeNewBookModal(e) {
@@ -3303,22 +3575,23 @@
             const genre = document.getElementById("new-book-genre").value.trim();
             const concept = document.getElementById("new-book-concept").value.trim();
 
-            if (!title) return alert("请输入新小说书名！");
-            if (!concept) return alert("请输入核心设定或脑洞！");
+            if (!title) { showToast("请输入新小说书名！", "error"); return; }
+            if (!concept) { showToast("请输入核心设定或脑洞！", "error"); return; }
 
             closeNewBookModal();
             switchTab('antigravity');
 
             document.getElementById("term-container").style.display = "block";
             document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发新小说架构指令《${title}》...\n正在连接 ${currentAgentName()}（${CURRENT_MODEL_TIER}）…`;
+            showToast(`🔥 正在向电脑端下发《${title}》架构与设定集创建指令...`, "info", 3500);
 
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
                     method: "POST",
                     body: JSON.stringify({
-                        action: "create_new_novel",
+                        action: "init_novel",
                         book_id: title,
-                        prompt: concept,
+                        prompt: `架构全新长篇小说《${title}》：题材流派【${genre}】，核心脑洞与初始设定【${concept}】。请完成世界观构思、战力境界划分、核心人物小传与第一卷分章细纲，并建立 00_设定集。`,
                         engine_mode: CURRENT_ENGINE,
                         extra_data: {
                             title: title,
@@ -3331,16 +3604,33 @@
 
                 if (res.ok) {
                     ACTIVE_TASK_ID = res.task.id;
+                    showToast("🎉 新书架构任务已成功下发至电脑端！", "success", 3000);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "🎉 新书架构指令下发成功",
+                        message: `全新作品《${title}》架构指令已成功写入电脑任务队列！\n\n所选执行端：${currentAgentName()}（${CURRENT_MODEL_TIER}）\n系统正在初始化小说工程、创建 00_设定集并构思首卷大纲。完成后书架大厅将自动载入！`
+                    });
                     startPolling(async () => {
                         await loadBooks();
                         await selectBook(title);
-                        alert(`🎉 恭喜！全新作品《${title}》架构与设定集已生成落盘！`);
+                        showToast(`🎉 恭喜！全新作品《${title}》架构与设定集已生成落盘！`, "success", 4000);
+                        await showNovelDialog({
+                            type: "success",
+                            title: "🎉 作品架构创建完成",
+                            message: `恭喜！全新作品《${title}》架构与设定集已成功生成落盘！\n\n已自动在电脑端建立作品目录与 00_设定集，包含核心大纲、战力境界与第一卷细纲。书架与目录已自动载入！`
+                        });
                     });
                 } else {
-                    alert("指令下发失败: " + res.error);
+                    const errMsg = res.error || "未知错误";
+                    showToast("新书架构指令下发失败: " + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 指令下发失败",
+                        message: "新书架构指令下发失败: " + errMsg
+                    });
                 }
             } catch (e) {
-                alert("网络请求失败");
+                showToast("网络请求失败，请检查网络或电脑连接状态", "error", 4500);
             }
         }
 
@@ -3369,11 +3659,12 @@
         async function launchSettingEvolution() {
             const prompt = document.getElementById("setting-prompt-box").value.trim();
             const targetDoc = document.getElementById("setting-target-input").value.trim();
-            if (!prompt) return alert("请输入设定演化需求！");
+            if (!prompt) { showToast("请输入设定演化需求！", "error"); return; }
 
             switchTab('antigravity');
             document.getElementById("term-container").style.display = "block";
-            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发设定集升级演化指令...\n目标文档: ${targetDoc}\n模式: ${SETTING_MODE}`;
+            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发设定集升级演化指令...\n目标文档: ${targetDoc || '全部设定集'}\n模式: ${SETTING_MODE}`;
+            showToast("⚡ 正在调度执行端升级设定大典...", "info", 3500);
 
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
@@ -3393,15 +3684,32 @@
 
                 if (res.ok) {
                     ACTIVE_TASK_ID = res.task.id;
+                    showToast("🎉 设定演化任务已成功下发至电脑端！", "success", 3000);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "🎉 设定演化下发成功",
+                        message: `设定演化任务已成功下发！\n\n目标作品：《${CURRENT_BOOK}》\n演化目标：${targetDoc || '全部设定集'}\n\n执行端正在推演推导新设定，推演完成后将自动落盘并刷新设定大典！`
+                    });
                     startPolling(async () => {
                         await loadSettings();
-                        alert("🎉 设定大典升级演化完成！新设定已同步！");
+                        showToast("🎉 设定大典升级演化完成！新设定已同步！", "success", 4000);
+                        await showNovelDialog({
+                            type: "success",
+                            title: "🎉 设定升级完成",
+                            message: "恭喜！设定大典升级演化完成！新设定文档已同步入库！"
+                        });
                     });
                 } else {
-                    alert("指令下发失败: " + res.error);
+                    const errMsg = res.error || "未知异常";
+                    showToast("指令下发失败: " + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 指令下发失败",
+                        message: "指令下发失败: " + errMsg
+                    });
                 }
             } catch (e) {
-                alert("网络请求失败");
+                showToast("网络请求失败，请检查网络或电脑连接状态", "error", 4500);
             }
         }
 
@@ -3562,10 +3870,16 @@
             const btn = document.getElementById("sort-btn");
             btn.innerText = SORT_DESC ? "↕️ 倒序 (最新在前)" : "↕️ 正序 (第一章在前)";
             renderCatalogCards();
+            showToast(SORT_DESC ? "已切换为：倒序 (最新在前)" : "已切换为：正序 (第一章在前)", "info", 1800);
         }
 
         function jumpToLatestChapter() {
-            if (CHAPTERS.length > 0) openChapter(CHAPTERS.length - 1);
+            if (CHAPTERS.length > 0) {
+                openChapter(CHAPTERS.length - 1);
+                showToast(`已直达最新章节：第 ${CHAPTERS.length} 章`, "success", 2000);
+            } else {
+                showToast("当前暂无已创作章节！", "warning", 2000);
+            }
         }
 
         async function openChapter(index, doSwitch = true) {
@@ -3574,7 +3888,7 @@
             const c = CHAPTERS[index];
             const book = CURRENT_BOOK;
 
-            if (doSwitch) switchTab('reader');
+            if (doSwitch) { switchTab('reader'); showToast(`已载入第 ${index + 1} 章正文`, "info", 1500); }
 
             document.getElementById("chapter-title").innerText = c.title || c.filename.replace(".md", "");
             document.getElementById("chapter-meta").innerText = `第 ${index + 1} / ${CHAPTERS.length} 章 · 约 ${c.char_count} 字 · 智笔云枢秒级调阅`;
@@ -3612,11 +3926,21 @@
         }
 
         function prevChapter() {
-            if (CURRENT_INDEX > 0) openChapter(CURRENT_INDEX - 1);
+            if (CURRENT_INDEX > 0) {
+                openChapter(CURRENT_INDEX - 1);
+                showToast(`已翻至：第 ${CURRENT_INDEX + 1} 章`, "info", 1600);
+            } else {
+                showToast("已经是第一章了，前面没有更多章节啦！", "warning", 2500);
+            }
         }
 
         function nextChapter() {
-            if (CURRENT_INDEX < CHAPTERS.length - 1) openChapter(CURRENT_INDEX + 1);
+            if (CURRENT_INDEX < CHAPTERS.length - 1) {
+                openChapter(CURRENT_INDEX + 1);
+                showToast(`已翻至：第 ${CURRENT_INDEX + 1} 章`, "info", 1600);
+            } else {
+                showToast("已经是最新章节了！可点击操控AI续写新章节！", "warning", 2500);
+            }
         }
 
         function switchTab(tabId, opt = {}) {
@@ -3651,11 +3975,14 @@
         function changeFontSize(delta) {
             CURRENT_FONT_SIZE = Math.max(14, Math.min(32, CURRENT_FONT_SIZE + delta));
             document.documentElement.style.setProperty("--reader-font-size", `${CURRENT_FONT_SIZE}px`);
+            showToast(`正文字号已设为 ${CURRENT_FONT_SIZE}px`, "info", 1500);
         }
 
         function toggleTheme(themeName) {
             document.body.className = "";
             if (themeName !== 'dark') document.body.classList.add(`theme-${themeName}`);
+            const names = { dark: '玄黑', parchment: '羊皮', bamboo: '竹青', white: '晨白' };
+            showToast(`已切换为「${names[themeName] || themeName}」阅读主题`, "info", 1800);
         }
 
         // 4 大专业创作工坊选项卡切换
@@ -3663,12 +3990,11 @@
             CURRENT_WORKFLOW = wf;
             document.getElementById("wf-tab-serial").classList.toggle("active", wf === "serial");
             document.getElementById("wf-tab-polish").classList.toggle("active", wf === "polish");
-            document.getElementById("wf-tab-plot").classList.toggle("active", wf === "plot");
-            document.getElementById("wf-tab-custom").classList.toggle("active", wf === "custom");
-
-            document.getElementById("serial-count-row").style.display = wf === "serial" ? "flex" : "none";
-            fillWorkflowPrompt(wf);
+            document.getElementById("wf-tab-outline").classList.toggle("active", wf === "outline");
+            document.getElementById("wf-tab-freeform").classList.toggle("active", wf === "freeform");
             updateNextLabel();
+            const tabNames = { serial: '⚡ 自动续写', polish: '✨ 单章精控', outline: '📜 大纲推演', freeform: '🎯 自由指令' };
+            showToast(`已切换工作流：${tabNames[wf] || wf}`, "info", 1500);
         }
 
         function fillWorkflowPrompt(wf) {
@@ -3713,18 +4039,21 @@
             const pbox = document.getElementById("prompt-box");
             if (tag === '清空') {
                 pbox.value = "";
+                showToast("已清空创作指令框", "info", 1500);
                 return;
             }
             pbox.value += ` 【特别要求：${tag}】`;
+            showToast(`已追加策略要求：${tag}`, "info", 1800);
         }
 
         async function launchTask() {
             const prompt = document.getElementById("prompt-box").value.trim();
-            if (!prompt) return alert("请输入创作指令要求！");
+            if (!prompt) { showToast("请输入创作指令要求！", "error"); return; }
 
             const btn = document.getElementById("dispatch-btn");
             btn.disabled = true;
             btn.innerText = `⏳ 正在调度 ${CURRENT_MODEL_TIER.toUpperCase()} 唤醒电脑...`;
+            showToast(`⏳ 正在调度 ${CURRENT_MODEL_TIER.toUpperCase()} 唤醒电脑执行端...`, "info", 3500);
 
             const intent = JSON.stringify({ book: CURRENT_BOOK, prompt, workflow: CURRENT_WORKFLOW,
                 count: CURRENT_WORKFLOW === 'serial' ? Number(document.getElementById('serial-chapter-count').value) : 1,
@@ -3759,15 +4088,32 @@
                     const modelDisplayName = (currentModel() || {}).name || CURRENT_MODEL_TIER;
                     document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 ${modelDisplayName} 执行任务...`;
                     document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] ${res.deduplicated ? "已关联现有任务" : "任务已建立"} (${ACTIVE_TASK_ID})\n正在连接所选桌面执行端...`;
+                    showToast("🎉 创作任务已成功下发至电脑端！", "success", 3000);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "🎉 创作任务下发成功",
+                        message: `长篇创作指令已成功下发至电脑端！\n\n目标作品：《${CURRENT_BOOK}》\n执行模式：${CURRENT_WORKFLOW === "serial" ? "自动续写" : (CURRENT_WORKFLOW === "polish" ? "单章精控" : (CURRENT_WORKFLOW === "outline" ? "大纲推演" : "自由指令"))}\n所选模型：${modelDisplayName}\n\n电脑端正在执行深度创作。可关注下方实时终端日志，新章节完成后将自动同步！`
+                    });
                     startPolling(async () => {
                         await loadChapters();
-                        alert("🎉 创作任务完成！新章节已同步，快去阅读吧！");
+                        showToast("🎉 创作任务完成！新章节已同步，快去阅读吧！", "success", 4000);
+                        await showNovelDialog({
+                            type: "success",
+                            title: "🎉 创作任务完成",
+                            message: "恭喜！长篇小说创作任务已顺利完成，最新章节已同步入库，可前往目录或正文查阅！"
+                        });
                     });
                 } else {
-                    alert("指令下发失败: " + res.error);
+                    const errMsg = res.error || "未知错误";
+                    showToast("指令下发失败: " + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 指令下发失败",
+                        message: "创作指令下发失败: " + errMsg
+                    });
                 }
             } catch (e) {
-                alert("网络请求失败");
+                showToast("网络请求失败，请检查网络或电脑连接状态", "error", 4500);
             } finally {
                 btn.disabled = false;
                 updateNextLabel();
@@ -3844,8 +4190,9 @@
             if (idx > 0) {
                 CURRENT_INDEX = idx - 1;
                 openTomatoAudit(CURRENT_INDEX);
+                showToast(`已切换至：第 ${CURRENT_INDEX + 1} 章番茄智审`, "info", 1800);
             } else {
-                alert("已经是第一章了！");
+                showToast("已经是第一章了，前面没有更多章节啦！", "warning", 2500);
             }
         }
 
@@ -3856,8 +4203,9 @@
             if (idx < CHAPTERS.length - 1) {
                 CURRENT_INDEX = idx + 1;
                 openTomatoAudit(CURRENT_INDEX);
+                showToast(`已切换至：第 ${CURRENT_INDEX + 1} 章番茄智审`, "info", 1800);
             } else {
-                alert("已经是最后一章了！");
+                showToast("已经是最后一章了！可返回操控AI续写新章节！", "warning", 2500);
             }
         }
 
@@ -3872,6 +4220,7 @@
 
         async function openTomatoAuditByFile(filename, switchUi = true) {
             rememberNotesDraft();
+            if (switchUi) showToast(`正在加载「${filename.replace(".md", "")}」番茄智审...`, "info", 1500);
             if (switchUi) switchTab('tomato', { force: false });
             const book = CURRENT_BOOK;
             CURRENT_TOMATO_FILE = filename;
@@ -4006,11 +4355,13 @@
 
         function filterIssues(category) {
             CURRENT_ISSUE_FILTER = category;
-            ["all", "danger", "typo", "punct", "length"].forEach(cat => {
-                const btn = document.getElementById(`tab-issue-${cat}`);
-                if (btn) btn.classList.toggle("active", cat === category);
+            ['all', 'danger', 'typo', 'punct', 'length'].forEach(c => {
+                const tab = document.getElementById(`tab-issue-${c}`);
+                if (tab) tab.classList.toggle("active", c === category);
             });
-            renderIssuesList();
+            renderTomatoAuditPanel();
+            const catNames = { all: '全部检出项', danger: '高危风控', typo: '错别字', punct: '标点排版', length: '篇幅字数' };
+            showToast(`已筛选：${catNames[category] || category}`, "info", 1500);
         }
 
         function renderIssuesList() {
@@ -4079,7 +4430,8 @@
         let CURRENT_REPAIR_MODE = 'polish';
 
         function openTomatoRepairModal() {
-            if (!CURRENT_TOMATO_FILE) return alert("请先在上方选择一个章节！");
+            if (!CURRENT_TOMATO_FILE) { showToast("请先在上方选择一个章节！", "warning"); return; }
+            showToast("已打开番茄章节定点重构工坊", "info", 1500);
             const modal = document.getElementById("tomato-repair-modal");
             const tag = document.getElementById("repair-target-chap-tag");
             const summaryBox = document.getElementById("repair-audit-summary-box");
@@ -4111,10 +4463,9 @@
 
         function setRepairMode(mode) {
             CURRENT_REPAIR_MODE = mode;
-            const btnPolish = document.getElementById("btn-repair-mode-polish");
-            const btnRemake = document.getElementById("btn-repair-mode-remake");
-            if (btnPolish) btnPolish.classList.toggle("active", mode === 'polish');
-            if (btnRemake) btnRemake.classList.toggle("active", mode === 'remake');
+            document.getElementById("btn-repair-mode-polish").classList.toggle("active", mode === 'polish');
+            document.getElementById("btn-repair-mode-remake").classList.toggle("active", mode === 'remake');
+            showToast(mode === 'polish' ? '已选择：合规脱敏精修模式' : '已选择：深度剧情重构模式', "info", 1800);
         }
 
         function fillDetectedIssuesToRepairInput() {
@@ -4122,21 +4473,42 @@
             if (!textarea) return;
             const allIssues = (CURRENT_TOMATO_DATA && CURRENT_TOMATO_DATA.audit && CURRENT_TOMATO_DATA.audit.issues) || [];
             if (allIssues.length === 0) {
-                textarea.value = "请根据本书宏观世界观与前文连贯性，对本章进行深度精修润色，提升对白质感与高潮爽感。";
+                textarea.value = "请根据本书宏观世界观与前文连贯性，对本章进行深度精修重构，提升对白质感与高潮爽点，保持字数与番茄规范一致。";
+                showToast("已自动填入推荐深度精修重构提示词！", "info", 1800);
                 return;
             }
-            const items = allIssues.map((iss, idx) => `${idx + 1}. [${iss.category_name || iss.category}] ${iss.msg} ${iss.suggestion ? '（建议：' + iss.suggestion + '）' : ''}`).join("\n");
-            textarea.value = `【机审检出问题自纠清单】：\n${items}\n\n【修改要求】：请彻底去除上述高危涉敏词汇与违规点，使用合规艺术化表达；保持前文伏笔，润物细无声展现生产力跃迁；字数维持在4000-5000字黄金篇幅。`;
+
+            const dangerIssues = allIssues.filter(i => i.level === 'danger' || i.category === 'danger');
+            const warnIssues = allIssues.filter(i => i.level === 'warn' || i.category === 'warn');
+            const typoIssues = allIssues.filter(i => i.category === 'typo');
+            const parts = [];
+
+            if (dangerIssues.length > 0) {
+                const list = dangerIssues.map(d => `- 原词「${d.word}」：${d.message || '涉嫌违规风险，必须替换为合规同义修真词'}`).join("\n");
+                parts.push(`【必须合规脱敏词汇】\n${list}`);
+            }
+            if (warnIssues.length > 0) {
+                const list = warnIssues.map(w => `- 原词「${w.word}」：${w.message || '建议委婉含蓄化表达'}`).join("\n");
+                parts.push(`【涉敏风险微调】\n${list}`);
+            }
+            if (typoIssues.length > 0) {
+                const list = typoIssues.map(t => `- 疑似错别字「${t.word}」建议纠正为「${t.replace || ''}」`).join("\n");
+                parts.push(`【规范修正字词】\n${list}`);
+            }
+            parts.push("【重构总体要求】\n在彻底解决上述机审风控与错字的同时，维持原章核心剧情脉络，增强高潮断章钩子，确保符合番茄短段落行文规范。");
+            textarea.value = parts.join("\n\n");
+            showToast("✓ 已自动将机审检出问题填入重构需求框！", "info", 2000);
         }
 
         async function submitChapterRepairTask() {
-            if (!CURRENT_TOMATO_FILE) return alert("请先选择章节！");
+            if (!CURRENT_TOMATO_FILE) { showToast("请先选择章节！", "warning"); return; }
             const reasonInput = document.getElementById("repair-rejection-reason");
             const reason = reasonInput ? reasonInput.value.trim() : "";
-            if (!reason) return alert("请输入驳回原因或修改要求！");
+            if (!reason) { showToast("请输入驳回原因或修改要求！", "error"); return; }
 
             const allIssues = (CURRENT_TOMATO_DATA && CURRENT_TOMATO_DATA.audit && CURRENT_TOMATO_DATA.audit.issues) || [];
             closeTomatoRepairModal();
+            showToast(`🛠️ 正在向电脑端下发「${CURRENT_TOMATO_FILE}」定点重构任务...`, "info", 3500);
 
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
@@ -4158,7 +4530,12 @@
 
                 if (res && res.task_id) {
                     ACTIVE_TASK_ID = res.task_id;
-                    alert(`🛠️ 章节定点重构任务已成功下发至电脑端！\n目标章节：${CURRENT_TOMATO_FILE}\n正在自动跳转到「操控AI」工坊监控所选执行端的任务进度...`);
+                    showToast("🛠️ 定点重构任务已成功下发至电脑端！", "success", 3000);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "🛠️ 定点重构下发成功",
+                        message: `章节定点重构任务已成功下发至电脑端！\n\n目标章节：${CURRENT_TOMATO_FILE}\n原文件已自动备份至 .backup 目录。\n正在自动跳转到「操控AI」工坊监控任务进度...`
+                    });
                     switchTab('antigravity');
                     startPolling(async () => {
                         delete CLIENT_CACHE.chapterContent[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
@@ -4166,23 +4543,33 @@
                         await loadChapters();
                         switchTab('tomato');
                         await openTomatoAuditByFile(CURRENT_TOMATO_FILE);
-                        alert(`🎉 恭喜！当前章节「${CURRENT_TOMATO_FILE}」已完成定点重构与安全替换！原文件已安全备份至 .backup 目录！`);
+                        showToast(`🎉 恭喜！当前章节「${CURRENT_TOMATO_FILE}」已完成定点重构！`, "success", 4000);
+                        await showNovelDialog({
+                            type: "success",
+                            title: "🎉 章节定点重构完成",
+                            message: `恭喜！当前章节「${CURRENT_TOMATO_FILE}」已完成定点重构与安全替换！\n\n原文件已安全备份至 .backup 目录，最新版番茄智审报告已实时生成。`
+                        });
                     });
                 } else {
-                    alert("指令下发失败: " + (res.error || "未知异常"));
+                    const errMsg = (res && res.error) || "未知异常";
+                    showToast("指令下发失败: " + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 重构指令下发失败",
+                        message: "指令下发失败: " + errMsg
+                    });
                 }
             } catch (e) {
-                alert("网络请求失败: " + e.message);
+                showToast("网络请求失败: " + e.message, "error", 4500);
             }
         }
 
         function switchPreviewMode(mode) {
-            TOMATO_VIEW_MODE = mode;
-            const btnHigh = document.getElementById("btn-view-highlight");
-            const btnClean = document.getElementById("btn-view-clean");
-            if (btnHigh) btnHigh.classList.toggle("active", mode === "highlight");
-            if (btnClean) btnClean.classList.toggle("active", mode === "clean");
+            CURRENT_PREVIEW_MODE = mode;
+            document.getElementById("btn-view-highlight").classList.toggle("active", mode === 'highlight');
+            document.getElementById("btn-view-clean").classList.toggle("active", mode === 'clean');
             renderTomatoPreviewText();
+            showToast(mode === 'highlight' ? '已切换为：缺陷高亮显影模式' : '已切换为：番茄纯净排版模式', "info", 1800);
         }
 
         function htmlArgument(value) { return escapeHtml(JSON.stringify(value)); }
@@ -4278,13 +4665,14 @@
         }
 
         async function autoFixCurrentChapter() {
-            if (!CURRENT_TOMATO_FILE) return alert("请先选择要修复的章节！");
+            if (!CURRENT_TOMATO_FILE) { showToast("请先选择要修复的章节！", "warning"); return; }
             const btn = document.getElementById("btn-tomato-autofix");
             const originalText = btn ? btn.innerText : "";
             if (btn) {
                 btn.disabled = true;
                 btn.innerText = "⏳ 正在自动纠错并规范标点...";
             }
+            showToast("⚡ 正在对当前章节进行错别字纠偏与标点排版规范...", "info", 3000);
 
             try {
                 const res = await fetchAPI(`${API}/tomato_autofix`, {
@@ -4299,39 +4687,70 @@
                     delete CLIENT_CACHE.tomatoAudit[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
                     delete CLIENT_CACHE.chapterContent[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
 
-                    alert(`🎉 恭喜！一键自动修复完成！\n已自动纠偏 ${res.fix_count || 0} 处常见错别字并规范全角标点与首行缩进！`);
+                    showToast(`✓ 一键纠错完成！已纠偏 ${res.fix_count || 0} 处排版与错别字！`, "success", 3500);
+                    await showNovelDialog({
+                        type: "success",
+                        title: "🎉 一键纠错完成",
+                        message: `恭喜！一键自动修复完成！\n\n已自动纠偏 ${res.fix_count || 0} 处常见错别字并规范全角标点与首行缩进！\n章节正文已安全更新并重新生成番茄智审报告。`
+                    });
                     await openTomatoAuditByFile(CURRENT_TOMATO_FILE);
                     await loadChapters();
                 } else {
-                    alert("自动修复失败: " + (res.error || "未知异常"));
+                    const errMsg = (res && res.error) || "未知异常";
+                    showToast("自动修复失败: " + errMsg, "error", 4500);
+                    await showNovelDialog({
+                        type: "error",
+                        title: "❌ 自动修复失败",
+                        message: "自动修复失败: " + errMsg
+                    });
                 }
             } catch (e) {
-                alert("请求失败: " + e.message);
+                showToast("请求失败: " + e.message, "error", 4500);
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = originalText;
+                    btn.innerText = originalText || "⚡ 一键常规纠错";
                 }
             }
         }
 
         async function fixSingleTypo(wrongWord, correctWord) {
-            if (!confirm(`确定将本章内的所有「${wrongWord}」修正替换为「${correctWord}」吗？`)) return;
+            const ok = await showNovelDialog({
+                isConfirm: true,
+                type: "confirm",
+                title: "错别字修正确认",
+                message: `确定将本章内的所有「${wrongWord}」修正替换为「${correctWord}」吗？\n\n系统将自动规范替换并更新章节正文与机审报告。`
+            });
+            if (!ok) return;
+            showToast(`正在修正本章「${wrongWord}」为「${correctWord}」...`, "info", 2000);
             await autoFixCurrentChapter();
         }
 
         function copyTomatoContent() {
-            if (!CURRENT_TOMATO_DATA) return alert("请先选择章节！");
+            if (!CURRENT_TOMATO_DATA) { showToast("请先选择章节！", "warning"); return; }
             const cleanText = `${CURRENT_TOMATO_DATA.title}\n\n${CURRENT_TOMATO_DATA.content}`;
             navigator.clipboard.writeText(cleanText).then(() => {
-                alert("📋 番茄标准纯净正文已成功复制！\n✓ 包含番茄标准首行全角缩进两格\n✓ 严格中文字符与全角对齐\n✓ 可直接粘贴至番茄作家助手后台发布！");
+                showToast("📋 番茄标准纯净正文已成功复制到剪贴板！可以直接发布至作家助手！", "success", 3500);
             }).catch(() => {
-                alert("复制失败，请在预览框中长按全选复制！");
+                const textarea = document.getElementById("tomato-preview-text");
+                if (textarea) {
+                    textarea.select();
+                    document.execCommand('copy');
+                    showToast("📋 番茄标准纯净正文已复制！", "success", 3000);
+                } else {
+                    showToast("复制失败，请在预览框中长按全选复制！", "error", 3500);
+                }
             });
         }
 
         function exportTomatoZip() {
-            window.location.href = `${API}/export_tomato_zip?book=${encodeURIComponent(CURRENT_BOOK)}`;
+            showToast("📦 正在向服务器请求打包番茄标准全本纯净正文ZIP...", "info", 3000);
+            try {
+                window.location.href = `${API}/export_tomato_zip?book=${encodeURIComponent(CURRENT_BOOK)}`;
+                showToast("✓ 番茄标准全本ZIP正在导出下载...", "success", 3500);
+            } catch(e) {
+                showToast("导出失败: " + e.message, "error", 4000);
+            }
         }
 
         // ================= 🎨 随章水墨插画与互动文案 (AI 视觉衍生) =================
@@ -4606,8 +5025,18 @@
             }
             showToast("已复制");
         }
-        function copyAuthorNote() { return copyText(document.getElementById("author-note-text").value); }
-        function copyChapterComments() { return copyText(document.getElementById("chapter-comments-text").value); }
+        function copyAuthorNote() {
+            const val = document.getElementById("author-note-text").value;
+            if (!val) { showToast("当前作者寄语内容为空，无法复制", "warning"); return; }
+            copyText(val);
+            showToast("✓ 作者有话说已成功复制到剪贴板！", "success", 2500);
+        }
+        function copyChapterComments() {
+            const val = document.getElementById("chapter-comments-text").value;
+            if (!val) { showToast("当前精选章评内容为空，无法复制", "warning"); return; }
+            copyText(val);
+            showToast("✓ 精选章评文案已成功复制到剪贴板！", "success", 2500);
+        }
 
         function openLightbox(imgUrl, title) {
             const modal = document.getElementById("image-lightbox-modal");
@@ -4735,6 +5164,7 @@
 
         async function viewSetting(filename, btnEl) {
             if (!filename) return;
+            showToast(`已载入设定文档：${filename.replace(".md", "")}`, "info", 1500);
             const book = CURRENT_BOOK;
             CURRENT_SETTING_DOC = filename;
             const tinput = document.getElementById("setting-target-input");
