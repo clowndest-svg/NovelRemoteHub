@@ -19,3 +19,4 @@ apk_tools/
 .test-data/
 
 .local-access.txt
+.user_settings.json

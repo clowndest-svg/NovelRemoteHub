@@ -33,7 +33,8 @@ import desktop_agents
 from agent_workspace import canonical_engine
 import novel_manager
 import deepseek_client
-from sync_protocol import content_fingerprint
+from sync_protocol import content_fingerprint, book_snapshot, digest, cover_fingerprint
+import library_sync
 
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
 class SafeDaemonLogStream:
@@ -93,6 +94,7 @@ SYNC_REQUEST = threading.Event()
 SYNC_REQUEST_ID = 0
 SYNC_RECEIPTS = {}
 SYNC_REPORT_PENDING = False
+BRIDGE_PREFERENCES = {}
 
 # 忽略 SSL 证书校验 (安全直连)
 SSL_CTX = ssl.create_default_context()
@@ -211,7 +213,7 @@ def collect_book_data(book_dir_name):
     chapters = []
     c_files = novel_manager.chapter_files(book_path)
     for f in c_files:
-        with open(f, "r", encoding="utf-8", errors="ignore") as fp:
+        with open(f, "r", encoding="utf-8-sig") as fp:
             chapters.append({
                 "filename": os.path.basename(f),
                 "content": fp.read()
@@ -220,7 +222,7 @@ def collect_book_data(book_dir_name):
     settings = []
     s_files = sorted(glob.glob(os.path.join(book_path, "00_设定集", "*.md")))
     for f in s_files:
-        with open(f, "r", encoding="utf-8", errors="ignore") as fp:
+        with open(f, "r", encoding="utf-8-sig") as fp:
             settings.append({
                 "filename": os.path.basename(f),
                 "content": fp.read()
@@ -306,33 +308,33 @@ def _sync_all_books_to_cloud(force):
     request_id = SYNC_REQUEST_ID
     error = ""
     try:
-        for entry in os.scandir(BOOKS_ROOT):
+        os.stat(BOOKS_ROOT)
+        manifest = api_get("sync_manifest", silent=True)
+        if manifest is None or "books" not in manifest:
+            raise RuntimeError("无法获取云端同步清单，将自动重试")
+        BRIDGE_PREFERENCES.update(manifest.get("preferences", {}))
+        state_path = Path(BOOKS_ROOT) / ".hub-sync-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+        library_sync.reconcile(BOOKS_ROOT, manifest, state, lambda endpoint: api_get(endpoint, silent=True))
+        with os.scandir(BOOKS_ROOT) as directory:
+            entries = list(directory)
+        for entry in entries:
             if entry.is_dir() and not entry.name.startswith("."):
                 book_id = entry.name
-                # 检查云端是否已有手机端通过 DeepSeek 离线创作的新章节，自动拉取至本地 D:\小说
-                try:
-                    cloud_info = api_get(f"chapters?book={urllib.parse.quote(book_id)}", silent=True)
-                    if cloud_info and isinstance(cloud_info.get("chapters"), list):
-                        local_fnames = {os.path.basename(p) for p in novel_manager.chapter_files(entry.path)}
-                        for c_item in cloud_info["chapters"]:
-                            c_fname = c_item.get("filename")
-                            if c_fname and c_fname not in local_fnames:
-                                doc = api_get(f"chapter?book={urllib.parse.quote(book_id)}&file={urllib.parse.quote(c_fname)}", silent=True)
-                                if doc and doc.get("content"):
-                                    dest_dir = os.path.join(entry.path, "01_正文", "第一卷_人界篇")
-                                    os.makedirs(dest_dir, exist_ok=True)
-                                    atomic_write(os.path.join(dest_dir, c_fname), doc["content"])
-                                    print(f"[Sync] 成功从云端下载新创作章节至本地：{c_fname}")
-                except Exception as dl_err:
-                    pass
-
                 chapters, settings = collect_book_data(book_id)
                 meta, cover_base64 = collect_book_meta_and_cover(book_id)
                 fingerprint = content_fingerprint(chapters, settings)
+                snapshot = book_snapshot(entry.path)
+                document_hashes = {"chapters": {item["filename"]: digest(item["content"].encode("utf-8")) for item in chapters},
+                                   "settings": {item["filename"]: digest(item["content"].encode("utf-8")) for item in settings}}
+                meta_hashes = {key: meta[key] for key in ("title", "genre", "author", "description", "tags") if key in meta}
+                if (document_hashes["chapters"] != snapshot["chapters"] or document_hashes["settings"] != snapshot["settings"]
+                        or meta_hashes != snapshot["meta"] or (cover_fingerprint(cover_base64) if cover_base64 else "") != snapshot["cover_hash"]):
+                    raise RuntimeError("本地文件读取期间发生修改，将重新读取后同步")
                 total_chapters += len(chapters)
                 total_settings += len(settings)
                 books_count += 1
-                if not force and SYNC_RECEIPTS.get(book_id) == fingerprint:
+                if not force and SYNC_RECEIPTS.get(book_id) == snapshot["revision"]:
                     continue
                 attempted = True
                 payload = {
@@ -342,12 +344,15 @@ def _sync_all_books_to_cloud(force):
                     "meta": meta,
                     "cover_base64": cover_base64,
                     "conversations": convs,
-                    "sync_version": 2,
+                    "sync_version": 3,
+                    "expected_revision": manifest["books"].get(book_id, {}).get("revision"),
                     "fingerprint": fingerprint
                 }
                 res = api_post("sync_data", payload)
                 if res and res.get("ok") and res.get("fingerprint") == fingerprint:
-                    SYNC_RECEIPTS[book_id] = fingerprint
+                    SYNC_RECEIPTS[book_id] = snapshot["revision"]
+                    state[book_id] = snapshot
+                    atomic_json(state_path, state)
                 else:
                     all_ok = False
                     SYNC_RECEIPTS.pop(book_id, None)
@@ -424,16 +429,16 @@ def serial_chapter_prompt(book_id, user_prompt):
     prev_chapter_file = c_files[-1] if c_files else None
     prev_chapter_content = ""
     prev_chapter_hook = ""
-    if prev_chapter_file:
+    if prev_chapter_file and BRIDGE_PREFERENCES.get("auto_read_previous", True):
         with open(prev_chapter_file, "r", encoding="utf-8", errors="ignore") as fp:
             prev_raw = fp.read()
-            prev_chapter_content = prev_raw if len(prev_raw) <= 5000 else prev_raw[:1000] + "\n\n……（中略）……\n\n" + prev_raw[-4000:]
+            prev_chapter_content = prev_raw
             prev_chapter_hook = prev_raw[-600:].strip()
 
     # 1. 优先读取全书前情剧情与伏笔总账本
     ledger_content = ""
     ledger_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*伏笔*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*账本*.md"))
-    if ledger_candidates:
+    if ledger_candidates and BRIDGE_PREFERENCES.get("auto_check_ledger", True):
         with open(ledger_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
             ledger_content = fp.read()
 
@@ -452,6 +457,7 @@ def serial_chapter_prompt(book_id, user_prompt):
             if m:
                 chapter_outline = m.group(1).strip()
 
+    words = BRIDGE_PREFERENCES.get("default_chapter_words", "4000-5000")
     prompt = f"""【《{book_id}》小说新章节创作指令 · 第{pad_num}章】
 你正在为番茄爆款网文《{book_id}》创作全新正文第{pad_num}章。
 当前小说工程工作区：`{book_root}`
@@ -481,21 +487,27 @@ def serial_chapter_prompt(book_id, user_prompt):
 
 【作者指令附加要求】：
 \"\"\"
-{user_prompt if user_prompt else "按大纲极致推演，强化剧情反差张力，严格遵循生产力演进铁律，章末设置引人点击下一章的强力断章钩子"}
+{user_prompt if user_prompt else "按大纲极致推演，强化剧情张力，严格遵循本书核心设定与发展规律，章末设置引人点击下一章的强力断章钩子"}
 \"\"\"
 
 【必须执行的工作流 SOP（铁律执行·严禁违背）】：
-1. 步骤1（前情与设定核验）：动笔前必须研读上述【全书前情与伏笔账本】及相关设定集（大纲、人物、境界、民生篇）。核对当前登场角色状态、所在位置、当前科技树上限，严禁吃书，严禁空降超纲科技！
+1. 步骤1（前情与设定核验）：动笔前必须研读上述【全书前情与伏笔账本】及相关设定集（大纲、人物、世界观与本章相关规划）。核对当前登场角色状态、所在位置、当前科技树上限，严禁吃书，严禁空降超纲科技！
 2. 步骤2（历史章节精准溯源）：若本章剧情涉及前序特定章节的历史事件（如伏笔回收、特定装备原理、此前某位配角的约定），直接调用 read_file 调阅对应历史章节正文对账，确保因果绝对严密！
 3. 步骤3（前章无缝因果咬合）：本章开篇必须紧密接住上一章末尾的悬念钩子与人物动作心理，前三句话内拉满悬念张力，杜绝任何断层脱节！
 4. 步骤4（番茄小说爆款行文规范）：
    - 对话统一使用规范中文全角双引号“”，严禁日式直角引号；
    - 移动端排版呼吸感：1-3句话一段，长段落坚决拆分；
-   - 戏带设定：高深物理与修仙原理必须通过人物打脸、动手制造、激烈冲突展示，杜绝枯燥说明文；
+   - 戏带设定：本书关键设定必须通过人物行动、对话与剧情冲突展示，杜绝枯燥说明文；
    - 章末设置强力吸睛悬念断章钩子，驱动读者欲罢不能点击下一章！
-5. 步骤5（篇幅与落盘）：默认4000-5000字，情节饱满，节奏极度紧凑。创作完成后直接调用 write_file 写入对应文件路径：
+5. 步骤5（篇幅与落盘）：默认{words}字，情节饱满，节奏极度紧凑。创作完成后直接调用 write_file 写入对应文件路径：
    `{book_root}\\01_正文\\第一卷_人界篇\\第{pad_num}章_xxxx.md`！
 """
+    if not BRIDGE_PREFERENCES.get("auto_read_previous", True):
+        prompt += "\n作者关闭了自动读取前章全文，按本次明确指令使用已有设定与材料。"
+    if not BRIDGE_PREFERENCES.get("auto_check_ledger", True):
+        prompt += "\n作者关闭了自动总账本核对，本次按设定文档与作者要求创作。"
+    if not BRIDGE_PREFERENCES.get("strict_tomato_layout", True):
+        prompt += "\n作者关闭了严格番茄格式约束，保持本书原有排版。"
     char_guideline = "顾见微（怨种嘴碎社畜+学术暴君双重反差）、政哥（千古一帝霸烈甲方）" if ("政哥" in book_id or "量子力学" in book_id) else f"严格遵循《{book_id}》人物设定集与小传，还原主角与核心角色的语言风格与性格神韵，严禁人设崩坏"
     tech_guideline = "严守当前工业底座，核对能力限制，严禁跳跃到中后期宇宙神级科技" if ("政哥" in book_id or "量子力学" in book_id) else f"严格核对《{book_id}》世界观与能力体系阶段，核对能力限制，严禁跳级超纲或空降外挂"
 
@@ -599,6 +611,9 @@ def run_bridge_loop():
 
                 print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
 
+                if not sync_all_books_to_cloud(force=True)[0]:
+                    raise RuntimeError("创作前云端与本地对账失败，请先处理同步状态后重试")
+
                 # 进度更新回调闭包
                 def report_progress(msg):
                     api_post("task_progress", {"id": tid, "status": "running", "log": msg})
@@ -622,7 +637,8 @@ def run_bridge_loop():
 
                 # B. 构思创建全新小说架构
                 elif action == "create_new_novel":
-                    book_title = safe_component(extra_data.get("title") or book_id)
+                    book_title = safe_component(book_id)
+                    display_title = extra_data.get("title") or book_id
                     genre = extra_data.get("genre", "科幻修真 / 网文")
                     concept = extra_data.get("concept", user_prompt)
                     book_root = os.path.join(BOOKS_ROOT, book_title)
@@ -630,6 +646,7 @@ def run_bridge_loop():
                     report_progress(f"正在为全新作品《{book_title}》初始化工程目录结构...")
                     os.makedirs(os.path.join(book_root, "00_设定集"), exist_ok=True)
                     os.makedirs(os.path.join(book_root, "01_正文", "第一卷_人界篇"), exist_ok=True)
+                    novel_manager.save_book_meta(book_title, {"title": display_title, "genre": genre}, BOOKS_ROOT, rename=False)
 
                     prompt = f"""【全新小说架构与总谱工程创建指令 · 《{book_title}》】
 目标工程目录：`D:\\小说\\{book_title}`

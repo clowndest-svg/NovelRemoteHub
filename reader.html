@@ -71,6 +71,7 @@
         let currentFile = '';
         let catalogBook = '';
         let catalogLoadedAt = 0;
+        let catalogTitle = '';
         let sequence = 0;
         let expired = false;
         let fontSize = Number(localStorage.getItem('novel_reader_size')) || 20;
@@ -170,14 +171,16 @@
                     const filename = currentFile;
                     const cachedCatalog = filename && catalogBook === book && Date.now() - catalogLoadedAt < 30000;
                     const [result, chapter] = await Promise.all([
-                        cachedCatalog ? Promise.resolve({chapters}) : request('chapters?' + new URLSearchParams({ book })),
+                        cachedCatalog ? Promise.resolve({chapters, book_title:catalogTitle}) : request('chapters?' + new URLSearchParams({ book })),
                         filename ? request('chapter?' + new URLSearchParams({ book, file: filename })) : Promise.resolve(null)
                     ]);
                     if (requestId !== sequence) return;
                     chapters = result.chapters;
                     if (!cachedCatalog) catalogLoadedAt = Date.now();
                     catalogBook = book;
-                    element('breadcrumbs').append(document.createTextNode(' / '), button(book, () => navigate(book)));
+                    catalogTitle = result.book_title || book;
+                    element('title').textContent = catalogTitle;
+                    element('breadcrumbs').append(document.createTextNode(' / '), button(catalogTitle, () => navigate(book)));
                     element('summary').textContent = `共 ${chapters.length} 章`;
                     if (currentFile) {
                         element('title').textContent = chapter.title;

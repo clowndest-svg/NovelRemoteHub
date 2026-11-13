@@ -2,6 +2,9 @@ package com.daqin.novelremote;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.Manifest;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -9,12 +12,22 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Build;
+import android.os.Environment;
+import android.content.pm.PackageManager;
 import android.view.KeyEvent;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.widget.TextView;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.DownloadListener;
+import android.webkit.CookieManager;
+import android.webkit.URLUtil;
+import org.json.JSONObject;
+import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,8 +43,10 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
-    private int myVersionCode = 13;
-    private String myVersionName = "1.10.0";
+    private int myVersionCode = 14;
+    private String myVersionName = "1.10.1";
+    private final ArrayList<DownloadManager.Request> pendingDownloads = new ArrayList<>();
+    private boolean requestingStoragePermission = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,13 +93,72 @@ public class MainActivity extends Activity {
         webView.setDownloadListener(new DownloadListener() {
             @Override
             public void onDownloadStart(String url, String userAgent, String disposition, String mimetype, long length) {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                Uri uri = Uri.parse(url);
+                if (!"scientificexploration.art".equals(uri.getHost()) || url.contains(".apk")) {
+                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                    return;
+                }
+                try {
+                    DownloadManager.Request request = new DownloadManager.Request(uri);
+                    String cookies = CookieManager.getInstance().getCookie(url);
+                    if (cookies != null) request.addRequestHeader("Cookie", cookies);
+                    request.addRequestHeader("User-Agent", userAgent);
+                    String filename = URLUtil.guessFileName(url, disposition, mimetype);
+                    request.setTitle(filename);
+                    request.setMimeType(mimetype);
+                    request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
+                    pendingDownloads.add(request);
+                    if (Build.VERSION.SDK_INT >= 23 && Build.VERSION.SDK_INT <= 28
+                            && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        if (!requestingStoragePermission) {
+                            requestingStoragePermission = true;
+                            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 42);
+                        }
+                    } else {
+                        startPendingDownloads();
+                    }
+                } catch (Exception error) {
+                    showDownloadMessage("下载任务建立失败，请重试");
+                }
             }
         });
         webView.loadUrl(HOME_URL);
 
         // 启动时自动检查线上版本
         checkAppUpdate();
+    }
+
+    private void startPendingDownloads() {
+        DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        int started = 0;
+        while (!pendingDownloads.isEmpty()) {
+            DownloadManager.Request request = pendingDownloads.remove(0);
+            try {
+                manager.enqueue(request);
+                started++;
+            } catch (Exception error) {
+                showDownloadMessage("下载任务建立失败，请检查存储空间后重试");
+            }
+        }
+        if (started > 0) showDownloadMessage("已加入系统下载任务，可在下载通知中查看进度");
+    }
+
+    private void showDownloadMessage(String message) {
+        webView.evaluateJavascript("if(typeof showToast==='function')showToast(" + JSONObject.quote(message) + ");", null);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode != 42) return;
+        requestingStoragePermission = false;
+        if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+            startPendingDownloads();
+        } else {
+            pendingDownloads.clear();
+            showDownloadMessage("未授予存储权限，下载已取消");
+        }
     }
 
     private void checkAppUpdate() {
@@ -146,7 +220,7 @@ public class MainActivity extends Activity {
     }
 
     private void showUpdateDialog(String remoteVersion, String localVersion, String changelog, final String downloadUrl) {
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                 .setTitle("🚀 发现新版本 (v" + remoteVersion + ")")
                 .setMessage("当前版本: v" + localVersion + "\n最新版本: v" + remoteVersion + "\n\n更新说明：\n" + changelog)
                 .setPositiveButton("立即下载更新", new DialogInterface.OnClickListener() {
@@ -159,6 +233,15 @@ public class MainActivity extends Activity {
                 .setNegativeButton("稍后提醒", null)
                 .setCancelable(true)
                 .show();
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.rgb(17, 24, 39));
+        background.setCornerRadius(20 * getResources().getDisplayMetrics().density);
+        background.setStroke(1, Color.rgb(226, 183, 64));
+        if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(background);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.rgb(226, 183, 64));
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.rgb(203, 213, 225));
+        TextView message = (TextView) dialog.findViewById(android.R.id.message);
+        if (message != null) message.setTextColor(Color.rgb(226, 232, 240));
     }
 
     @Override

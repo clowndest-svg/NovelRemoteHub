@@ -27,9 +27,10 @@ import secrets
 import hmac
 import hashlib
 import base64
+from pathlib import Path
 from storage import atomic_json, atomic_write, safe_component, within
 from agent_workspace import canonical_engine, selected_model, is_workspace
-from sync_protocol import content_fingerprint
+from sync_protocol import content_fingerprint, book_snapshot, cover_fingerprint
 from urllib.parse import urlparse, parse_qs
 
 # 引入小说管理工作流
@@ -194,7 +195,8 @@ def chapter_document(book_id, filename):
         return cached
     content = novel_manager.read_chapter(book_id, filename, BOOKS_DIR)
     cleaned = novel_manager.clean_for_tomato(content, filename)
-    result = {"book_title": book_id, "filename": filename, "title": cleaned["title"],
+    _, title = novel_manager.get_book_path(book_id, BOOKS_DIR)
+    result = {"book_title": title, "filename": filename, "title": cleaned["title"],
               "content": content, "char_count": cleaned["char_count"]}
     set_cached(key, result, ttl=600)
     return result
@@ -210,10 +212,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 13,
-    "versionName": "1.10.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.0",
-    "changelog": "新增七天免密只读分享，修复同步失败重试与任务期间同步，合并阅读查询并复用章节索引。",
+    "versionCode": 14,
+    "versionName": "1.10.1",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.1",
+    "changelog": "修复书架编辑、创作工作流、分享与提示反馈，完善双向同步和 DeepSeek 云端任务。",
     "forceUpdate": False
 }
 
@@ -278,6 +280,14 @@ def save_json_file(path, data):
 def sync_book(body):
     book_id = safe_component(body.get("book_id"))
     book_path = within(BOOKS_DIR, book_id)
+    version = body.get("sync_version", 1)
+    deleted = load_json_file(os.path.join(DATA_DIR, "book_tombstones.json"), {})
+    if book_id in deleted:
+        raise ValueError("作品已在管理页删除，请先从回收站恢复并重新创建作品")
+    if version == 3:
+        revision = book_snapshot(book_path)["revision"] if os.path.isdir(book_path) else None
+        if revision != body.get("expected_revision"):
+            raise ValueError("云端已更新，请重新同步后重试")
     chapters, settings = body.get("chapters", []), body.get("settings", [])
     for documents in (chapters, settings):
         if not isinstance(documents, list):
@@ -291,9 +301,12 @@ def sync_book(body):
                 raise ValueError("同步章节或设定存在同名文件")
             names.add(filename)
     fingerprint = content_fingerprint(chapters, settings)
-    authoritative = body.get("sync_version") == 2
+    authoritative = version in (2, 3)
     if authoritative and body.get("fingerprint") != fingerprint:
         raise ValueError("同步内容摘要不一致")
+    if body.get("cover_base64"):
+        novel_manager.decode_cover(body["cover_base64"])
+    os.makedirs(book_path, exist_ok=True)
     changed = False
     try:
         for kind, documents in (("01_正文", chapters), ("00_设定集", settings)):
@@ -335,7 +348,7 @@ def sync_book(body):
                                     max_local_num = max(max_local_num, int(m_loc.group(1)))
                             if cloud_num > max_local_num:
                                 is_newer_chapter = True
-                    if is_newer_chapter:
+                    if is_newer_chapter and version < 3:
                         continue
                     archive = os.path.join(book_path, ".sync-archive", uuid.uuid4().hex, kind, name)
                     os.makedirs(os.path.dirname(archive), exist_ok=True)
@@ -345,11 +358,14 @@ def sync_book(body):
         if conversations:
             save_json_file(os.path.join(DATA_DIR, "conversations.json"), conversations)
         meta = body.get("meta")
-        if isinstance(meta, dict) and meta:
-            novel_manager.save_book_meta(book_id, meta, BOOKS_DIR)
+        current_meta = novel_manager.read_book_meta(book_path, book_id)
+        if isinstance(meta, dict) and meta and any(current_meta.get(key) != meta.get(key) for key in ("title", "genre", "author", "description", "tags") if key in meta):
+            novel_manager.save_book_meta(book_id, meta, BOOKS_DIR, rename=False)
+            changed = True
         cover_base64 = body.get("cover_base64")
-        if isinstance(cover_base64, str) and cover_base64:
+        if isinstance(cover_base64, str) and cover_base64 and book_snapshot(book_path)["cover_hash"] != cover_fingerprint(cover_base64):
             novel_manager.save_book_cover(book_id, cover_base64, BOOKS_DIR)
+            changed = True
     finally:
         if changed:
             # Invalidate once per book, including public reading responses.
@@ -365,85 +381,142 @@ def sync_book(body):
             actual_settings.append({"filename": os.path.basename(filename), "content": stream.read()})
     receipt = content_fingerprint(actual_chapters, actual_settings)
     return {"ok": True, "chapters_count": len(chapters), "settings_count": len(settings),
-            "fingerprint": receipt}
+            "fingerprint": receipt, "snapshot": book_snapshot(book_path)}
+
+
+def start_ready_cloud_tasks():
+    with WRITE_LOCK:
+        for tid, task in TASKS.items():
+            if task.get("engine_mode") != "deepseek" or task["status"] != "pending":
+                continue
+            ahead = list(TASKS.values())[:list(TASKS).index(tid)]
+            if any(other.get("book_id") == task["book_id"] and other["status"] in ("pending", "assigned", "running") for other in ahead):
+                continue
+            if any(other is not task and other.get("book_id") == task["book_id"] and other["status"] in ("assigned", "running") for other in TASKS.values()):
+                continue
+            task.update(status="assigned", assigned_at=time.time(), heartbeat_at=time.time())
+            save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
+            threading.Thread(target=execute_deepseek_task_async, args=(tid,), daemon=True).start()
 
 
 def execute_deepseek_task_async(tid):
-    """
-    云端直连 DeepSeek 官方 API 执行创作与推演任务。
-    无论本地电脑是否开机，均可全天候在云端全自动阅读全书设定集与前序章节，
-    调用官方 deepseek-flash / deepseek-v4-pro 大模型进行思维链推演与正文撰写！
-    """
+    import deepseek_client
     tasks_file = os.path.join(DATA_DIR, "tasks.json")
-    task = TASKS.get(tid)
-    if not task:
-        return
-    task["status"] = "running"
-    task["heartbeat_at"] = time.time()
-
-    def report(msg):
-        task["progress_log"].append(f"[{time.strftime('%H:%M:%S')}] {str(msg)[:4000]}")
-        task["progress_log"] = task["progress_log"][-200:]
-        task["heartbeat_at"] = time.time()
+    stopped = threading.Event()
+    with WRITE_LOCK:
+        task = TASKS.get(tid)
+        if not task or task["status"] != "assigned":
+            return
+        task.update(status="running", heartbeat_at=time.time())
         save_json_file(tasks_file, TASKS)
-
+    def report(message):
+        with WRITE_LOCK:
+            task["progress_log"] = (task.get("progress_log", []) + [str(message)[:4000]])[-200:]
+            task["heartbeat_at"] = time.time()
+            save_json_file(tasks_file, TASKS)
+    def heartbeat():
+        while not stopped.wait(10):
+            with WRITE_LOCK:
+                task["heartbeat_at"] = time.time()
+    threading.Thread(target=heartbeat, daemon=True).start()
+    files = []
     try:
-        import deepseek_client
-        cfg = deepseek_client.get_deepseek_config(DATA_DIR)
-        if not cfg["enabled"] or not cfg["api_key"]:
-            raise ValueError("DeepSeek 官方 API 未启用或未配置 API Key，请在【系统设置】中输入您的 Key 并开启开关")
-
-        book_id = task.get("book_id") or "给政哥讲量子力学，他竟肉身硬抗二向箔"
-        book_path, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
-        extra_data = task.get("extra_data") or {}
-        user_prompt = task.get("prompt") or extra_data.get("instructions") or ""
-        model = extra_data.get("model_tier") or "deepseek-flash"
-        effort = extra_data.get("reasoning_effort") or "high"
-        workflow = extra_data.get("workflow")
-        chapter_count = novel_manager.validate_chapter_count(extra_data.get("chapter_count", 1))
-
-        is_write_chapter = (workflow == "serial" or (not workflow and (not user_prompt or "续写" in user_prompt or "开始写作" in user_prompt)))
-
-        if is_write_chapter:
-            ok, output, last_file = deepseek_client.write_serial_chapters(
-                book_root=book_path,
-                book_id=book_id,
-                count=chapter_count,
-                user_prompt=user_prompt,
-                model=model,
-                effort=effort,
-                config_dir=DATA_DIR,
-                progress_cb=report
-            )
-            if not ok:
-                raise RuntimeError(output)
-            task["status"] = "completed"
-            task["completed_at"] = time.time()
-            task["result"] = {"summary": output, "files": [last_file] if last_file else []}
-            report(f"🎉 {output}")
-            invalidate_cache()
+        extra = task.get("extra_data") or {}
+        book_id = task["book_id"]
+        action = task["action"]
+        with WRITE_LOCK:
+            book_path = within(BOOKS_DIR, book_id)
+            if action == "create_new_novel":
+                os.makedirs(os.path.join(book_path, "00_设定集"), exist_ok=True)
+                novel_manager.save_book_meta(book_id, {"title": extra.get("title", book_id), "genre": extra.get("genre", "")}, BOOKS_DIR, rename=False)
+            book_path, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
+            before = book_snapshot(book_path)["revision"]
+            existing_notes = None
+            if action == "generate_chapter_notes":
+                existing_notes = novel_manager.get_chapter_extras(book_id, extra["chapter_file"], BOOKS_DIR).get("meta") or {}
+        prompt = task.get("prompt") or extra.get("instructions") or ""
+        model, effort = extra.get("model_tier", "deepseek-flash"), extra.get("reasoning_effort", "high")
+        if action == "wake_antigravity":
+            if not deepseek_client.discover(DATA_DIR)["available"]:
+                raise ValueError("DeepSeek 尚未启用，请先配置密钥")
+            summary = "DeepSeek 云端执行通道已启用"
+        elif action == "creative_instruction" and (extra.get("workflow") == "serial" or
+                (not extra.get("workflow") and (not prompt or "续写" in prompt or "开始写作" in prompt))):
+            def chapter_saved(filename):
+                files.append(filename)
+                invalidate_cache(book_id)
+                invalidate_cache("novel:cache:books")
+            _, summary, _ = deepseek_client.write_serial_chapters(book_path, book_id, extra.get("chapter_count", 1), prompt,
+                model, effort, DATA_DIR, report, write_lock=WRITE_LOCK, on_chapter=chapter_saved)
         else:
-            ok, output = deepseek_client.execute_instruction(
-                book_root=book_path,
-                book_id=book_id,
-                user_prompt=user_prompt,
-                model=model,
-                effort=effort,
-                config_dir=DATA_DIR,
-                progress_cb=report
-            )
-            if not ok:
-                raise RuntimeError(output)
-            task["status"] = "completed"
-            task["completed_at"] = time.time()
-            task["result"] = {"summary": output}
-            report(f"✅ 执行完毕:\n{output[:500]}")
+            if action == "create_new_novel":
+                prompt += "\n请完整输出本书世界观、人物小传、主要矛盾、能力边界、首卷分章细纲与伏笔规划。"
+            if action == "generate_chapter_notes":
+                source = novel_manager.read_chapter(book_id, extra["chapter_file"], BOOKS_DIR)
+                prompt = source + '\n依据本章生成作者有话说及章评，严格返回 JSON 对象 {"author_note":"正文", "chapter_comments":["问题"]}。'
+            target = None
+            if action == "repair_chapter" or extra.get("workflow") == "polish":
+                filename = extra.get("chapter_file") or os.path.basename(novel_manager.chapter_files(book_path)[-1])
+                matches = [path for path in novel_manager.chapter_files(book_path) if os.path.basename(path) == filename]
+                if len(matches) != 1:
+                    raise ValueError("待修订章节不存在")
+                target = matches[0]
+                prompt += "\n待修订章节全文如下，请输出包含原标题的完整修订正文。\n" + novel_manager.read_chapter(book_id, filename, BOOKS_DIR)
+            _, output = deepseek_client.execute_instruction(book_path, book_id, prompt, model, effort, DATA_DIR, report)
+            if not isinstance(output, str) or not output.strip():
+                raise ValueError("创作返回内容为空")
+            with WRITE_LOCK:
+                if book_snapshot(book_path)["revision"] != before:
+                    draft = os.path.join(book_path, ".generation-drafts", tid + ".md")
+                    atomic_write(draft, output)
+                    raise RuntimeError("创作期间作品已修改，生成结果已保留在 .generation-drafts")
+                if action == "generate_chapter_notes":
+                    notes = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", output.strip()))
+                    note, comments = notes.get("author_note"), notes.get("chapter_comments")
+                    if not isinstance(note, str) or not isinstance(comments, list) or len(comments) > 20 or any(not isinstance(value, str) for value in comments):
+                        raise ValueError("互动文案返回格式无效")
+                    extras = novel_manager.get_chapter_extras(book_id, extra["chapter_file"], BOOKS_DIR)
+                    meta = extras.get("meta") or {}
+                    if meta.get("revision") != existing_notes.get("revision"):
+                        raise ValueError("互动文案已被作者修改，请重新生成")
+                    directory = os.path.join(book_path, "02_插图", extras["chap_dir"])
+                    meta.update(chapter_filename=extra["chapter_file"], chapter_code=extras["chap_dir"], author_note=note, chapter_comments=comments, revision=uuid.uuid4().hex)
+                    atomic_write(os.path.join(directory, "作者有话说.md"), note)
+                    atomic_write(os.path.join(directory, "章节评论.md"), "\n\n".join(comments))
+                    save_json_file(os.path.join(directory, "meta.json"), meta)
+                    files.append(os.path.join(directory, "meta.json"))
+                elif target:
+                    expected = re.search(r"第(\d+)章", os.path.basename(target))
+                    if expected and not re.search(rf"第0*{int(expected.group(1))}章", output.splitlines()[0]):
+                        atomic_write(os.path.join(book_path, ".generation-drafts", tid + ".md"), output)
+                        raise ValueError("修订返回的章节编号不一致，生成稿已保留")
+                    atomic_write(os.path.join(book_path, "01_正文", ".backup", os.path.basename(target) + ".bak_" + uuid.uuid4().hex), Path(target).read_text(encoding="utf-8"))
+                    atomic_write(target, output)
+                    files.append(target)
+                else:
+                    name = extra.get("target_doc") if action == "evolve_settings" and task.get("sub_action") != "audit" else None
+                    name = safe_component(name) if name else ("世界观人物与首卷大纲.md" if action == "create_new_novel" else f"推演结果_{tid}.md")
+                    if not name.endswith(".md"):
+                        name += ".md"
+                    destination = within(os.path.join(book_path, "00_设定集"), name)
+                    if os.path.isfile(destination):
+                        atomic_write(os.path.join(book_path, ".sync-archive", uuid.uuid4().hex, name), Path(destination).read_text(encoding="utf-8"))
+                    atomic_write(destination, output)
+                    files.append(destination)
+                summary = "创作结果已保存，可在对应正文、设定或章节素材中查看"
+        with WRITE_LOCK:
+            task.update(status="completed", completed_at=time.time(), result={"summary": summary, "files": files})
+            report(summary)
+    except Exception as error:
+        with WRITE_LOCK:
+            task.update(status="failed", completed_at=time.time(), result={"files": files})
+            report("任务失败 " + str(error))
+    finally:
+        stopped.set()
+        with WRITE_LOCK:
             invalidate_cache()
-    except Exception as e:
-        task["status"] = "failed"
-        task["completed_at"] = time.time()
-        task["progress_log"].append(f"[{time.strftime('%H:%M:%S')}] ❌ 任务执行失败: {str(e)}")
-        save_json_file(tasks_file, TASKS)
+            save_json_file(tasks_file, TASKS)
+        start_ready_cloud_tasks()
 
 
 class BoundedHTTPServer(ThreadingHTTPServer):
@@ -558,7 +631,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 safe_component(query["file"][0])
             if self.path.split("?")[0].rstrip("/").endswith((
                     "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
-                    "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/cover", "/app_settings")):
+                    "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/cover", "/app_settings", "/sync_manifest", "/sync_document")):
                 with WRITE_LOCK:
                     self.handle_get()
             else:
@@ -694,6 +767,9 @@ class HubHandler(BaseHTTPRequestHandler):
 
         # 书籍封面接口 (公网流式直出：有真实封面输出真实图片，无封面动态输出矢量SVG)
         if path in ("/api/cover", "/novel/api/cover"):
+            if not self.check_auth():
+                self.send_json({"error": "Unauthorized"}, 401)
+                return
             book_id = qs.get("book", [""])[0]
             cover_data = None
             mime_type = "image/png"
@@ -729,7 +805,7 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", mime_type)
             self.send_header("Content-Length", str(len(cover_data)))
-            self.send_header("Cache-Control", "public, max-age=600")
+            self.send_header("Cache-Control", "no-store")
             if qs.get("download") == ["1"]:
                 fname = f"cover_{book_id}.png" if "png" in mime_type else f"cover_{book_id}.svg"
                 self.send_header("Content-Disposition", f'attachment; filename="{urllib.parse.quote(fname)}"')
@@ -742,7 +818,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Unauthorized", "need_login": True}, 401)
                 return
             catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": [], "updated_at": 0})
-            engines_list = list(catalog.get("engines", []))
+            engines_list = [entry for entry in catalog.get("engines", []) if entry.get("id") != "deepseek"]
             try:
                 import deepseek_client
                 ds_info = deepseek_client.discover(DATA_DIR)
@@ -812,6 +888,32 @@ class HubHandler(BaseHTTPRequestHandler):
                 if catalog["chapters"]:
                     latest = chapter_document(selected, catalog["chapters"][-1]["filename"])
             self.send_json({**books, **catalog, "book": selected, "latest": latest})
+            return
+
+        if path in ("/api/sync_manifest", "/novel/api/sync_manifest"):
+            books = {book["id"]: book_snapshot(book["path"]) for book in novel_manager.list_books(BOOKS_DIR)}
+            preferences = novel_manager.get_user_settings(DATA_DIR)
+            preferences = {key: value for key, value in preferences.items() if not key.startswith("deepseek_")}
+            self.send_json({"books": books, "deleted": load_json_file(os.path.join(DATA_DIR, "book_tombstones.json"), {}), "preferences": preferences})
+            return
+
+        if path in ("/api/sync_document", "/novel/api/sync_document"):
+            book, kind = qs.get("book", [""])[0], qs.get("kind", [""])[0]
+            bpath, _ = novel_manager.get_book_path(book, BOOKS_DIR)
+            if kind == "chapters":
+                content = novel_manager.read_chapter(book, qs.get("file", [""])[0], BOOKS_DIR)
+                self.send_json({"content": content.lstrip("\ufeff")})
+            elif kind == "settings":
+                name = safe_component(qs.get("file", [""])[0])
+                if not name.endswith(".md"):
+                    raise ValueError("仅允许读取设定文档")
+                with open(within(os.path.join(bpath, "00_设定集"), name), encoding="utf-8-sig") as stream:
+                    self.send_json({"content": stream.read()})
+            elif kind == "cover":
+                covers = sorted(glob.glob(os.path.join(bpath, "00_设定集", "cover.*")))
+                self.send_json({"cover_base64": base64.b64encode(novel_manager.decode_cover(Path(covers[0]).read_bytes())).decode() if covers else ""})
+            else:
+                raise ValueError("同步文档类型无效")
             return
 
         if path in ("/api/sync_status", "/novel/api/sync_status"):
@@ -1007,7 +1109,10 @@ class HubHandler(BaseHTTPRequestHandler):
             LOCAL_STATUS["last_seen"] = time.time()
             now = time.time()
             refresh_agents = LOCAL_STATUS.pop("refresh_agents", False)
+            start_ready_cloud_tasks()
             for tid, t in list(TASKS.items()):
+                if t.get("engine_mode") == "deepseek":
+                    continue
                 if t["status"] == "running" and now - t.get("heartbeat_at", t.get("assigned_at", now)) > 180:
                     t.update(status="failed", completed_at=now)
                     t["progress_log"].append("本地执行端失去心跳，请确认 Antigravity 中的执行结果后重试")
@@ -1103,16 +1208,26 @@ class HubHandler(BaseHTTPRequestHandler):
             if not book_id:
                 raise ValueError("缺少作品编号")
             meta_update = {}
+            if "title" in body and (not isinstance(body["title"], str) or not body["title"].strip()):
+                raise ValueError("书名不能为空")
             if "title" in body and str(body["title"]).strip():
                 meta_update["title"] = str(body["title"]).strip()
             if "genre" in body:
+                if not isinstance(body["genre"], str):
+                    raise ValueError("题材格式无效")
                 meta_update["genre"] = str(body["genre"]).strip()
             if "description" in body:
+                if not isinstance(body["description"], str):
+                    raise ValueError("简介格式无效")
                 meta_update["description"] = str(body["description"]).strip()
             if "tags" in body and isinstance(body["tags"], list):
                 meta_update["tags"] = [str(t).strip() for t in body["tags"] if str(t).strip()]
+            elif "tags" in body:
+                raise ValueError("标签必须为列表")
 
-            save_res = novel_manager.save_book_meta(book_id, meta_update, BOOKS_DIR)
+            if body.get("cover_base64"):
+                novel_manager.decode_cover(body["cover_base64"])
+            save_res = novel_manager.save_book_meta(book_id, meta_update, BOOKS_DIR, rename=False)
             target_id = save_res.get("book_id", book_id)
 
             cover_base64 = body.get("cover_base64")
@@ -1135,7 +1250,17 @@ class HubHandler(BaseHTTPRequestHandler):
             clean_id = re.sub(r"^[《【\s]+|[》】\s]+$", "", book_id)
             if clean_confirm != clean_btitle and clean_confirm != clean_id:
                 raise ValueError(f"安全确认失败：输入的书名必须完全等于原书名「{btitle}」")
+            if any(t.get("book_id") == book_id and t.get("status") in ("pending", "assigned", "running") for t in TASKS.values()):
+                raise ValueError("作品有未完成任务，请待任务结束后删除")
+            tombstone_path = os.path.join(DATA_DIR, "book_tombstones.json")
+            deleted = load_json_file(tombstone_path, {})
             del_res = novel_manager.delete_book_safe(book_id, BOOKS_DIR)
+            deleted[book_id] = time.time()
+            try:
+                save_json_file(tombstone_path, deleted)
+            except Exception:
+                os.replace(del_res["trash_path"], bpath)
+                raise
             invalidate_cache()
             self.send_json({"ok": True, "result": del_res, "message": f"作品「{btitle}」已安全移入回收站"})
             return
@@ -1327,7 +1452,13 @@ class HubHandler(BaseHTTPRequestHandler):
                         content = fp.read()
 
             cleaned = novel_manager.clean_for_tomato(content, fname)
-            fix_res = novel_manager.auto_fix_tomato_content(cleaned["content"])
+            if "wrong_word" in body:
+                wrong, correct = body["wrong_word"], body.get("correct_word")
+                if not isinstance(wrong, str) or not wrong or len(wrong) > 200 or not isinstance(correct, str) or len(correct) > 200:
+                    raise ValueError("替换内容格式无效")
+                fix_res = {"fixed_content": cleaned["content"].replace(wrong, correct), "replaced_count": cleaned["content"].count(wrong)}
+            else:
+                fix_res = novel_manager.auto_fix_tomato_content(cleaned["content"])
             fixed_content = fix_res["fixed_content"]
             
             new_cleaned = {
@@ -1355,11 +1486,18 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Unauthorized"}, 401)
                 return
             action = body.get("action", "creative_instruction")
+            action = {"init_novel": "create_new_novel"}.get(action, action)
+            if action not in ("create_new_novel", "creative_instruction", "evolve_settings", "generate_chapter_notes", "generate_chapter_illustrations", "repair_chapter", "wake_antigravity"):
+                raise ValueError("未知任务类型")
             prompt = body.get("prompt", "")
             book_id = body.get("book_id") or body.get("book") or "给政哥讲量子力学，他竟肉身硬抗二向箔"
             engine_mode = canonical_engine(body.get("engine_mode", "antigravity"))
             sub_action = body.get("sub_action", "")
             extra_data = body.get("extra_data") or {}
+            if not isinstance(extra_data, dict):
+                raise ValueError("任务参数必须为对象")
+            if "workflow" in extra_data:
+                extra_data["workflow"] = {"plot": "outline", "custom": "freeform"}.get(extra_data["workflow"], extra_data["workflow"])
 
             # 智能平铺兼容：无论前端是嵌套在 extra_data 里，还是直接平铺在 body 顶层，全部自动合并到 extra_data
             for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "reasoning_effort", "instructions", "chapter_count"]:
@@ -1372,6 +1510,9 @@ class HubHandler(BaseHTTPRequestHandler):
             extra_data["chapter_count"] = count
             catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": []})
             agent = next((entry for entry in catalog["engines"] if entry["id"] == engine_mode), {})
+            if engine_mode == "deepseek":
+                import deepseek_client
+                agent = deepseek_client.discover(DATA_DIR)
             if action == "wake_antigravity":
                 model, effort = {"id": None}, None
             else:
@@ -1385,6 +1526,34 @@ class HubHandler(BaseHTTPRequestHandler):
             # 别名字段规范化
             if "target_chapter" in extra_data and "chapter_file" not in extra_data:
                 extra_data["chapter_file"] = extra_data["target_chapter"]
+
+            requested_book_id = book_id
+            if action == "create_new_novel":
+                extra_data.setdefault("title", requested_book_id)
+            request_id = body.get("request_id")
+            if request_id is not None and (not isinstance(request_id, str) or not request_id or len(request_id) > 128):
+                raise ValueError("请求编号无效")
+            def same_request(existing):
+                return (existing.get('action') == action and existing.get('requested_book_id', existing.get('book_id')) == requested_book_id
+                    and existing.get('engine_mode') == engine_mode and existing.get('prompt', '') == prompt
+                    and existing.get('sub_action', '') == sub_action and existing.get('extra_data') == extra_data)
+            for existing in TASKS.values():
+                same_id = request_id and existing.get('request_id') == request_id
+                active_serial = ((action == 'creative_instruction' and extra_data.get('workflow') == 'serial' or action == 'create_new_novel')
+                    and existing.get('status') in ('pending', 'assigned', 'running') and same_request(existing))
+                if same_id and not same_request(existing):
+                    raise ValueError("该请求编号已用于其他任务，请使用新编号")
+                if same_id or active_serial:
+                    self.send_json({"ok": True, "task_id": existing['id'], "task": existing, "deduplicated": True})
+                    return
+            if action == "create_new_novel":
+                if any(t.get("action") == action and t.get("requested_book_id", t.get("book_id")) == requested_book_id
+                       and t.get("status") in ("pending", "assigned", "running") for t in TASKS.values()):
+                    raise ValueError("同名新书架构任务正在进行")
+                if any(book["title"] == requested_book_id for book in novel_manager.list_books(BOOKS_DIR)):
+                    raise ValueError("同名作品已存在")
+                if requested_book_id in load_json_file(os.path.join(DATA_DIR, "book_tombstones.json"), {}):
+                    book_id = requested_book_id + "_" + uuid.uuid4().hex[:8]
 
             safe_component(book_id)
             if action != "create_new_novel":
@@ -1408,22 +1577,6 @@ class HubHandler(BaseHTTPRequestHandler):
                             and existing.get("extra_data", {}).get("chapter_file") == chapter_file):
                         self.send_json({"ok": True, "task_id": existing["id"], "task": existing})
                         return
-            request_id = body.get("request_id")
-            if request_id is not None and (not isinstance(request_id, str) or not request_id or len(request_id) > 128):
-                raise ValueError("请求编号无效")
-            def same_request(existing):
-                return (existing.get('action') == action and existing.get('book_id') == book_id
-                    and existing.get('engine_mode') == engine_mode and existing.get('prompt', '') == prompt
-                    and existing.get('sub_action', '') == sub_action and existing.get('extra_data') == extra_data)
-            for existing in TASKS.values():
-                same_id = request_id and existing.get('request_id') == request_id
-                active_serial = (action == 'creative_instruction' and extra_data.get('workflow') == 'serial'
-                    and existing.get('status') in ('pending', 'assigned', 'running') and same_request(existing))
-                if same_id and not same_request(existing):
-                    raise ValueError("该请求编号已用于其他任务，请使用新编号")
-                if same_id or active_serial:
-                    self.send_json({"ok": True, "task_id": existing['id'], "task": existing, "deduplicated": True})
-                    return
             tid = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
             task = {
                 "id": tid,
@@ -1432,6 +1585,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 "sub_action": sub_action,
                 "prompt": prompt,
                 "book_id": book_id,
+                "requested_book_id": requested_book_id,
                 "engine_mode": engine_mode,
                 "workspace": "D:\\小说",
                 "project_id": agent.get("project_id"),
@@ -1447,7 +1601,7 @@ class HubHandler(BaseHTTPRequestHandler):
             save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
             if engine_mode == "deepseek":
                 task["progress_log"] = [f"[{time.strftime('%H:%M:%S')}] 任务已建立，DeepSeek 官方 API 直连创作引擎正在启动..."]
-                threading.Thread(target=execute_deepseek_task_async, args=(tid,), daemon=True).start()
+                start_ready_cloud_tasks()
             self.send_json({"ok": True, "task_id": tid, "task": task})
             return
 
@@ -1476,6 +1630,8 @@ class HubHandler(BaseHTTPRequestHandler):
                     # 失效缓存以更新最新生成的章节与设定
                     invalidate_cache()
                 save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
+                if t["status"] in ("completed", "failed"):
+                    start_ready_cloud_tasks()
                 self.send_json({"ok": True})
             else:
                 self.send_json({"error": "Task not found"}, 404)
@@ -1490,7 +1646,10 @@ if __name__ == "__main__":
         with open(tasks_file, encoding="utf-8") as stream:
             TASKS = json.load(stream)
     for task in TASKS.values():
-        if task["status"] == "running" and "heartbeat_at" not in task:
+        if task.get("engine_mode") == "deepseek" and task["status"] in ("assigned", "running"):
+            task.update(status="failed", completed_at=time.time())
+            task.setdefault("progress_log", []).append("服务重启中断任务，请核对已有成果后重试")
+        elif task["status"] == "running" and "heartbeat_at" not in task:
             task.update(status="failed", completed_at=time.time())
             task.setdefault("progress_log", []).append("旧版本任务缺少完成回执，已结束异常状态。请检查已有成果后重试。")
         elif task["status"] == "running":
@@ -1500,4 +1659,5 @@ if __name__ == "__main__":
     port = 8899
     server = BoundedHTTPServer((os.environ.get("NOVEL_HUB_BIND", "127.0.0.1"), int(os.environ.get("NOVEL_HUB_PORT", port))), HubHandler)
     print(f"Novel Hub 3.5 Server (Redis Cache & Fast Tomato Engine) running on 0.0.0.0:{port}...")
+    start_ready_cloud_tasks()
     server.serve_forever()

@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -522,6 +523,113 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(status['last_success_at'], success)
         self.assertEqual(self.request('/api/sync_status', auth=False)[0], 401)
 
+    def test_bidirectional_sync_http_metadata_delete_and_tombstone(self):
+        import local_bridge as bridge
+        with tempfile.TemporaryDirectory(dir='.test-data') as directory:
+            with patch.object(bridge, 'BOOKS_ROOT', directory), patch.object(bridge, 'CLOUD_SERVER_URL', self.url + '/api'), patch.object(bridge, 'TOKEN', hub.AUTH_TOKEN), patch.object(bridge, 'SYNC_RECEIPTS', {}):
+                self.assertTrue(bridge.sync_all_books_to_cloud()[0])
+                self.assertEqual(manager.read_chapter(self.book, self.file, directory), self.text)
+                self.assertEqual(self.request('/api/book_meta', {'book_id':self.book, 'title':'仅修改显示书名'})[0], 200)
+                self.assertTrue(bridge.sync_all_books_to_cloud(False)[0])
+                self.assertEqual(manager.read_book_meta(str(Path(directory) / self.book))['title'], '仅修改显示书名')
+                Path(manager.chapter_files(str(Path(directory) / self.book))[0]).unlink()
+                self.assertTrue(bridge.sync_all_books_to_cloud(False)[0])
+                self.assertEqual(manager.chapter_files(self.path), [])
+                self.assertEqual(self.request('/api/delete_book', {'book_id':self.book, 'confirm_title':'仅修改显示书名'})[0], 200)
+                self.assertTrue(bridge.sync_all_books_to_cloud()[0])
+                self.assertFalse((Path(directory) / self.book).exists())
+        # Shared fixture is rebuilt for subsequent requests.
+        atomic_json(self.root / 'book_tombstones.json', {})
+        atomic_write(self.path / '01_正文/第一卷' / self.file, self.text)
+        atomic_write(self.path / '00_设定集/世界观.md', '设定')
+
+    def test_deepseek_uses_server_configuration_and_cannot_be_claimed_locally(self):
+        import deepseek_client
+        catalog = dict(id='deepseek', available=True, models=deepseek_client.DEEPSEEK_MODELS, capabilities={'images':False})
+        with patch.object(deepseek_client, 'discover', return_value=catalog), patch.object(hub, 'start_ready_cloud_tasks'):
+            code, result = self.dispatch(action='creative_instruction', engine_mode='deepseek',
+                extra_data={'workflow':'outline', 'model_tier':'deepseek-flash', 'reasoning_effort':'high'})
+            self.assertEqual(code, 200)
+            self.assertIsNone(self.request('/api/pending_task')[1]['task'])
+            self.assertEqual(hub.TASKS[result['task_id']]['status'], 'pending')
+            self.assertEqual(self.dispatch(engine_mode='deepseek', action='generate_chapter_illustrations')[0], 400)
+
+    def test_tomato_replacement_returns_correct_count_and_preview(self):
+        code, result = self.request('/api/tomato_autofix', {'book':self.book, 'file':self.file,
+            'content':"角色的 isn't 口头禅。", 'wrong_word':"isn't", 'correct_word':'不是'})
+        self.assertEqual(code, 200)
+        self.assertEqual(result['replaced_count'], 1)
+        self.assertIn('不是', result['content'])
+        self.assertEqual(manager.read_chapter(self.book, self.file, hub.BOOKS_DIR), self.text)
+
+    def test_cover_requires_owner_and_is_not_cached_after_edit(self):
+        self.assertEqual(self.request('/api/cover?' + self.query, auth=False)[0], 401)
+        self.assertEqual(self.request('/api/cover?' + self.query)[0], 200)
+
+    def test_new_novel_recreation_gets_new_identity_and_retry_reuses_task(self):
+        deleted_id = '已删除同名新书'
+        atomic_json(self.root / 'book_tombstones.json', {deleted_id: 1})
+        payload = dict(action='create_new_novel', book_id=deleted_id, prompt='创建悬疑新书', request_id='recreate-book')
+        code, first = self.dispatch(**payload)
+        self.assertEqual(code, 200)
+        self.assertNotEqual(first['task']['book_id'], deleted_id)
+        self.assertEqual(first['task']['extra_data']['title'], deleted_id)
+        self.assertEqual(self.dispatch(**payload)[1]['task_id'], first['task_id'])
+        atomic_json(self.root / 'book_tombstones.json', {})
+
+    def test_cloud_writing_real_http_transport_and_two_chapter_persistence(self):
+        import time
+        from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+        calls = []
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                calls.append(payload)
+                number = re.search(r'第(\d+)章', payload['messages'][-1]['content']).group(1)
+                body = json.dumps({'choices':[{'finish_reason':'stop', 'message':{'content':f'# 第{number}章 桩章节\n\n' + '用于验证真实 HTTP 写作传输与保存。' * 50}}]}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        upstream = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
+        settings_path = self.root / '.user_settings.json'
+        old_settings = settings_path.read_bytes() if settings_path.exists() else None
+        before = set(manager.chapter_files(self.path))
+        direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        network_patch = patch.object(urllib.request, 'urlopen', side_effect=lambda request, context=None, timeout=300: direct.open(request, timeout=timeout))
+        network_patch.start()
+        try:
+            manager.save_user_settings({'deepseek_enabled':True, 'deepseek_api_key':'sk-local-stub-only',
+                'deepseek_base_url':f'http://127.0.0.1:{upstream.server_port}'}, str(self.root))
+            code, result = self.dispatch(action='creative_instruction', engine_mode='deepseek',
+                extra_data={'workflow':'serial', 'chapter_count':2, 'model_tier':'deepseek-flash', 'reasoning_effort':'none'})
+            self.assertEqual(code, 200)
+            deadline = time.monotonic() + 10
+            while hub.TASKS[result['task_id']]['status'] not in ('completed','failed') and time.monotonic() < deadline:
+                self.assertIsNone(self.request('/api/pending_task')[1]['task'])
+                time.sleep(.02)
+            task = hub.TASKS[result['task_id']]
+            self.assertEqual(task['status'], 'completed', task['progress_log'])
+            self.assertEqual(len(task['result']['files']), 2)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0]['thinking']['type'], 'disabled')
+            self.assertIn('桩章节', calls[1]['messages'][-1]['content'])
+            self.assertEqual(len(manager.chapter_files(self.path)), len(before) + 2)
+        finally:
+            network_patch.stop()
+            upstream.shutdown()
+            upstream.server_close()
+            for filename in set(manager.chapter_files(self.path)) - before:
+                Path(filename).unlink()
+            if old_settings is None:
+                settings_path.unlink(missing_ok=True)
+            else:
+                atomic_write(settings_path, old_settings)
+            hub.invalidate_cache()
+
     def test_catalog_reuses_metadata_after_another_chapter_changes(self):
         hub.chapter_catalog(self.book)
         with patch.object(manager, 'clean_for_tomato', wraps=manager.clean_for_tomato) as clean:
@@ -878,12 +986,15 @@ class SyncBridgeTests(unittest.TestCase):
         atomic_write(self.file, '旧正文')
         self.patch = patch.object(self.bridge, 'BOOKS_ROOT', str(self.root))
         self.patch.start()
+        self.get_patch = patch.object(self.bridge, "api_get", return_value={"books": {}, "deleted": {}})
+        self.get_patch.start()
         self.bridge.SYNC_RECEIPTS.clear()
         self.bridge.SYNC_REPORT_PENDING = False
         self.sent = []
 
     def tearDown(self):
         self.patch.stop()
+        self.get_patch.stop()
         self.temporary.cleanup()
 
     def post(self, endpoint, payload):
@@ -938,6 +1049,17 @@ class SyncBridgeTests(unittest.TestCase):
     def test_missing_source_root_is_failure(self):
         with patch.object(self.bridge, 'BOOKS_ROOT', str(self.root / 'missing')), patch.object(self.bridge, 'api_post', side_effect=self.post):
             self.assertFalse(self.bridge.sync_all_books_to_cloud()[0])
+
+    def test_snapshot_read_race_does_not_acknowledge_unuploaded_edits(self):
+        original = self.bridge.collect_book_data
+        def changing_read(book):
+            result = original(book)
+            atomic_write(self.file, '读取期间保存的新稿')
+            return result
+        with patch.object(self.bridge, 'collect_book_data', side_effect=changing_read), patch.object(self.bridge, 'api_post', side_effect=self.post):
+            self.assertFalse(self.bridge.sync_all_books_to_cloud(False)[0])
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.bridge.SYNC_RECEIPTS, {})
 
 if __name__ == '__main__':
     unittest.main()

@@ -149,7 +149,9 @@
             align-items: center;
             gap: 6px;
             flex-shrink: 0;
+            margin-left: auto;
         }
+        @media (max-width: 600px) { header { flex-wrap: wrap; } }
 
         .status-pill {
             display: inline-flex;
@@ -1502,6 +1504,7 @@
             display: flex; flex-direction: column; gap: 8px;
         }
         .novel-picker-option {
+            width:100%; text-align:left; font:inherit;
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 10px;
@@ -1594,7 +1597,7 @@
                 <span id="status-text">检测中</span>
             </div>
             <!-- 官方域名下载链接 (App 内自动隐藏) -->
-            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.0" class="btn-apk-pill" download>
+            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.1" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
             <button class="btn-apk-pill" onclick="openSettingsModal()" title="系统全局设置与创作风控偏好" style="background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-main); cursor:pointer;">
@@ -1775,8 +1778,8 @@
                 <div class="workflow-tabs-strip">
                     <div id="wf-tab-serial" class="wf-tab-btn active" onclick="switchWorkflowTab('serial')">✍️ 自动续写</div>
                     <div id="wf-tab-polish" class="wf-tab-btn" onclick="switchWorkflowTab('polish')">✨ 单章精修</div>
-                    <div id="wf-tab-plot" class="wf-tab-btn" onclick="switchWorkflowTab('plot')">🗺️ 大纲推演</div>
-                    <div id="wf-tab-custom" class="wf-tab-btn" onclick="switchWorkflowTab('custom')">🛠️ 自由指令</div>
+                    <div id="wf-tab-outline" class="wf-tab-btn" onclick="switchWorkflowTab('outline')">🗺️ 大纲推演</div>
+                    <div id="wf-tab-freeform" class="wf-tab-btn" onclick="switchWorkflowTab('freeform')">🛠️ 自由指令</div>
                 </div>
 
                 <label id="serial-count-row" style="display:flex;align-items:center;gap:12px;margin:12px 0;color:var(--text-sub);font-size:13px">
@@ -1788,7 +1791,7 @@
                     <!-- 动态注入 -->
                 </div>
 
-                <textarea id="prompt-box" class="prompt-textarea" placeholder="在此输入具体创作指令..."></textarea>
+                <textarea id="prompt-box" oninput="rememberWorkflowDraft()" class="prompt-textarea" placeholder="在此输入具体创作指令..."></textarea>
 
                 <button id="dispatch-btn" class="btn-launch-big" onclick="launchTask()">
                     执行当前类型任务
@@ -2103,7 +2106,7 @@
             </div>
 
             <div class="input-group">
-                <label class="input-label">📖 小说书名（修改后将安全重命名底层目录）</label>
+                <label class="input-label">📖 小说书名</label>
                 <input type="text" id="edit-book-title" class="input-text" placeholder="输入小说书名">
             </div>
 
@@ -2181,6 +2184,7 @@
                         <select id="setting-default-engine" class="select-box" style="width:170px;">
                             <option value="antigravity">Antigravity (推荐)</option>
                             <option value="codex">ChatGPT (Codex)</option>
+                            <option value="deepseek">DeepSeek 云端直连</option>
                         </select>
                     </div>
                     <div class="setting-item">
@@ -2443,7 +2447,7 @@
         let CHAPTERS = [];
         let FILTERED_CHAPTERS = [];
         let CURRENT_INDEX = 0;
-        let CURRENT_ENGINE = localStorage.getItem("novel_agent") === "codex" ? "codex" : "antigravity";
+        let CURRENT_ENGINE = ["codex", "antigravity", "deepseek"].includes(localStorage.getItem("novel_agent")) ? localStorage.getItem("novel_agent") : "antigravity";
         let CURRENT_MODEL_TIER = ""; // 从客户端模型目录初始化
         let ACTIVE_TASK_ID = null;
         let TASK_POLL_TIMER = null;
@@ -2476,7 +2480,7 @@
             checkStatus();
             setInterval(checkStatus, 10000);
             if (!TOKEN) await requestAccessLogin();
-            loadAgentCatalog();
+            loadAppPreferences().then(loadAgentCatalog);
             setInterval(loadAgentCatalog, 60000);
             await loadLibrary();
             refreshSyncStatus();
@@ -2498,7 +2502,7 @@
                 await loadChapters();
                 return;
             }
-            CURRENT_BOOK = data.book || CURRENT_BOOK;
+            CURRENT_BOOK = data.book || '';
             CLIENT_CACHE.books = data.books;
             applyBooksData(data.books);
             CLIENT_CACHE.chapters[CURRENT_BOOK] = data.chapters;
@@ -2565,26 +2569,18 @@
             const state = document.getElementById('reading-share-state');
             button.disabled = true;
             state.innerText = '正在生成…';
-            showToast("正在生成七天专属免密阅读链接...", "info", 2000);
             try {
-                const result = await fetchAPI(`${API}/reading_tokens`, {
-                    method: 'POST',
-                    body: JSON.stringify({ book_id: CURRENT_BOOK })
-                });
-                if (result.ok) {
-                    document.getElementById('reading-share-url').value = result.url;
-                    state.innerText = `七天有效，到期时间：${formatDateTime(result.expires_at)}`;
-                    showToast("✓ 专属免密阅读链接已成功生成！", "success", 3000);
-                } else {
-                    state.innerText = result.error || '生成失败';
-                    showToast("生成失败: " + (result.error || "未知异常"), "error", 3500);
-                }
-            } catch (error) {
-                state.innerText = '请求超时或网络异常';
-                showToast("网络请求异常，生成失败", "error", 3500);
-            } finally {
-                button.disabled = false;
-            }
+                const result = await fetchAPI(`${API}/reading_link`, {method:'POST', body:'{}'});
+                if (!result.ok) throw Error(result.error || '生成失败，请重试');
+                const url = new URL(result.url, location.origin).href;
+                document.getElementById('reading-share-url').value = url;
+                const link = document.getElementById('reading-share-open');
+                link.href = url;
+                link.hidden = false;
+                state.innerText = `有效至 ${new Date(Date.now() + result.expires_in * 1000).toLocaleString('zh-CN', {hour12:false})}`;
+                button.innerText = '重新生成七天链接';
+            } catch (error) { state.innerText = error.message; }
+            finally { button.disabled = false; }
         }
 
         async function copyReadingLink() {
@@ -2643,11 +2639,14 @@
                     showToast("❌ 访问口令错误，请核对后重试！", "error", 3500);
                     return;
                 }
-                const token = payload.token || '';
-                const expiresAt = Number(payload.expires_at) || 0;
-                setAuthToken(token, expiresAt);
-                syncAccessCookie(token, expiresAt);
-                closeAccessLoginModal();
+                if (!payload.token) throw Error('登录响应缺少凭据');
+                TOKEN = payload.token;
+                TOKEN_EXPIRES_AT = Date.now() + (Number(payload.expires_in) || 604800) * 1000;
+                localStorage.setItem('novel_token', TOKEN);
+                localStorage.setItem('novel_token_expires_at', String(TOKEN_EXPIRES_AT));
+                syncAccessCookie();
+                document.getElementById('access-login-modal').classList.remove('show');
+                document.getElementById('access-password').value = '';
                 showToast("✓ 访问口令验证通过，欢迎登录！", "success", 2500);
                 const resolve = LOGIN_RESOLVE;
                 LOGIN_PROMISE = null;
@@ -2727,6 +2726,21 @@
             catch (error) { return {}; }
         })();
 
+        let APP_PREFERENCES = {};
+        async function loadAppPreferences() {
+            const result = await fetchAPI(`${API}/app_settings`);
+            if (!result.settings) return;
+            APP_PREFERENCES = result.settings;
+            if (!localStorage.getItem('novel_agent')) CURRENT_ENGINE = APP_PREFERENCES.default_engine || 'antigravity';
+            document.getElementById('serial-chapter-count').value = String(APP_PREFERENCES.batch_count || 1);
+            if (APP_PREFERENCES.reader_font_size) {
+                CURRENT_FONT_SIZE = APP_PREFERENCES.reader_font_size;
+                document.documentElement.style.setProperty('--reader-font-size', `${CURRENT_FONT_SIZE}px`);
+            }
+            if (PROMPT_CONTEXT && !WORKFLOW_DRAFTS.has(PROMPT_CONTEXT)) fillWorkflowPrompt(CURRENT_WORKFLOW);
+            updateNextLabel();
+        }
+
         function currentAgent() { return AGENT_CATALOG.engines.find(agent => agent.id === CURRENT_ENGINE) || {}; }
         function currentModel() { return (currentAgent().models || []).find(model => model.id === CURRENT_MODEL_TIER); }
         function currentAgentName() { return currentAgent().name || CURRENT_ENGINE; }
@@ -2740,6 +2754,10 @@
                 return;
             }
             AGENT_CATALOG = result;
+            const types = document.getElementById('agent-type-select');
+            const identifiers = ['antigravity', 'codex', ...result.engines.filter(agent => agent.id === 'deepseek' && agent.available).map(agent => agent.id)];
+            types.replaceChildren(...identifiers.map(id => new Option(result.engines.find(agent => agent.id === id)?.name || id, id)));
+            if (!identifiers.includes(CURRENT_ENGINE)) CURRENT_ENGINE = 'antigravity';
             applyAgentSelection();
         }
 
@@ -2769,6 +2787,7 @@
             const agent = currentAgent();
             const models = agent.models || [];
             const preference = AGENT_PREFERENCES[CURRENT_ENGINE] || {};
+            if (!preference.effort) preference.effort = ({'高':'high','中':'medium','低':'low'})[APP_PREFERENCES.default_effort] || APP_PREFERENCES.default_effort;
             const active = models.find(model => model.id === CURRENT_MODEL_TIER && !model.disabled)
                 || models.find(model => model.id === preference.model && !model.disabled)
                 || models.find(model => model.is_default && !model.disabled)
@@ -2829,24 +2848,29 @@
         }
 
         // 远程唤醒检测 Antigravity
-        function wakeAntigravity() {
-            showToast("正在对所选执行端进行心跳连通性探测...", "info", 2000);
+        async function wakeAntigravity() {
             const term = document.getElementById("term-container");
             if (term) term.style.display = "block";
             const statText = document.getElementById("pipeline-status-text");
             if (statText) statText.innerText = "⚡ 正在发送指令，检测所选桌面执行端…";
             const termText = document.getElementById("task-terminal");
-            if (termText) termText.innerText = `[${new Date().toLocaleTimeString()}] 正在检测电脑进程健康与代理端口连通性...`;
+            if (termText) termText.innerText = `[${new Date().toLocaleTimeString()}] 正在检测电脑进程健康与 Clash Verge 代理端口连通性...`;
 
-            fetchAPI(`${API}/ping`).then(res => {
-                if (res && res.ok) {
-                    showToast("✓ 执行端在线响应正常！随时可执行创作！", "success", 2500);
-                } else {
-                    showToast("⚠️ 执行端离线或未启动，请确认电脑桥接进程", "warning", 3500);
-                }
-            }).catch(e => {
-                showToast("无法连通执行端，请检查网络", "error", 3500);
+            const res = await fetchAPI(`${API}/dispatch_task`, {
+                method: "POST",
+                body: JSON.stringify({
+                    action: "wake_antigravity",
+                    book_id: CURRENT_BOOK
+                })
             });
+            if (res && res.error) { showToast(res.error); return; }
+            const tid = res ? (res.task_id || (res.task && res.task.id)) : null;
+            if (tid) {
+                ACTIVE_TASK_ID = tid;
+                startPolling(async () => {
+                    checkStatus();
+                });
+            }
         }
 
         // 加载书架 (SWR极速秒级渲染)
@@ -2865,6 +2889,12 @@
 
         function applyBooksData(booksList) {
             BOOKS = booksList;
+            if (!BOOKS.length) {
+                CURRENT_BOOK = '';
+                CLIENT_CACHE.books = [];
+                applyChaptersData([]);
+                document.getElementById('dispatch-btn').disabled = true;
+            }
             if (BOOKS.length > 0 && !BOOKS.some(book => book.id === CURRENT_BOOK)) {
                 CURRENT_BOOK = BOOKS[0].id;
             }
@@ -2873,11 +2903,12 @@
 
         function updateBookLabels() {
             const lbl = document.getElementById("current-book-label");
-            if (lbl) lbl.innerText = `《${CURRENT_BOOK}》`;
+            const title = (BOOKS.find(book => book.id === CURRENT_BOOK) || {}).title || CURRENT_BOOK || '暂无作品';
+            if (lbl) lbl.innerText = `《${title}》`;
             const htitle = document.getElementById("catalog-hero-title");
-            if (htitle) htitle.innerText = CURRENT_BOOK;
+            if (htitle) htitle.innerText = title;
             const aitarget = document.getElementById("ai-target-book");
-            if (aitarget) aitarget.innerText = `《${CURRENT_BOOK}》`;
+            if (aitarget) aitarget.innerText = `《${title}》`;
         }
 
         let EDIT_COVER_BASE64 = null;
@@ -2904,11 +2935,11 @@
             
             const cardsHtml = BOOKS.map(b => {
                 const isCurrent = (b.id === CURRENT_BOOK);
-                const coverSrc = `${API}/cover?book=${encodeURIComponent(b.id)}`;
+                const coverSrc = `${API}/cover?book=${encodeURIComponent(b.id)}&v=${encodeURIComponent(b.cover_version || '')}`;
                 const genreBadge = b.genre || '宇宙科技修仙';
                 const desc = b.description ? escapeHtml(b.description).replace(/\n/g, ' ') : '暂无作品简介，点击【修改信息】即可补充故事背景与金手指介绍。';
                 return `
-                    <div class="book-gallery-card ${isCurrent ? 'active-card' : ''}" style="background:var(--bg-secondary); border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'}; border-radius:10px; padding:12px; display:flex; gap:14px; margin-bottom:10px; position:relative; transition:all 0.2s ease;">
+                    <div class="book-gallery-card ${isCurrent ? 'active-card' : ''}" onclick="if(!event.target.closest('button'))selectBook(${htmlArgument(b.id)})" style="background:var(--bg-secondary); border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'}; border-radius:10px; padding:12px; display:flex; gap:14px; margin-bottom:10px; position:relative; transition:all 0.2s ease;">
                         ${isCurrent ? '<div style="position:absolute; top:8px; right:8px; background:rgba(245,158,11,0.2); border:1px solid var(--accent); color:var(--accent); font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px;">● 当前创作中</div>' : ''}
                         <div style="flex-shrink:0; width:88px; height:120px; border-radius:6px; overflow:hidden; border:1px solid var(--border-highlight); background:#0b0f19; box-shadow:0 4px 10px rgba(0,0,0,0.5);">
                             <img src="${coverSrc}" alt="${escapeHtml(b.title)}" style="width:100%; height:100%; object-fit:cover; display:block;" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' viewBox=\\'0 0 100 140\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23111827\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23e2b740\\' font-size=\\'12\\' text-anchor=\\'middle\\'>封面</text></svg>'">
@@ -2960,9 +2991,8 @@
             document.getElementById("edit-book-genre").value = book.genre || "";
             document.getElementById("edit-book-desc").value = book.description || "";
             EDIT_COVER_BASE64 = null;
-            document.getElementById("edit-cover-file").value = "";
-            document.getElementById("edit-cover-preview-img").style.display = "none";
-            document.getElementById("edit-cover-placeholder-tip").style.display = "block";
+            document.getElementById("edit-book-cover-file").value = "";
+            document.getElementById("edit-book-cover-preview").src = `${API}/cover?book=${encodeURIComponent(bookId)}&v=${encodeURIComponent(book.cover_version || '')}`;
             document.getElementById("edit-book-modal").classList.add("show");
             showToast(`已载入作品《${book.title || bookId}》编辑资料`, "info", 1500);
         }
@@ -2972,11 +3002,11 @@
         }
 
         function handleCoverFileSelect(e) {
-            const files = e.target.files || (e.dataTransfer && e.dataTransfer.files);
+            const files = (e.dataTransfer && e.dataTransfer.files) || e.target.files;
             if (!files || !files.length) return;
             const file = files[0];
-            if (!file.type.startsWith("image/")) {
-                alert("请选择有效的图片文件（PNG、JPG 或 WEBP）！");
+            if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 8 * 1024 * 1024) {
+                alert("请选择 8MB 以内的 PNG、JPG 或 WEBP 图片");
                 return;
             }
             const reader = new FileReader();
@@ -3011,28 +3041,28 @@
             showToast(`正在保存作品《${newTitle}》信息与封面...`, "info", 3000);
             
             try {
-                const res = await fetchAPI(`${API}/edit_book_meta`, {
+                const res = await fetchAPI(`${API}/book_meta`, {
                     method: "POST",
                     body: JSON.stringify(payload)
                 });
                 if (res && res.ok) {
                     closeEditBookModal();
                     showToast(`✓ 作品《${newTitle}》信息与封面已成功保存！`, "success", 3500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "success",
                         title: "💾 作品资料保存成功",
                         message: `作品《${newTitle}》基本信息与封面已成功保存生效！\n\n作品元数据与封面已同步生效，书架大厅已实时更新。`
                     });
                     await loadBooks();
                     if (CURRENT_BOOK === bookId || CURRENT_BOOK === newTitle) {
-                        CURRENT_BOOK = newTitle;
+                        CURRENT_BOOK = res.book_id || bookId;
                         updateBookLabels();
                     }
                     openBookDrawer();
                 } else {
                     const errMsg = (res && res.error) || "未知错误";
                     showToast("保存失败：" + errMsg, "error", 4500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "error",
                         title: "❌ 保存失败",
                         message: "作品资料保存失败：" + errMsg
@@ -3109,7 +3139,7 @@
                     }
                     openBookDrawer();
                     showToast(res.message || `✓ 作品《${deletedTitle}》已安全移入回收站！`, "success", 3500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "success",
                         title: "🗑️ 作品已安全移入回收站",
                         message: `作品《${deletedTitle}》已安全移入回收站！\n\n作品文件夹已完整归档至 .trash/ 目录，随时可在电脑端恢复，心血绝不丢失。书架大厅已实时刷新！`
@@ -3117,7 +3147,7 @@
                 } else {
                     const errMsg = (res && res.error) || "安全校验未通过";
                     showToast("删除失败：" + errMsg, "error", 4500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "error",
                         title: "❌ 删除未通过",
                         message: "作品删除失败：" + errMsg
@@ -3181,6 +3211,7 @@
                 cancelText = "取消"
             } = (options || {});
 
+            if (_novelDialogResolve) closeNovelDialog(false);
             return new Promise((resolve) => {
                 _novelDialogResolve = resolve;
                 const modal = document.getElementById("novel-dialog-modal");
@@ -3324,13 +3355,13 @@
                     const isSelected = (opt.value === currentValue) || (idx === currentIdx);
                     const isDisabled = opt.disabled;
                     return `
-                        <div class="novel-picker-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}" 
+                        <button type="button" aria-pressed="${isSelected}" ${isDisabled ? 'disabled' : ''} class="novel-picker-option ${isSelected ? 'active' : ''} ${isDisabled ? 'disabled' : ''}"
                              onclick="${isDisabled ? 'showToast(\'该选项当前不可用\', \'warning\')' : `chooseNovelPickerOptionByIndex('${select.id || ''}', ${idx})`}">
                             <div style="flex:1; min-width:0;">
                                 <div class="opt-label" style="${isSelected ? 'color:#fbbf24; font-weight:bold;' : ''}">${escapeHtml(opt.text)}</div>
                             </div>
                             <div class="opt-indicator">${isSelected ? '●' : '○'}</div>
-                        </div>
+                        </button>
                     `;
                 }).join("");
             }
@@ -3340,15 +3371,12 @@
 
         function chooseNovelPickerOptionByIndex(selectId, index) {
             const select = document.getElementById(selectId);
-            if (select && select.options[index]) {
+            if (select && !select.disabled && select.options[index] && !select.options[index].disabled) {
                 const opt = select.options[index];
                 select.selectedIndex = index;
                 select.value = opt.value;
                 select.dispatchEvent(new Event("change", { bubbles: true }));
                 select.dispatchEvent(new Event("input", { bubbles: true }));
-                if (typeof select.onchange === "function") {
-                    try { select.onchange(); } catch(e) { console.error(e); }
-                }
                 showToast(`已选择：${opt.text}`, "info", 1800);
             }
             closeNovelPicker();
@@ -3381,6 +3409,16 @@
             document.addEventListener("touchstart", handleSelectTouchOrClick, { capture: true, passive: false });
             document.addEventListener("mousedown", handleSelectTouchOrClick, true);
             document.addEventListener("click", handleSelectTouchOrClick, true);
+            document.addEventListener("keydown", event => {
+                if (event.target.matches("select") && ["Enter", " ", "ArrowDown"].includes(event.key)) {
+                    event.preventDefault();
+                    openNovelPicker(event.target);
+                }
+                if (event.key === "Escape") {
+                    if (document.getElementById("novel-picker-modal").classList.contains("show")) closeNovelPicker();
+                    else if (document.getElementById("novel-dialog-modal").classList.contains("show")) closeNovelDialog(false);
+                }
+            });
         }
 
         function initAllCustomPickers() {
@@ -3513,16 +3551,20 @@
                 if (res && res.ok) {
                     closeSettingsModal();
                     showToast("⚙️ 全局设置与 DeepSeek API 规则已成功保存生效！", "success", 3500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "success",
                         title: "⚙️ 全局偏好保存成功",
                         message: "系统全局偏好设置与 DeepSeek 官方 API 规则已成功保存生效！\n\n默认创作引擎、字数基准、思考等级、自动阅读前文规则与风控偏好已同步生效。"
                     });
-                    await refreshAgentCatalog();
+                    APP_PREFERENCES = res.settings || payload;
+                    await loadAgentCatalog();
+                    if (AGENT_CATALOG.engines.some(agent => agent.id === payload.default_engine)) selectAgent(payload.default_engine);
+                    document.getElementById('serial-chapter-count').value = String(payload.batch_count);
+                    updateNextLabel();
                 } else {
                     const errMsg = (res && res.error) || "未知错误";
                     showToast("保存失败：" + errMsg, "error", 4500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "error",
                         title: "❌ 保存失败",
                         message: "全局偏好设置保存失败：" + errMsg
@@ -3536,6 +3578,7 @@
         }
 
         async function selectBook(bookId) {
+            document.getElementById('dispatch-btn').disabled = false;
             showToast(`正在切换创作作品至《${bookId}》...`, "info", 1800);
             rememberNotesDraft();
             CURRENT_BOOK = bookId;
@@ -3550,6 +3593,7 @@
             updateBookLabels();
             closeBookDrawer();
             await loadChapters();
+            switchWorkflowTab(CURRENT_WORKFLOW);
             if (document.getElementById("panel-tomato").classList.contains("active") && CHAPTERS.length) {
                 openTomatoAudit(CHAPTERS.length - 1);
             }
@@ -3589,7 +3633,7 @@
                 const res = await fetchAPI(`${API}/dispatch_task`, {
                     method: "POST",
                     body: JSON.stringify({
-                        action: "init_novel",
+                        action: "create_new_novel",
                         book_id: title,
                         prompt: `架构全新长篇小说《${title}》：题材流派【${genre}】，核心脑洞与初始设定【${concept}】。请完成世界观构思、战力境界划分、核心人物小传与第一卷分章细纲，并建立 00_设定集。`,
                         engine_mode: CURRENT_ENGINE,
@@ -3605,16 +3649,16 @@
                 if (res.ok) {
                     ACTIVE_TASK_ID = res.task.id;
                     showToast("🎉 新书架构任务已成功下发至电脑端！", "success", 3000);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "success",
                         title: "🎉 新书架构指令下发成功",
                         message: `全新作品《${title}》架构指令已成功写入电脑任务队列！\n\n所选执行端：${currentAgentName()}（${CURRENT_MODEL_TIER}）\n系统正在初始化小说工程、创建 00_设定集并构思首卷大纲。完成后书架大厅将自动载入！`
                     });
                     startPolling(async () => {
                         await loadBooks();
-                        await selectBook(title);
+                        await selectBook(res.task.book_id || title);
                         showToast(`🎉 恭喜！全新作品《${title}》架构与设定集已生成落盘！`, "success", 4000);
-                        await showNovelDialog({
+                        showNovelDialog({
                             type: "success",
                             title: "🎉 作品架构创建完成",
                             message: `恭喜！全新作品《${title}》架构与设定集已成功生成落盘！\n\n已自动在电脑端建立作品目录与 00_设定集，包含核心大纲、战力境界与第一卷细纲。书架与目录已自动载入！`
@@ -3623,7 +3667,7 @@
                 } else {
                     const errMsg = res.error || "未知错误";
                     showToast("新书架构指令下发失败: " + errMsg, "error", 4500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "error",
                         title: "❌ 指令下发失败",
                         message: "新书架构指令下发失败: " + errMsg
@@ -3685,7 +3729,7 @@
                 if (res.ok) {
                     ACTIVE_TASK_ID = res.task.id;
                     showToast("🎉 设定演化任务已成功下发至电脑端！", "success", 3000);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "success",
                         title: "🎉 设定演化下发成功",
                         message: `设定演化任务已成功下发！\n\n目标作品：《${CURRENT_BOOK}》\n演化目标：${targetDoc || '全部设定集'}\n\n执行端正在推演推导新设定，推演完成后将自动落盘并刷新设定大典！`
@@ -3693,7 +3737,7 @@
                     startPolling(async () => {
                         await loadSettings();
                         showToast("🎉 设定大典升级演化完成！新设定已同步！", "success", 4000);
-                        await showNovelDialog({
+                        showNovelDialog({
                             type: "success",
                             title: "🎉 设定升级完成",
                             message: "恭喜！设定大典升级演化完成！新设定文档已同步入库！"
@@ -3702,7 +3746,7 @@
                 } else {
                     const errMsg = res.error || "未知异常";
                     showToast("指令下发失败: " + errMsg, "error", 4500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "error",
                         title: "❌ 指令下发失败",
                         message: "指令下发失败: " + errMsg
@@ -3715,6 +3759,7 @@
 
         // 加载章节与前章钩子 (SWR极速秒级渲染)
         async function loadChapters() {
+            if (!CURRENT_BOOK) { applyChaptersData([]); return; }
             const book = CURRENT_BOOK;
             try {
                 if (CLIENT_CACHE.chapters[CURRENT_BOOK] && CLIENT_CACHE.chapters[CURRENT_BOOK].length > 0) {
@@ -3745,6 +3790,14 @@
                 previous[key] = version;
             }
             CHAPTERS = chaptersList;
+            if (!CHAPTERS.length) {
+                CURRENT_INDEX = 0;
+                CURRENT_TOMATO_FILE = '';
+                CURRENT_TOMATO_DATA = null;
+                CURRENT_EXTRAS_DATA = null;
+                document.getElementById('chapter-title').innerText = '暂无章节';
+                document.getElementById('chapter-content').innerText = '暂无正文，可在书架创建作品或在操控 AI 中开始创作。';
+            }
             const search = document.getElementById("catalog-search").value.trim().toLowerCase();
             FILTERED_CHAPTERS = CHAPTERS.filter(chapter => !search || `${chapter.title} ${chapter.filename}`.toLowerCase().includes(search));
             
@@ -3986,12 +4039,24 @@
         }
 
         // 4 大专业创作工坊选项卡切换
+        const WORKFLOW_DRAFTS = new Map();
+        let PROMPT_CONTEXT = "";
+        function rememberWorkflowDraft() {
+            if (PROMPT_CONTEXT) WORKFLOW_DRAFTS.set(PROMPT_CONTEXT, document.getElementById("prompt-box").value);
+        }
+
         function switchWorkflowTab(wf) {
+            rememberWorkflowDraft();
             CURRENT_WORKFLOW = wf;
             document.getElementById("wf-tab-serial").classList.toggle("active", wf === "serial");
             document.getElementById("wf-tab-polish").classList.toggle("active", wf === "polish");
             document.getElementById("wf-tab-outline").classList.toggle("active", wf === "outline");
             document.getElementById("wf-tab-freeform").classList.toggle("active", wf === "freeform");
+            document.getElementById("serial-count-row").style.display = wf === "serial" ? "flex" : "none";
+            fillWorkflowPrompt(wf);
+            const context = `${CURRENT_BOOK}:${wf}`;
+            if (WORKFLOW_DRAFTS.has(context)) document.getElementById("prompt-box").value = WORKFLOW_DRAFTS.get(context);
+            PROMPT_CONTEXT = context;
             updateNextLabel();
             const tabNames = { serial: '⚡ 自动续写', polish: '✨ 单章精控', outline: '📜 大纲推演', freeform: '🎯 自由指令' };
             showToast(`已切换工作流：${tabNames[wf] || wf}`, "info", 1500);
@@ -4000,8 +4065,7 @@
         function fillWorkflowPrompt(wf) {
             const chips = document.getElementById("workflow-chips-container");
             const pbox = document.getElementById("prompt-box");
-            const nextNum = Math.max(0, ...CHAPTERS.map(chapter => Number((chapter.filename.match(/第(\d+)章/) || [0, 0])[1]))) + 1;
-            const padNum = String(nextNum).padStart(3, "0");
+            pbox.placeholder = "在此补充本次创作要求";
 
             if (wf === "serial") {
                 chips.innerHTML = `
@@ -4010,7 +4074,7 @@
                     <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
                     <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
                 `;
-                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，按每轮指定章号检索对应分章细纲，研读全套设定大典与前情伏笔账本，完整阅读最新前章正文并核对人物状态、时间线与伏笔，逐章创作正文（4000-5000字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
+                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，按每轮指定章号检索对应分章细纲，研读全套设定大典与前情伏笔账本，完整阅读最新前章正文并核对人物状态、时间线与伏笔，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
             } else if (wf === "polish") {
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('黄金留存')">🔥 黄金留存率爆改 (前3章优化)</div>
@@ -4019,14 +4083,14 @@
                     <div class="chip" onclick="applyPromptTag('标点纠偏')">🔍 全角标点与错别字排查</div>
                 `;
                 pbox.value = `请对最新章节进行全篇精修润色：强化当前作品人物的情绪与冲突，深化本书核心设定在剧情中的呈现，确保中文全角双引号“”规范与移动端短段落排版。`;
-            } else if (wf === "plot") {
+            } else if (wf === "outline") {
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('主线高潮')">🌌 推演后20章大主线走向</div>
-                    <div class="chip" onclick="applyPromptTag('伏笔暗线')">🔍 设计外星矿产局观察者伏笔</div>
+                    <div class="chip" onclick="applyPromptTag('伏笔暗线')">🔍 设计本书伏笔与回收计划</div>
                     <div class="chip" onclick="applyPromptTag('战力推演')">⚖️ 境界能级与科技生产力推演</div>
                 `;
-                pbox.value = `请基于《${CURRENT_BOOK}》的 00_设定集，推演后续 20-30 章的主线走向与剧情大高潮，重点设计核心反转、外部星际势力的降临线索以及大秦帝国全疆域工业化修仙的生产力爆发点！`;
-            } else if (wf === "custom") {
+                pbox.value = `请基于《${CURRENT_BOOK}》的 00_设定集，推演后续 20-30 章的主线走向与剧情大高潮，重点设计符合本书题材与设定的核心反转、人物成长和伏笔回收！`;
+            } else if (wf === "freeform") {
                 chips.innerHTML = `
                     <div class="chip" onclick="applyPromptTag('清空')">🧹 清空输入框</div>
                 `;
@@ -4047,6 +4111,8 @@
         }
 
         async function launchTask() {
+            if (!CURRENT_BOOK) return showToast('请先创建或选择作品', 'warning');
+            if (CURRENT_WORKFLOW === 'polish' && !CHAPTERS.length) return showToast('当前作品暂无可精修章节', 'warning');
             const prompt = document.getElementById("prompt-box").value.trim();
             if (!prompt) { showToast("请输入创作指令要求！", "error"); return; }
 
@@ -4089,7 +4155,7 @@
                     document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 ${modelDisplayName} 执行任务...`;
                     document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] ${res.deduplicated ? "已关联现有任务" : "任务已建立"} (${ACTIVE_TASK_ID})\n正在连接所选桌面执行端...`;
                     showToast("🎉 创作任务已成功下发至电脑端！", "success", 3000);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "success",
                         title: "🎉 创作任务下发成功",
                         message: `长篇创作指令已成功下发至电脑端！\n\n目标作品：《${CURRENT_BOOK}》\n执行模式：${CURRENT_WORKFLOW === "serial" ? "自动续写" : (CURRENT_WORKFLOW === "polish" ? "单章精控" : (CURRENT_WORKFLOW === "outline" ? "大纲推演" : "自由指令"))}\n所选模型：${modelDisplayName}\n\n电脑端正在执行深度创作。可关注下方实时终端日志，新章节完成后将自动同步！`
@@ -4097,7 +4163,7 @@
                     startPolling(async () => {
                         await loadChapters();
                         showToast("🎉 创作任务完成！新章节已同步，快去阅读吧！", "success", 4000);
-                        await showNovelDialog({
+                        showNovelDialog({
                             type: "success",
                             title: "🎉 创作任务完成",
                             message: "恭喜！长篇小说创作任务已顺利完成，最新章节已同步入库，可前往目录或正文查阅！"
@@ -4106,7 +4172,7 @@
                 } else {
                     const errMsg = res.error || "未知错误";
                     showToast("指令下发失败: " + errMsg, "error", 4500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "error",
                         title: "❌ 指令下发失败",
                         message: "创作指令下发失败: " + errMsg
@@ -4359,7 +4425,7 @@
                 const tab = document.getElementById(`tab-issue-${c}`);
                 if (tab) tab.classList.toggle("active", c === category);
             });
-            renderTomatoAuditPanel();
+            renderIssuesList();
             const catNames = { all: '全部检出项', danger: '高危风控', typo: '错别字', punct: '标点排版', length: '篇幅字数' };
             showToast(`已筛选：${catNames[category] || category}`, "info", 1500);
         }
@@ -4403,7 +4469,7 @@
                     iss.category === 'length' ? '📏 篇幅字数' : '🟣 标点'
                 );
                 const snippetHtml = iss.snippet ? `<div class="issue-snippet">...${escapeHtml(iss.snippet)}...</div>` : '';
-                const replaceBtn = iss.replacement ? `<button class="btn-card-action tomato" style="font-size:11px; padding:3px 8px;" onclick="fixSingleTypo('${escapeHtml(iss.snippet)}', '${escapeHtml(iss.replacement)}')">⚡ 修正为「${escapeHtml(iss.replacement)}」</button>` : '';
+                const replaceBtn = iss.replacement ? `<button class="btn-card-action tomato" style="font-size:11px; padding:3px 8px;" onclick="fixSingleTypo(${htmlArgument(iss.word)}, ${htmlArgument(iss.replacement)})">⚡ 修正为「${escapeHtml(iss.replacement)}」</button>` : '';
 
                 return `
                     <div class="issue-item-card ${catClass}">
@@ -4417,7 +4483,7 @@
                                 ${iss.suggestion ? `<div style="font-size:11px; color:#cbd5e1; margin-top:3px;">💡 建议：${escapeHtml(iss.suggestion)}</div>` : ''}
                             </div>
                             <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end; flex-shrink:0;">
-                                <button class="btn-card-action" style="font-size:11px; padding:3px 8px;" onclick="locateIssueInText('${escapeHtml(iss.snippet)}', '${escapeHtml(iss.word)}')">🔍 定位</button>
+                                <button class="btn-card-action" style="font-size:11px; padding:3px 8px;" onclick="locateIssueInText(${htmlArgument(iss.snippet)}, ${htmlArgument(iss.word)})">🔍 定位</button>
                                 ${replaceBtn}
                             </div>
                         </div>
@@ -4531,7 +4597,7 @@
                 if (res && res.task_id) {
                     ACTIVE_TASK_ID = res.task_id;
                     showToast("🛠️ 定点重构任务已成功下发至电脑端！", "success", 3000);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "success",
                         title: "🛠️ 定点重构下发成功",
                         message: `章节定点重构任务已成功下发至电脑端！\n\n目标章节：${CURRENT_TOMATO_FILE}\n原文件已自动备份至 .backup 目录。\n正在自动跳转到「操控AI」工坊监控任务进度...`
@@ -4544,7 +4610,7 @@
                         switchTab('tomato');
                         await openTomatoAuditByFile(CURRENT_TOMATO_FILE);
                         showToast(`🎉 恭喜！当前章节「${CURRENT_TOMATO_FILE}」已完成定点重构！`, "success", 4000);
-                        await showNovelDialog({
+                        showNovelDialog({
                             type: "success",
                             title: "🎉 章节定点重构完成",
                             message: `恭喜！当前章节「${CURRENT_TOMATO_FILE}」已完成定点重构与安全替换！\n\n原文件已安全备份至 .backup 目录，最新版番茄智审报告已实时生成。`
@@ -4553,7 +4619,7 @@
                 } else {
                     const errMsg = (res && res.error) || "未知异常";
                     showToast("指令下发失败: " + errMsg, "error", 4500);
-                    await showNovelDialog({
+                    showNovelDialog({
                         type: "error",
                         title: "❌ 重构指令下发失败",
                         message: "指令下发失败: " + errMsg
@@ -4664,82 +4730,39 @@
             }
         }
 
-        async function autoFixCurrentChapter() {
-            if (!CURRENT_TOMATO_FILE) { showToast("请先选择要修复的章节！", "warning"); return; }
-            const btn = document.getElementById("btn-tomato-autofix");
-            const originalText = btn ? btn.innerText : "";
-            if (btn) {
-                btn.disabled = true;
-                btn.innerText = "⏳ 正在自动纠错并规范标点...";
-            }
-            showToast("⚡ 正在对当前章节进行错别字纠偏与标点排版规范...", "info", 3000);
-
+        async function autoFixCurrentChapter(replacement = null) {
+            if (!CURRENT_TOMATO_FILE || !CURRENT_TOMATO_DATA) return showToast('请先选择章节', 'warning');
+            const book = CURRENT_BOOK;
+            const filename = CURRENT_TOMATO_FILE;
+            const button = document.getElementById('btn-tomato-autofix');
+            button.disabled = true;
             try {
-                const res = await fetchAPI(`${API}/tomato_autofix`, {
-                    method: "POST",
-                    body: JSON.stringify({
-                        book: CURRENT_BOOK,
-                        file: CURRENT_TOMATO_FILE
-                    })
-                });
-
-                if (res && res.ok) {
-                    delete CLIENT_CACHE.tomatoAudit[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
-                    delete CLIENT_CACHE.chapterContent[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];
-
-                    showToast(`✓ 一键纠错完成！已纠偏 ${res.fix_count || 0} 处排版与错别字！`, "success", 3500);
-                    await showNovelDialog({
-                        type: "success",
-                        title: "🎉 一键纠错完成",
-                        message: `恭喜！一键自动修复完成！\n\n已自动纠偏 ${res.fix_count || 0} 处常见错别字并规范全角标点与首行缩进！\n章节正文已安全更新并重新生成番茄智审报告。`
-                    });
-                    await openTomatoAuditByFile(CURRENT_TOMATO_FILE);
-                    await loadChapters();
-                } else {
-                    const errMsg = (res && res.error) || "未知异常";
-                    showToast("自动修复失败: " + errMsg, "error", 4500);
-                    await showNovelDialog({
-                        type: "error",
-                        title: "❌ 自动修复失败",
-                        message: "自动修复失败: " + errMsg
-                    });
-                }
-            } catch (e) {
-                showToast("请求失败: " + e.message, "error", 4500);
-            } finally {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerText = originalText || "⚡ 一键常规纠错";
-                }
-            }
+                const result = await fetchAPI(`${API}/tomato_autofix`, {method:'POST', body:JSON.stringify({
+                    book, file:filename, content:CURRENT_TOMATO_DATA.content, ...(replacement || {})
+                })});
+                if (!result.ok) throw Error(result.error || '纠错失败');
+                if (CURRENT_BOOK !== book || CURRENT_TOMATO_FILE !== filename) return;
+                const data = {...CURRENT_TOMATO_DATA, ...result, filename};
+                CLIENT_CACHE.tomatoAudit[`${book}_${filename}`] = data;
+                renderTomatoStudio(data);
+                showToast(`发布预览已纠偏 ${result.replaced_count} 处，可复制修订后的正文`, 'success');
+            } catch (error) { showToast(error.message, 'error'); }
+            finally { button.disabled = false; }
         }
 
         async function fixSingleTypo(wrongWord, correctWord) {
-            const ok = await showNovelDialog({
-                isConfirm: true,
-                type: "confirm",
-                title: "错别字修正确认",
-                message: `确定将本章内的所有「${wrongWord}」修正替换为「${correctWord}」吗？\n\n系统将自动规范替换并更新章节正文与机审报告。`
-            });
-            if (!ok) return;
-            showToast(`正在修正本章「${wrongWord}」为「${correctWord}」...`, "info", 2000);
-            await autoFixCurrentChapter();
+            const confirmed = await showNovelDialog({type:'confirm', isConfirm:true, title:'修订发布预览',
+                message:`将预览中的「${wrongWord}」替换为「${correctWord}」？`});
+            if (confirmed) await autoFixCurrentChapter({wrong_word:wrongWord, correct_word:correctWord});
         }
 
         function copyTomatoContent() {
-            if (!CURRENT_TOMATO_DATA) { showToast("请先选择章节！", "warning"); return; }
+            if (!CURRENT_TOMATO_DATA) return alert("请先选择章节！");
             const cleanText = `${CURRENT_TOMATO_DATA.title}\n\n${CURRENT_TOMATO_DATA.content}`;
             navigator.clipboard.writeText(cleanText).then(() => {
-                showToast("📋 番茄标准纯净正文已成功复制到剪贴板！可以直接发布至作家助手！", "success", 3500);
+                alert("📋 番茄标准纯净正文已成功复制！\n✓ 包含番茄标准首行全角缩进两格\n✓ 严格中文字符与全角对齐\n✓ 可直接粘贴至番茄作家助手后台发布！");
             }).catch(() => {
-                const textarea = document.getElementById("tomato-preview-text");
-                if (textarea) {
-                    textarea.select();
-                    document.execCommand('copy');
-                    showToast("📋 番茄标准纯净正文已复制！", "success", 3000);
-                } else {
-                    showToast("复制失败，请在预览框中长按全选复制！", "error", 3500);
-                }
+                alert("复制失败，请在预览框中长按全选复制！");
             });
         }
 
@@ -4765,21 +4788,7 @@
             }
         }
 
-        function showToast(msg, duration = 2500) {
-            let toast = document.getElementById("app-floating-toast");
-            if (!toast) {
-                toast = document.createElement("div");
-                toast.id = "app-floating-toast";
-                toast.style.cssText = "position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:rgba(15,23,42,0.96); color:#fde047; border:1px solid rgba(234,179,8,0.5); padding:10px 20px; border-radius:30px; font-size:12px; font-weight:700; z-index:99999; box-shadow:0 10px 30px rgba(0,0,0,0.85); pointer-events:none; transition:opacity 0.3s ease; opacity:0; text-align:center; max-width:85%;";
-                document.body.appendChild(toast);
-            }
-            toast.innerText = msg;
-            toast.style.opacity = "1";
-            clearTimeout(toast._timer);
-            toast._timer = setTimeout(() => {
-                toast.style.opacity = "0";
-            }, duration);
-        }
+
 
         const NOTES_DRAFTS = new Map();
         const EXTRAS_TASKS = new Map();

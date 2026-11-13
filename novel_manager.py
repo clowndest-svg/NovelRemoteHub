@@ -18,7 +18,9 @@ import zipfile
 import io
 import datetime
 import base64
-from storage import within, safe_component
+import uuid
+from PIL import Image
+from storage import within, safe_component, atomic_json, atomic_write
 
 # 自动判断当前是在本地 Windows 还是云端 Linux
 if os.name == "nt":
@@ -72,72 +74,83 @@ def read_book_meta(bpath, book_id=None):
         meta["has_cover"] = False
     return meta
 
-def save_book_meta(book_id, meta_data, root_dir=None):
+def save_book_meta(book_id, meta_data, root_dir=None, rename=True):
     bpath, _ = get_book_path(book_id, root_dir)
-    settings_dir = os.path.join(bpath, "00_设定集")
-    os.makedirs(settings_dir, exist_ok=True)
     current = read_book_meta(bpath, book_id)
-    current.update(meta_data)
-    current["updated_at"] = int(datetime.datetime.now().timestamp())
-    
-    # 写入 book.json
-    meta_file = get_book_meta_file(bpath)
-    with open(meta_file, "w", encoding="utf-8") as f:
-        json.dump(current, f, ensure_ascii=False, indent=2)
-
-    # 如果需要修改书名（重命名目录）
-    new_title = meta_data.get("new_title") or meta_data.get("title")
+    updated = dict(current)
+    for key in ("title", "genre", "author", "description", "tags"):
+        if key in meta_data:
+            value = meta_data[key]
+            if key == "tags":
+                if not isinstance(value, list) or any(not isinstance(tag, str) for tag in value):
+                    raise ValueError("作品标签格式无效")
+            elif not isinstance(value, str) or len(value) > (10000 if key == "description" else 200):
+                raise ValueError("作品信息格式或长度无效")
+            updated[key] = value
+    new_title = meta_data.get("new_title") or updated["title"]
+    if not isinstance(new_title, str) or not new_title.strip():
+        raise ValueError("书名不能为空")
+    updated["title"] = new_title.strip()
     target_id = book_id
-    if new_title and new_title.strip() and new_title.strip() != book_id:
-        safe_new = safe_component(new_title.strip())
-        base = root_dir or DEFAULT_ROOT
-        new_path = os.path.join(base, safe_new)
-        if new_path != bpath:
-            if os.path.exists(new_path):
-                raise FileExistsError(f"目标书名《{safe_new}》已存在，无法重命名")
-            os.replace(bpath, new_path)
-            bpath = new_path
-            target_id = safe_new
-            current["id"] = target_id
-            current["title"] = target_id
-            with open(get_book_meta_file(bpath), "w", encoding="utf-8") as f:
-                json.dump(current, f, ensure_ascii=False, indent=2)
+    if rename and new_title.strip() != book_id:
+        target_id = safe_component(new_title.strip())
+        new_path = within(root_dir or DEFAULT_ROOT, target_id)
+        if os.path.exists(new_path):
+            raise FileExistsError(f"目标书名《{target_id}》已存在")
+        os.replace(bpath, new_path)
+        bpath = new_path
+    updated["id"] = target_id
+    updated["updated_at"] = int(datetime.datetime.now().timestamp())
+    try:
+        atomic_json(get_book_meta_file(bpath), updated)
+    except Exception:
+        if target_id != book_id:
+            os.replace(bpath, within(root_dir or DEFAULT_ROOT, book_id))
+        raise
+    return {"ok": True, "book_id": target_id, "meta": updated}
 
-    return {"ok": True, "book_id": target_id, "meta": current}
+
+def decode_cover(image_data):
+    if isinstance(image_data, str):
+        raw = base64.b64decode(image_data.split(",", 1)[-1], validate=True)
+    elif isinstance(image_data, bytes):
+        raw = image_data
+    else:
+        raise ValueError("封面格式无效")
+    if len(raw) > 8 * 1024 * 1024:
+        raise ValueError("封面不能超过 8MB")
+    try:
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.format not in ("PNG", "JPEG", "WEBP") or image.width * image.height > 16000000:
+                raise ValueError("请选择 PNG、JPG 或 WEBP 封面，像素不能超过 1600 万")
+            image.load()
+            buffer = io.BytesIO()
+            image.convert("RGB").save(buffer, "PNG")
+            return buffer.getvalue()
+    except (OSError, Image.DecompressionBombError) as error:
+        raise ValueError("封面图片无法读取") from error
+
 
 def save_book_cover(book_id, image_data, ext="png", root_dir=None):
-    # 容错：如果 ext 看起来是一个目录路径且 root_dir 为空
     if root_dir is None and isinstance(ext, str) and (os.path.isdir(ext) or "\\" in ext or "/" in ext):
         root_dir = ext
-        ext = "png"
     bpath, _ = get_book_path(book_id, root_dir)
-    settings_dir = os.path.join(bpath, "00_设定集")
-    os.makedirs(settings_dir, exist_ok=True)
-
-    # 支持 Base64 字符串与原始 bytes
-    raw_bytes = image_data
-    if isinstance(image_data, str):
-        if "," in image_data:
-            image_data = image_data.split(",", 1)[1]
-        raw_bytes = base64.b64decode(image_data)
-
-    # 移除旧封面
-    for old_cov in glob.glob(os.path.join(settings_dir, "cover.*")):
-        try: os.remove(old_cov)
-        except Exception: pass
-    cover_name = f"cover.{ext.lstrip('.')}"
-    cover_path = os.path.join(settings_dir, cover_name)
-    with open(cover_path, "wb") as f:
-        f.write(raw_bytes)
+    raw = decode_cover(image_data)
+    cover_path = os.path.join(bpath, "00_设定集", "cover.png")
+    atomic_write(cover_path, raw)
+    for old in glob.glob(os.path.join(bpath, "00_设定集", "cover.*")):
+        if old != cover_path:
+            os.remove(old)
     return cover_path
+
 
 def delete_book_safe(book_id, root_dir=None):
     bpath, _ = get_book_path(book_id, root_dir)
     base = root_dir or DEFAULT_ROOT
-    trash_dir = os.path.join(base, ".trash")
+    trash_dir = within(base, ".trash")
     os.makedirs(trash_dir, exist_ok=True)
-    archive_name = f"{book_id}_deleted_{int(datetime.datetime.now().timestamp())}"
-    target_path = os.path.join(trash_dir, archive_name)
+    archive_name = f"{book_id}_deleted_{int(datetime.datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+    target_path = within(trash_dir, archive_name)
     os.replace(bpath, target_path)
     return {"ok": True, "archived_to": target_path, "trash_path": target_path, "deleted_book": book_id}
 
@@ -169,11 +182,26 @@ def get_user_settings(config_dir=None):
     return defaults
 
 def save_user_settings(settings, config_dir=None):
+    if not isinstance(settings, dict):
+        raise ValueError("设置必须为对象")
+    for key in ("auto_read_previous", "auto_check_ledger", "strict_tomato_layout", "deepseek_enabled"):
+        if key in settings and not isinstance(settings[key], bool):
+            raise ValueError("开关设置必须为布尔值")
+    if "batch_count" in settings:
+        validate_chapter_count(settings["batch_count"])
+    if settings.get("default_engine", "antigravity") not in ("antigravity", "codex", "deepseek"):
+        raise ValueError("默认执行端无效")
+    if "default_chapter_words" in settings and (not isinstance(settings["default_chapter_words"], str) or not re.fullmatch(r"\d{3,5}-\d{3,5}", settings["default_chapter_words"])):
+        raise ValueError("目标字数范围无效")
+    if "reader_font_size" in settings and (isinstance(settings["reader_font_size"], bool) or not isinstance(settings["reader_font_size"], int) or not 14 <= settings["reader_font_size"] <= 32):
+        raise ValueError("阅读字号必须为 14 到 32 的整数")
+    for key in ("deepseek_api_key", "deepseek_base_url", "default_effort", "deepseek_default_model"):
+        if key in settings and (not isinstance(settings[key], str) or len(settings[key]) > 4096):
+            raise ValueError("模型设置格式无效")
     cfg_path = os.path.join(config_dir or os.path.dirname(__file__), ".user_settings.json")
     current = get_user_settings(config_dir)
     current.update(settings)
-    with open(cfg_path, "w", encoding="utf-8") as f:
-        json.dump(current, f, ensure_ascii=False, indent=2)
+    atomic_json(cfg_path, current)
     return current
 
 def list_books(root_dir=None):
@@ -199,6 +227,10 @@ def list_books(root_dir=None):
                     pass
             
             meta = read_book_meta(bpath, entry.name)
+            meta_file = get_book_meta_file(bpath)
+            metadata_version = os.stat(meta_file).st_mtime_ns if os.path.isfile(meta_file) else 0
+            cover_file = os.path.join(bpath, "00_设定集", meta.get("cover", ""))
+            cover_version = os.stat(cover_file).st_mtime_ns if meta.get("has_cover") else 0
             books.append({
                 "id": entry.name,
                 "title": meta.get("title", entry.name),
@@ -207,6 +239,7 @@ def list_books(root_dir=None):
                 "description": meta.get("description", ""),
                 "cover": meta.get("cover", ""),
                 "has_cover": meta.get("has_cover", False),
+                "cover_version": f"{metadata_version}-{cover_version}",
                 "cover_url": f"/novel/api/cover?book={entry.name}" if meta.get("has_cover") else "",
                 "path": bpath,
                 "chapter_count": len(chapters),
@@ -229,7 +262,7 @@ def get_book_path(book_id=None, root_dir=None):
     path = within(base, book_id)
     if not os.path.isdir(path):
         raise FileNotFoundError("作品不存在")
-    return path, book_id
+    return path, read_book_meta(path, book_id).get("title", book_id)
 
 
 def chapter_files(book_path):

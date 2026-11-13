@@ -12,7 +12,7 @@ BUILD_DIR = os.path.join(BASE_DIR, "build_tmp")
 
 AAPT2 = os.path.join(TOOLS_DIR, "aapt2.exe")
 R8_JAR = os.path.join(TOOLS_DIR, "r8.jar")
-ANDROID_JAR = os.path.join(TOOLS_DIR, "android.jar")
+ANDROID_JAR = os.environ.get("NOVEL_HUB_ANDROID_JAR", r"D:\Android\Sdk\platforms\android-35\android.jar")
 UBER_SIGNER = os.path.join(TOOLS_DIR, "uber-apk-signer.jar")
 
 JAVAC = r"E:\BianChengGongJu\GeoServer\OpenJDK17U\bin\javac.exe"
@@ -37,6 +37,8 @@ def handle_remove_readonly(func, path, exc):
     func(path)
 
 def build():
+    if not os.path.isfile(ANDROID_JAR):
+        raise RuntimeError("需要 Android SDK 35，请安装 SDK 或设置 NOVEL_HUB_ANDROID_JAR 指向对应 android.jar")
     resolved_build = os.path.realpath(BUILD_DIR)
     if os.path.commonpath((os.path.realpath(BASE_DIR), resolved_build)) != os.path.realpath(BASE_DIR) or resolved_build == os.path.realpath(BASE_DIR):
         raise ValueError("Build directory must remain inside the workspace")
@@ -153,7 +155,7 @@ def build():
     shutil.copyfile(signed_apks[0], universal_apk)
 
     size_mb = os.path.getsize(OUTPUT_APK) / (1024 * 1024)
-    print(f"\n🎉 SUCCESS! 【智笔云枢 · NovelRemoteHub】(v1.10.0) 官方正式版 APK 已完成 Zipalign 4字节对齐与 v1/v2/v3 工业级签名！")
+    print(f"\n🎉 SUCCESS! 【智笔云枢 · NovelRemoteHub】(v1.10.1) 官方正式版 APK 已完成 Zipalign 4字节对齐与 v1/v2/v3 工业级签名！")
     print(f"📦 Output path: {OUTPUT_APK} / {universal_apk} ({size_mb:.2f} MB)")
 
 if __name__ == "__main__":

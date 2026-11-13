@@ -16,7 +16,8 @@
 - 番茄格式清洗、错字与关键词规则预检、问题筛选、正文复制和整书 ZIP 导出。
 - 1–4 张二维水墨场景插画。实际调用所选桌面端的真实图像工具，校验图片、章节依据及云端上传回执后更新画廊。
 - 独立生成作者有话说与章节互动问题，可分别编辑、复制、保存，并随章节素材导出。
-- Android WebView 外壳、在线版本检查、原图与 ZIP 下载转系统浏览器。
+- Android WebView 外壳、在线版本检查，原图与 ZIP 下载携带登录 Cookie 交给系统下载管理器，APK 下载转系统浏览器。
+- 作品资料与封面编辑、回收站删除、系统创作偏好，以及可开关的 DeepSeek 云端文本创作。
 
 章节评论功能生成供作者使用的互动文案，发布由作者在番茄作家后台完成。规则预检提供本地参考，平台最终审核结果需在平台查看。创作模型名称来自客户端所选配置，实际可用性取决于所选客户端账号与额度。AI 创作需要作者审阅人物、剧情和设定一致性。
 
@@ -24,7 +25,9 @@
 
 云端 `cloud_hub.py` 提供 HTTP API、带鉴权的文件读取、任务队列和缓存。本地 `local_bridge.py` 同步 `D:/小说` 的章节与设定，接收任务并运行所选桌面客户端。`agent_client.py` 自动发现当前语言服务地址和 CSRF，通过本地原生接口完整传递多行指令。完成回执写入后再同步并确认任务结果。
 
-本地章节与设定作为同步依据。桥接线程每五秒检查内容摘要，每分钟强制复核云端，创作期间持续同步。上传失败或回执摘要不一致时保留重试状态。文件改名或移除后，云端旧文件移入作品的 `.sync-archive`，阅读目录跟随本地更新。隐藏备份目录排除在章节列表之外。
+桥接线程每五秒进行内容对账，每分钟强制复核云端，创作期间持续同步。版本 3 同步以最近确认的摘要为基准，下载云端独有的正文、设定、资料和封面，再上传本地改动。单边移除文件会归档另一端对应旧稿，两端同时修改同一内容时保留两端文件并显示冲突。上传前检查云端版本，失败持续重试。确认状态存于 `D:\小说\.hub-sync-state.json`。
+
+书名修改更新显示资料，作品目录标识保持稳定，已有任务与阅读链接继续使用原标识。管理页删除作品后，云端登记删除记录，本地在后续对账时移入 `.trash`。删除后重新创建同名作品会分配新标识。隐藏备份目录排除在章节列表之外。
 
 “分享阅读”可生成、复制和打开阅读链接。每个链接独立计时七天，读者持有链接即可访问全部有正文的作品，以及有效期内新增的同步内容。链接使用独立用途签名，服务端每次读取校验期限。阅读页提供搜索、字号和前后章导航。首页通过合并接口获取书架、目录及最新正文，模型列表独立加载。
 
@@ -34,7 +37,9 @@
 
 ## 桌面端选择
 
-页面顶部提供 Antigravity / ChatGPT（Codex）下拉选择，以及当前客户端实际返回的模型与思考等级。选择按客户端分别记忆，刷新按钮请求本地桥接器重新获取目录。
+页面顶部提供 Antigravity / ChatGPT（Codex）下拉选择，以及当前客户端实际返回的模型与思考等级。选择按客户端分别记忆，刷新按钮请求本地桥接器重新获取目录。系统设置启用并配置 DeepSeek 后，选择器增加 DeepSeek 云端文本引擎，关闭开关后移除该选项。
+
+DeepSeek 使用官方 `deepseek-flash` 和 `deepseek-v4-pro`，支持续写、精修、设定推演、新书架构和章节互动文案。云端按作品排队并持续维护心跳。文本模型的图片生成请求会被拒绝。连通性测试只查询余额。云端创作与本地任务共享作品执行顺序，生成稿落盘后更新读取缓存。DeepSeek 接口参数依据 [官方接口文档](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)。
 
 两个客户端均需存在名称为“小说”、根目录为 `D:\\小说` 的唯一项目。软件核验项目归属后执行，新建聊天集中在该项目。Antigravity 设置 Turbo 权限，Codex 核验桌面端本地“完全访问”设置及实际任务执行上下文。
 
@@ -66,7 +71,7 @@ python local_bridge.py
 
 ## 云端部署
 
-云端运行需要 `cloud_hub.py`、`storage.py`、`sync_protocol.py`、`novel_manager.py`、`agent_workspace.py`、`index.html`、`reader.html` 和 `assets/`。本地桥接器还需要 `local_bridge.py`、`illustration_generator.py`、`agent_client.py`、`desktop_agents.py`、`codex_client.py`、`codex_desktop.py` 及 `desktop_app_bridge.mjs`。Codex 桌面接口使用系统 Node.js 或客户端内置 Node 运行时。
+云端运行需要 `cloud_hub.py`、`deepseek_client.py`、`storage.py`、`sync_protocol.py`、`novel_manager.py`、`agent_workspace.py`、`index.html`、`reader.html` 和 `assets/`。本地桥接器还需要 `library_sync.py`、`local_bridge.py`、`illustration_generator.py`、`agent_client.py`、`desktop_agents.py`、`codex_client.py`、`codex_desktop.py` 及 `desktop_app_bridge.mjs`。Codex 桌面接口使用系统 Node.js 或客户端内置 Node 运行时。
 
 脚本默认监听 `127.0.0.1:8899`。本机生产 service 通过 `NOVEL_HUB_BIND=172.17.0.1` 适配现有 Docker HTTPS 反向代理，转发 `/novel/`。数据默认保存于 `/root/novel_hub_data`，下载目录为 `/opt/novel_hub/download`。
 
@@ -82,10 +87,12 @@ python -m py_compile cloud_hub.py local_bridge.py novel_manager.py illustration_
 python build_apk.py
 ```
 
-前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实绘图需要所选客户端具备可用账号及图像工具。Android 构建继续使用原签名文件，版本 1.10.0，versionCode 13。实体手机安装、后台限制和系统下载行为需在实际设备验证。
+前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实绘图需要所选客户端具备可用账号及图像工具。Android 构建使用已安装的 SDK 35，默认路径为 `D:\Android\Sdk\platforms\android-35\android.jar`，也可通过 `NOVEL_HUB_ANDROID_JAR` 指定。安装包沿用原签名，版本 1.10.1，versionCode 14。实体手机安装、后台限制和系统下载行为需在实际设备验证。
 
 Android 首次登录与七天登录缓存的验收见 [1.9.1 登录修复记录](docs/android-login-2026-11-13.md)。
 
 同步与只读分享的规则、测试和发布记录见 [1.10.0 验收记录](docs/reading-share-sync-2026-11-13.md)。
+
+功能审查与修复记录见 [1.10.1 验收记录](docs/functional-audit-2026-11-14.md)。
 
 详细审查、修复方案和本次验收记录见 [修复与优化方案](docs/repair-plan-2026-11-12.md)。
