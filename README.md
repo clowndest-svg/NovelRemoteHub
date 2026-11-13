@@ -8,7 +8,7 @@
 
 - 多书架与章节搜索、排序、阅读主题、字号调节、前后章切换。
 - 浏览设定集，新建作品架构，新增或演进设定，推演大纲与检查设定一致性。
-- 本地守护进程轮询任务，远程唤醒 Antigravity，通过已安装的 agentapi 调用用户选择的模型。
+- 本地守护进程轮询任务，远程唤醒 Antigravity，通过客户端本地接口调用用户选择的模型。
 - 续写、现有章节精修、平台驳回修复。覆盖原稿的修复会先在本地保存备份。
 - 番茄格式清洗、错字与关键词规则预检、问题筛选、正文复制和整书 ZIP 导出。
 - 1–4 张二维水墨场景插画。实际调用所选桌面端的真实图像工具，校验图片、章节依据及云端上传回执后更新画廊。
@@ -47,7 +47,7 @@ Codex 需要安装并打开桌面端，桥接器通过随客户端提供的 app-
 
 ## 本地启动
 
-需要 Windows、Python 3.10+、Pillow，以及已登录且具备所需模型和图像工具的 Antigravity。
+需要 Windows、Python 3.10+ 和 Pillow。使用 Antigravity 时需安装并登录该客户端，使用 ChatGPT（Codex）时需安装并打开 Codex 桌面端。账号需具备所选模型与图像工具权限。
 
 在项目目录创建被 Git 忽略的 `.bridge-config.json`，写入私有 `token`。该令牌由服务器登录接口返回。可选 `conversation_id` 用于指定同步到云端的小说历史会话，省略时同步正文和设定。
 
@@ -59,7 +59,7 @@ python local_bridge.py
 
 ## 云端部署
 
-核心文件包含 `cloud_hub.py`、`storage.py`、`novel_manager.py`、`illustration_generator.py`、`agent_client.py`、`index.html` 和 `assets/`。
+云端运行需要 `cloud_hub.py`、`storage.py`、`novel_manager.py`、`agent_workspace.py`、`index.html` 和 `assets/`。本地桥接器还需要 `local_bridge.py`、`illustration_generator.py`、`agent_client.py`、`desktop_agents.py`、`codex_client.py`、`codex_desktop.py` 及 `desktop_app_bridge.mjs`。Codex 桌面接口使用系统 Node.js 或客户端内置 Node 运行时。
 
 脚本默认监听 `127.0.0.1:8899`。本机生产 service 通过 `NOVEL_HUB_BIND=172.17.0.1` 适配现有 Docker HTTPS 反向代理，转发 `/novel/`。数据默认保存于 `/root/novel_hub_data`，下载目录为 `/opt/novel_hub/download`。
 
@@ -75,6 +75,6 @@ python -m py_compile cloud_hub.py local_bridge.py novel_manager.py illustration_
 python build_apk.py
 ```
 
-前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实 Antigravity 绘图需要可用账号及图像工具。Android 构建继续使用原签名文件，版本 1.9.0，versionCode 11。实体手机安装、后台限制和系统下载行为需在实际设备验证。
+前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实绘图需要所选客户端具备可用账号及图像工具。Android 构建继续使用原签名文件，版本 1.9.0，versionCode 11。实体手机安装、后台限制和系统下载行为需在实际设备验证。
 
 详细审查、修复方案和本次验收记录见 [修复与优化方案](docs/repair-plan-2026-11-12.md)。

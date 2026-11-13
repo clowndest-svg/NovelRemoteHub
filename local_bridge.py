@@ -289,7 +289,7 @@ def sync_all_books_to_cloud():
 
     return all_ok, total_chapters, total_settings
 
-# 7. 执行 Antigravity 唤醒 (具备网络代理自愈重试 + 额度熔断自动降级机制)
+# 7. 在所选桌面端执行并校验任务成果回执
 def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro",
                      model_tier=None, progress_cb=None, reasoning_effort=None):
     engine_mode = canonical_engine(engine_mode)
@@ -347,7 +347,7 @@ def run_bridge_loop():
     print("\n" + "="*50)
     print("🚀 NovelRemoteHub · 智笔云枢 本地执行端 (Local Bridge 3.0) 已就绪！")
     print(f"📡 监听云端中枢: {CLOUD_SERVER_URL}")
-    print(f"🤖 主力模型: Gemini 3.8 Flash High (量大管饱 · 自动熔断与代理自愈)")
+    print("🤖 执行端: Antigravity / ChatGPT（Codex），按任务选择模型与思考等级")
     print(f"📚 多书架工作区: {BOOKS_ROOT}")
     print("="*50 + "\n")
 
@@ -386,7 +386,7 @@ def run_bridge_loop():
 
                 # A. 远程唤醒/健康检查指令
                 if action == "wake_antigravity":
-                    report_progress("正在对电脑端 Antigravity 客户端及后台语言服务进行健康检查与唤醒...")
+                    report_progress(f"正在检测与唤醒所选桌面端 {engine}…")
                     if engine == "codex":
                         desktop_agents.codex_client.CLIENT.wake()
                         ensure_ok, ensure_msg = True, "ChatGPT（Codex）小说工作区已连接"

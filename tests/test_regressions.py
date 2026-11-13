@@ -456,6 +456,15 @@ class RegressionTests(unittest.TestCase):
 
 
 class DesktopAgentTests(unittest.TestCase):
+    def test_antigravity_reports_terminal_error_without_waiting_for_receipt(self):
+        import agent_client
+        trajectory = {'status': 'CASCADE_RUN_STATUS_IDLE', 'trajectory': {'steps': [
+            {'type': 'CORTEX_STEP_TYPE_ERROR_MESSAGE', 'errorMessage': {'error': {'modelErrorMessage': 'User location is not supported for the API use.'}}}
+        ]}}
+        with tempfile.TemporaryDirectory() as directory, patch('agent_client.rpc', return_value=trajectory):
+            with self.assertRaisesRegex(RuntimeError, 'location is not supported'):
+                agent_client.wait_for_receipt(Path(directory) / 'missing.json', 'conversation', timeout=5)
+
     def test_codex_wait_checks_expected_turn(self):
         from codex_client import CodexClient
         client = CodexClient()

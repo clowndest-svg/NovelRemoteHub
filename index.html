@@ -1618,7 +1618,7 @@
                 <textarea id="prompt-box" class="prompt-textarea" placeholder="在此输入具体创作指令..."></textarea>
 
                 <button id="dispatch-btn" class="btn-launch-big" onclick="launchTask()">
-                    🔥 唤醒办公室 Antigravity 立即执行
+                    执行当前类型任务
                 </button>
 
                 <!-- 动态执行流水线与日志视窗 -->
@@ -1717,7 +1717,7 @@
                             <button id="btn-tomato-autofix" class="tool-btn gold" onclick="autoFixCurrentChapter()" title="一键替换已知错别字并纠偏全角标点">
                                 ⚡ 一键常规纠错
                             </button>
-                            <button id="btn-tomato-repair" class="tool-btn" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; border:none; font-weight:800;" onclick="openTomatoRepairModal()" title="根据番茄审核驳回意见或机审检出词，唤醒 Antigravity 定点重塑重写本章">
+                            <button id="btn-tomato-repair" class="tool-btn" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; border:none; font-weight:800;" onclick="openTomatoRepairModal()" title="根据番茄审核驳回意见或机审检出词，使用所选执行端定点精修本章">
                                 🛠️ 驳回重构修复
                             </button>
                         </div>
@@ -1968,7 +1968,7 @@
             </div>
 
             <div style="font-size:11px; color:var(--text-dim); margin-bottom:12px; line-height:1.4;">
-                🛡️ 安全保障：Antigravity 会自动通读上一章正文、当前章、以及全套 00_设定集，在执行前自动将原章节文件备份至 <code>01_正文/.backup/</code>，绝不丢失任何前文数据！
+                章节精修会先将原稿备份至 <code>01_正文/.backup/</code>，再由所选执行端结合正文和设定执行。
             </div>
 
             <button class="btn-launch-big" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; font-weight:800;" onclick="submitChapterRepairTask()">
@@ -1989,7 +1989,7 @@
         let FILTERED_CHAPTERS = [];
         let CURRENT_INDEX = 0;
         let CURRENT_ENGINE = localStorage.getItem("novel_agent") === "codex" ? "codex" : "antigravity";
-        let CURRENT_MODEL_TIER = ""; // 默认主力模型: Google Gemini 3.8 Flash High
+        let CURRENT_MODEL_TIER = ""; // 从客户端模型目录初始化
         let ACTIVE_TASK_ID = null;
         let TASK_POLL_TIMER = null;
         let SORT_DESC = true;
@@ -2214,7 +2214,7 @@
             const term = document.getElementById("term-container");
             if (term) term.style.display = "block";
             const statText = document.getElementById("pipeline-status-text");
-            if (statText) statText.innerText = "⚡ 正在发送指令远程唤醒与检测本电脑 Antigravity 客户端...";
+            if (statText) statText.innerText = "⚡ 正在发送指令，检测所选桌面执行端…";
             const termText = document.getElementById("task-terminal");
             if (termText) termText.innerText = `[${new Date().toLocaleTimeString()}] 正在检测电脑进程健康与 Clash Verge 代理端口连通性...`;
 
@@ -2326,7 +2326,7 @@
             switchTab('antigravity');
 
             document.getElementById("term-container").style.display = "block";
-            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发新小说架构指令《${title}》...\n正在唤醒办公室电脑 Antigravity (${CURRENT_MODEL_TIER.toUpperCase()})...`;
+            document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] 正在下发新小说架构指令《${title}》...\n正在连接 ${currentAgentName()}（${CURRENT_MODEL_TIER}）…`;
 
             try {
                 const res = await fetchAPI(`${API}/dispatch_task`, {
@@ -3144,7 +3144,7 @@
 
                 if (res && res.task_id) {
                     ACTIVE_TASK_ID = res.task_id;
-                    alert(`🛠️ 章节定点重构任务已成功下发至电脑端！\n目标章节：${CURRENT_TOMATO_FILE}\n正在自动跳转到「操控AI」工坊监控 Antigravity 执行进度...`);
+                    alert(`🛠️ 章节定点重构任务已成功下发至电脑端！\n目标章节：${CURRENT_TOMATO_FILE}\n正在自动跳转到「操控AI」工坊监控所选执行端的任务进度...`);
                     switchTab('antigravity');
                     startPolling(async () => {
                         delete CLIENT_CACHE.chapterContent[`${CURRENT_BOOK}_${CURRENT_TOMATO_FILE}`];

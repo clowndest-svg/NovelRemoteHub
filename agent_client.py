@@ -123,6 +123,7 @@ def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
     """A task-specific receipt is written last, after the requested files exist."""
     deadline = time.monotonic() + timeout
     next_report = 0
+    next_status = 0
     while time.monotonic() < deadline:
         if Path(path).is_file():
             try:
@@ -132,6 +133,18 @@ def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
                 return receipt
             except json.JSONDecodeError:
                 pass
+        if time.monotonic() >= next_status:
+            next_status = time.monotonic() + 10
+            try:
+                trajectory = rpc("GetCascadeTrajectory", {"cascadeId": conversation_id}, timeout=5)
+            except (RuntimeError, OSError, ValueError):
+                trajectory = {}
+            steps = trajectory.get("trajectory", {}).get("steps", [])
+            if (trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE" and steps
+                    and steps[-1].get("type") == "CORTEX_STEP_TYPE_ERROR_MESSAGE"):
+                error = steps[-1].get("errorMessage", {}).get("error", {})
+                message = error.get("modelErrorMessage") or error.get("shortError") or error.get("userErrorMessage") or "执行端已终止任务"
+                raise RuntimeError("Antigravity 执行失败 " + str(message)[:1000])
         if progress and time.monotonic() >= next_report:
             progress(f"Antigravity 会话 {conversation_id} 正在执行，等待成果校验…")
             next_report = time.monotonic() + 15
