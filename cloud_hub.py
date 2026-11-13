@@ -675,7 +675,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({**task, 'queue_position': len(ahead),
                     'waiting_for': [{'id': item['id'], 'action': item['action'],
                         'chapter_count': item.get('extra_data', {}).get('chapter_count', 1),
-                        'progress': (item.get('progress_log') or ['等待电脑领取'])[-1]} for item in ahead]})
+                        'progress': next((line for line in reversed(item.get('progress_log', [])) if '续写进度' in line), (item.get('progress_log') or ['等待电脑领取'])[-1])} for item in ahead]})
             else:
                 self.send_json({"error": "Task not found"}, 404)
             return

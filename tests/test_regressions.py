@@ -155,7 +155,7 @@ class RegressionTests(unittest.TestCase):
         _, first = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 10})
         _, second = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 3})
         hub.TASKS[first['task_id']]['status'] = 'running'
-        hub.TASKS[first['task_id']]['progress_log'].append('续写进度 2/10')
+        hub.TASKS[first['task_id']]['progress_log'].extend(['续写进度 2/10', '会话正在执行，等待成果校验'])
         status, result = self.request('/api/task_status?id=' + second['task_id'])
         self.assertEqual(status, 200)
         self.assertEqual(result['queue_position'], 1)
