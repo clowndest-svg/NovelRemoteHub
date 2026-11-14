@@ -357,6 +357,7 @@ SENSITIVE_YELLOW = [
 
 # 常见网文错别字与语病易混对 (错词 -> 正确建议词)
 TYPOS_DICTIONARY = {
+    # 常见同音错字与语病混淆
     "在次": "再次",
     "在度": "再度",
     "在见": "再见",
@@ -375,14 +376,14 @@ TYPOS_DICTIONARY = {
     "水笼头": "水龙头",
     "做战": "作战",
     "做品": "作品",
-    "即然": "既然",
     "即然如此": "既然如此",
+    "即然": "既然",
     "既使": "即使",
     "订制": "定制",
     "以候": "以后",
     "时后": "时候",
-    "帐号": "账号",
     "登录帐号": "登录账号",
+    "帐号": "账号",
     "相形见拙": "相形见绌",
     "鬼鬼崇崇": "鬼鬼祟祟",
     "滥芋充数": "滥竽充数",
@@ -396,12 +397,73 @@ TYPOS_DICTIONARY = {
     "一愁莫展": "一筹莫展",
     "重蹈复辙": "重蹈覆辙",
     "精兵减政": "精兵简政",
-    "出奇致胜": "出奇制胜"
+    "出奇致胜": "出奇制胜",
+    # 扩展高频成语与网文常见易错别字
+    "甘败下风": "甘拜下风",
+    "叹为观之": "叹为观止",
+    "帐单": "账单",
+    "金榜提名": "金榜题名",
+    "名符其实": "名副其实",
+    "融汇贯通": "融会贯通",
+    "声名雀起": "声名鹊起",
+    "唯妙唯肖": "惟妙惟肖",
+    "首当其充": "首当其冲",
+    "心无旁鹜": "心无旁骛",
+    "巧夺天功": "巧夺天工",
+    "不径而走": "不胫而走",
+    "如法泡制": "如法炮制",
+    "翻天复地": "翻天覆地",
+    "世外桃园": "世外桃源",
+    "言简意骇": "言简意赅",
+    "纷至踏来": "纷至沓来",
+    "饮鸠止渴": "饮鸩止渴",
+    "杀一敬百": "杀一儆百",
+    "莫不关心": "漠不关心",
+    "蜂涌而至": "蜂拥而至",
+    "提心掉胆": "提心吊胆",
+    "惹事生非": "惹是生非",
+    "坐阵": "坐镇",
+    "座落": "坐落",
+    "家俱": "家具",
+    "按耐不住": "按捺不住",
+    "按耐": "按捺",
+    "按奈": "按捺",
+    "美仑美奂": "美轮美奂",
+    "绝不妥协": "绝不妥协",
+    "决对": "绝对",
+    "决对不能": "绝对不能",
+    "震憾": "震撼",
+    "精萃": "精粹",
+    "寒喧": "寒暄",
+    "喧泄": "宣泄",
+    "渡假村": "度假村",
+    "渡过难关": "度过难关",
+    "渡过危机": "度过危机",
+    "凑和": "凑合",
+    "不记其数": "不计其数",
+    "挺而走险": "铤而走险",
+    "悬梁刺骨": "悬梁刺股",
+    "无微不致": "无微不至",
+    "怨天由人": "怨天尤人",
+    "仗义直言": "仗义执言",
+    "蛛丝蚂迹": "蛛丝马迹",
+    "追朔": "追溯",
+    "通霄达旦": "通宵达旦",
+    "黄梁美梦": "黄粱美梦"
+}
+
+# 科幻/修仙专有名词审核保护白名单（避免被通用审核误判为错词或敏感词）
+SCI_FI_XIANXIA_WHITELIST = {
+    "狄拉克", "狄拉克海", "端粒酶", "二向箔", "自旋", "费米子", "玻色子", "拓扑", 
+    "离心机", "海弗里克", "夸克", "曲率", "中子星", "强相互作用", "微波等离子", 
+    "化学气相沉积", "真空腔体", "太上量子", "混元造化", "始皇帝", "炼气", "筑基", 
+    "金丹", "元婴", "化神", "量子纠缠", "高能粒子", "电磁力", "弱相互作用", 
+    "光速飞船", "引力波", "超导", "核聚变", "反物质", "暗能量", "暗物质"
 }
 
 # ----------------- 3. 番茄规范清洗器 -----------------
 
-def clean_for_tomato(markdown_text, chapter_filename=""):
+def clean_for_tomato(markdown_text, chapter_filename="", auto_fix_typos=True):
     """
     番茄小说发布格式深度清洗器：
     1. 去除 Markdown 标题符号 (#, ##, ### 等)
@@ -473,13 +535,20 @@ def clean_for_tomato(markdown_text, chapter_filename=""):
             clean_lines.append("\u3000\u3000" + text)
 
     clean_content = "\n\n".join(clean_lines)
+    replaced_count = 0
+    if auto_fix_typos and _TYPOS_RE:
+        auto_res = auto_fix_tomato_content(clean_content)
+        clean_content = auto_res["fixed_content"]
+        replaced_count = auto_res.get("replaced_count", 0)
+
     pure_chars = len(clean_content) - clean_content.count("\u3000") - clean_content.count("\n")
     
     return {
         "title": standard_title,
         "content": clean_content,
         "char_count": pure_chars,
-        "line_count": len(clean_lines)
+        "line_count": len(clean_lines),
+        "replaced_count": replaced_count
     }
 
 # ----------------- 4. 全维度机审预检引擎 -----------------
@@ -509,9 +578,13 @@ def audit_for_tomato(cleaned_result):
     if _SENSITIVE_RED_RE:
         for m in _SENSITIVE_RED_RE.finditer(content):
             word = m.group(0)
+            if word in SCI_FI_XIANXIA_WHITELIST:
+                continue
             start = max(0, m.start() - 15)
             end = min(len(content), m.end() + 15)
             snippet = "..." + content[start:end].replace("\n", " ") + "..."
+            if any(term in snippet for term in SCI_FI_XIANXIA_WHITELIST if word in term):
+                continue
             issues.append({
                 "type": "sensitive_red",
                 "category": "danger",
@@ -529,9 +602,13 @@ def audit_for_tomato(cleaned_result):
     if _SENSITIVE_YELLOW_RE:
         for m in _SENSITIVE_YELLOW_RE.finditer(content):
             word = m.group(0)
+            if word in SCI_FI_XIANXIA_WHITELIST:
+                continue
             start = max(0, m.start() - 15)
             end = min(len(content), m.end() + 15)
             snippet = "..." + content[start:end].replace("\n", " ") + "..."
+            if any(term in snippet for term in SCI_FI_XIANXIA_WHITELIST if word in term):
+                continue
             issues.append({
                 "type": "sensitive_yellow",
                 "category": "warn",
@@ -850,3 +927,49 @@ def validate_chapter_count(value=1):
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 10:
         raise ValueError("续写章节数必须为 1 到 10 的整数")
     return value
+
+
+def get_fanqie_publish_payload(book_id, fname, root_dir):
+    """
+    生成用于番茄小说作家后台一键自动填写的完整标准化发布包：
+    包含：章节序号、章节纯标题、纯净且自动纠错后的正文、作者有话说与互动问题
+    """
+    bpath, btitle = get_book_path(book_id, root_dir)
+    raw_text = read_chapter(book_id, fname, root_dir)
+    cleaned = clean_for_tomato(raw_text, fname, auto_fix_typos=True)
+
+    # 解析章节序号与纯标题
+    m_num = re.search(r"第(\d+)章", fname)
+    chapter_num = int(m_num.group(1)) if m_num else 1
+
+    # 拆分纯标题（去除“第XXX章”前缀，供番茄后台单独填入标题框）
+    full_title = cleaned["title"]
+    m_title = re.match(r"^第\d+章[\s_：:]*(.*)", full_title)
+    chapter_title = m_title.group(1).strip() if m_title and m_title.group(1).strip() else full_title
+
+    # 调阅作者有话说与互动文案
+    extras = get_chapter_extras(book_id, fname, root_dir)
+    meta = extras.get("meta") or {}
+    author_note = meta.get("author_note", "")
+    comments = meta.get("comments", [])
+
+    # 若有互动问题，追加在作者有话说中
+    if comments and not author_note.strip():
+        author_note = "【互动话题】\n" + "\n".join(f"{i+1}. {c}" for i, c in enumerate(comments[:3]))
+    elif comments and "【互动话题】" not in author_note and "【本章互动话题】" not in author_note:
+        author_note = author_note.strip() + "\n\n【本章互动话题】\n" + "\n".join(f"{i+1}. {c}" for i, c in enumerate(comments[:3]))
+
+    return {
+        "ok": True,
+        "book": btitle,
+        "filename": fname,
+        "chapter_number": chapter_num,
+        "chapter_title": chapter_title,
+        "full_title": full_title,
+        "content": cleaned["content"],
+        "author_note": author_note,
+        "comments": comments,
+        "char_count": cleaned["char_count"],
+        "line_count": cleaned["line_count"],
+        "replaced_count": cleaned.get("replaced_count", 0)
+    }

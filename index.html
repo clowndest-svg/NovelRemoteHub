@@ -1994,11 +1994,19 @@
                     </div>
                 </div>
 
-                <!-- 一键复制番茄标准文本大按钮 -->
-                <button class="btn-launch-big" style="background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyTomatoContent()">
-                    <span>📋 一键复制番茄标准正文</span>
-                    <span style="font-size:11px; opacity:0.85;">(可直接粘贴至番茄作家助手)</span>
-                </button>
+                <!-- 一键复制与自动化发布操作区 -->
+                <div style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
+                    <button class="btn-launch-big" style="flex:2; min-width:220px; background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyTomatoContent()">
+                        <span>📋 一键复制番茄标准正文</span>
+                        <span style="font-size:11px; opacity:0.85;">(已自动净化错字与缩进)</span>
+                    </button>
+                    <button class="btn-launch-big" style="flex:1.2; min-width:200px; background:linear-gradient(135deg, #eab308, #ca8a04); color:#000; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="openFanqieScriptModal()">
+                        <span>🤖 番茄自动发布助手 (油猴脚本)</span>
+                    </button>
+                    <button class="btn-launch-big" style="flex:1; min-width:180px; background:linear-gradient(135deg, #3b82f6, #1d4ed8); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyFanqiePublishPackage()">
+                        <span>📦 复制本章发布包</span>
+                    </button>
+                </div>
 
                 <!-- 随章概念插图工坊 & 作者有话说 (AI 视觉衍生) -->
                 <div class="tomato-extras-card">
@@ -2578,6 +2586,85 @@
                 <button class="btn" onclick="closeWorkflowGuideModal()" style="background: rgba(226, 183, 64, 0.15); border: 1px solid var(--accent); color: var(--accent); padding: 9px 20px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer;">
                     已掌握，关闭
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🤖 番茄小说作家助手 · 全自动发布与批量存草稿脚本 Modal -->
+    <div id="fanqie-script-modal" class="modal-overlay" onclick="closeFanqieScriptModal(event)" style="z-index: 12600;">
+        <div class="modal-box modal-box-large" onclick="event.stopPropagation()" style="border: 1px solid rgba(234, 179, 8, 0.45); box-shadow: 0 25px 70px rgba(0,0,0,0.95), 0 0 35px rgba(234, 179, 8, 0.2); background: linear-gradient(180deg, #131b29 0%, #0d121c 100%); padding: 22px;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; margin-bottom: 16px;">
+                <div class="modal-title" style="display:flex; align-items:center; gap:8px; font-size: 16px; font-weight: 800; color: #fef08a;">
+                    <span>🤖</span>
+                    <span>智笔云枢 ✕ 番茄作家助手 · 全自动发布与批量存草稿脚本</span>
+                </div>
+                <button class="close-btn" onclick="closeFanqieScriptModal()">&times;</button>
+            </div>
+
+            <div style="overflow-y: auto; max-height: calc(85vh - 120px); padding-right: 4px;">
+                <!-- 顶层保障横幅 -->
+                <div style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.15), rgba(16, 185, 129, 0.1)); border: 1px solid rgba(234, 179, 8, 0.35); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
+                    <div style="font-size: 14px; font-weight: 800; color: #fef08a; display:flex; align-items:center; gap:6px; margin-bottom: 6px;">
+                        <span>🛡️</span>
+                        <span>官方前台真实 DOM 仿真运行 · 100% 账号安全 · 零风控拦截</span>
+                    </div>
+                    <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
+                        • <b>单章秒填</b>：自动填入章节序号、纯标题、全角两格缩进正文、作者有话说与互动话题。<br>
+                        • <b>错字拦截自愈</b>：发布或存草稿时，自动拦截并忽略番茄平台由于专有名词造成的误报。<br>
+                        • <b>批量连发流水线</b>：支持一次性将 5~10 个新章节全自动循环填入并存入番茄草稿箱！
+                    </div>
+                </div>
+
+                <!-- 核心快捷操作栏 -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 18px;">
+                    <a href="/novel/api/fanqie_publisher.user.js" target="_blank" class="btn" style="background:linear-gradient(135deg, #eab308, #ca8a04); color:#000; font-weight:800; padding:12px; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; box-shadow:0 4px 12px rgba(234, 179, 8, 0.3);">
+                        <span>🚀 一键直接安装脚本</span>
+                        <span style="font-size:11px; opacity:0.8;">(推荐已装油猴)</span>
+                    </a>
+                    <button onclick="copyFanqieScriptSource()" class="btn" style="background:rgba(30, 41, 59, 0.8); border:1px solid rgba(234, 179, 8, 0.4); color:#fef08a; font-weight:700; padding:12px; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; cursor:pointer;">
+                        <span>📋 复制脚本全量源码</span>
+                        <span style="font-size:11px; opacity:0.8;">(手动配置)</span>
+                    </button>
+                    <a href="/novel/api/fanqie_publisher.user.js" download="fanqie_publisher.user.js" class="btn" style="background:linear-gradient(135deg, #3b82f6, #1d4ed8); color:#fff; font-weight:700; padding:12px; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:8px;">
+                        <span>💾 下载脚本 (.user.js)</span>
+                    </a>
+                </div>
+
+                <!-- 三步极速上手指南 -->
+                <div style="font-size: 13px; font-weight: 800; color: #fef08a; margin-bottom: 10px; display:flex; align-items:center; gap:6px;">
+                    <span>📖 3 步极速上手指南（配置 1 次，永久全自动）</span>
+                </div>
+
+                <div class="workflow-step-card" style="margin-bottom: 10px;">
+                    <div class="workflow-step-badge" style="background: rgba(234, 179, 8, 0.2); color: #fef08a; border-color: rgba(234, 179, 8, 0.4);">第 1 步</div>
+                    <div class="workflow-step-title" style="color: #fef08a;">在 Chrome 浏览器中安装 Tampermonkey (油猴) 扩展</div>
+                    <div class="workflow-step-content" style="font-size:12px; line-height:1.6; color:#cbd5e1;">
+                        如果您尚未安装油猴插件，可在 Chrome 网上应用店搜索并安装 <b>Tampermonkey</b>（或 Edge 外接程序商店直接安装），只需几秒钟。
+                    </div>
+                </div>
+
+                <div class="workflow-step-card" style="margin-bottom: 10px;">
+                    <div class="workflow-step-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">第 2 步</div>
+                    <div class="workflow-step-title" style="color: #38bdf8;">安装专属发布脚本</div>
+                    <div class="workflow-step-content" style="font-size:12px; line-height:1.6; color:#cbd5e1;">
+                        点击上方 <b>【🚀 一键直接安装脚本】</b> 按钮，油猴会自动弹出安装界面，点击「安装」即可完成！<br>
+                        （也可点击【📋 复制脚本全量源码】，打开油猴管理面板，点击「+」新建脚本粘贴保存）。
+                    </div>
+                </div>
+
+                <div class="workflow-step-card" style="margin-bottom: 16px;">
+                    <div class="workflow-step-badge" style="background: rgba(16, 185, 129, 0.2); color: #4ade80; border-color: rgba(16, 185, 129, 0.4);">第 3 步</div>
+                    <div class="workflow-step-title" style="color: #4ade80;">打开番茄小说作家后台，享受全自动发布</div>
+                    <div class="workflow-step-content" style="font-size:12px; line-height:1.6; color:#cbd5e1;">
+                        进入番茄作家后台（<code>fanqienovel.com/main/writer/...</code>），页面右下角将自动浮现 <b>【🚀 智笔云枢 · 番茄发布助手】</b> 悬浮面板：<br>
+                        • <b>单章发布</b>：选好章节，点击 <b>【⚡ 一键填入本章】</b>，正文、标题、有话说瞬间填满，点击 <b>【💾 存草稿】</b>；<br>
+                        • <b>批量 10 章连发</b>：点击 <b>【🚀 批量全自动流水线】</b>，输入起始章与结束章，10 个新章节全自动依次存入番茄草稿箱！
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+                    <button class="btn" style="background: linear-gradient(135deg, #eab308, #ca8a04); color: #000; font-weight:800; border: none; padding: 8px 24px; border-radius: 6px; cursor: pointer;" onclick="closeFanqieScriptModal()">我知道了，开始使用</button>
+                </div>
             </div>
         </div>
     </div>
@@ -3891,6 +3978,53 @@
             const modal = document.getElementById("workflow-guide-modal");
             if (modal) {
                 modal.classList.remove("show");
+            }
+        }
+
+        function openFanqieScriptModal() {
+            const modal = document.getElementById("fanqie-script-modal");
+            if (modal) {
+                modal.classList.add("show");
+                showToast("已打开番茄自动发布助手指南", "info", 1500);
+            }
+        }
+
+        function closeFanqieScriptModal(e) {
+            if (e && e.target !== e.currentTarget && !e.target.classList.contains("close-btn")) return;
+            const modal = document.getElementById("fanqie-script-modal");
+            if (modal) {
+                modal.classList.remove("show");
+            }
+        }
+
+        async function copyFanqieScriptSource() {
+            try {
+                const resp = await fetch(`${API}/fanqie_publisher.user.js`);
+                if (!resp.ok) throw new Error("获取脚本源码失败");
+                const code = await resp.text();
+                await navigator.clipboard.writeText(code);
+                showToast("📋 油猴脚本源码已复制！可在 Tampermonkey 中新建脚本粘贴保存！", "success", 4000);
+            } catch (e) {
+                showToast("复制脚本失败: " + e.message, "error");
+            }
+        }
+
+        async function copyFanqiePublishPackage() {
+            if (!CURRENT_TOMATO_FILE || !CURRENT_TOMATO_DATA) {
+                showToast("请先在上方选择一个章节！", "warning");
+                return;
+            }
+            try {
+                const res = await fetchAPI(`${API}/fanqie_publish_package?book=${encodeURIComponent(CURRENT_BOOK)}&file=${encodeURIComponent(CURRENT_TOMATO_FILE)}`);
+                if (res && res.ok) {
+                    const jsonText = JSON.stringify(res, null, 2);
+                    await navigator.clipboard.writeText(jsonText);
+                    showToast("📦 本章全量发布包已复制！切到番茄后台油猴脚本点击「剪贴板秒填」即可秒速录入！", "success", 4000);
+                } else {
+                    showToast("获取发布数据包失败: " + (res.error || "未知异常"), "error");
+                }
+            } catch (e) {
+                showToast("网络请求异常: " + e.message, "error");
             }
         }
 

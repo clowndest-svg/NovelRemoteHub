@@ -636,7 +636,8 @@ class HubHandler(BaseHTTPRequestHandler):
                 safe_component(query["file"][0])
             if self.path.split("?")[0].rstrip("/").endswith((
                     "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
-                    "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/app_settings", "/sync_manifest", "/sync_document")):
+                    "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/app_settings", "/sync_manifest", "/sync_document",
+                    "/fanqie_publish_package", "/fanqie_publish_list", "/fanqie_publisher.user.js")):
                 with WRITE_LOCK:
                     self.handle_get()
             else:
@@ -1029,6 +1030,53 @@ class HubHandler(BaseHTTPRequestHandler):
             fname = qs.get("file", [""])[0]
             extras = novel_manager.get_chapter_extras(book_id, fname, BOOKS_DIR)
             self.send_json(extras)
+            return
+
+        # 番茄小说自动发布包：一键获取章节序号、纯标题、纯净正文与作者有话说
+        if path in ["/api/fanqie_publish_package", "/novel/api/fanqie_publish_package"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            fname = qs.get("file", [""])[0]
+            if not fname:
+                self.send_json({"error": "Missing file param"}, 400)
+                return
+            payload = novel_manager.get_fanqie_publish_payload(book_id, fname, BOOKS_DIR)
+            self.send_json(payload)
+            return
+
+        # 番茄小说待发章节清单
+        if path in ["/api/fanqie_publish_list", "/novel/api/fanqie_publish_list"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            catalog = chapter_catalog(book_id)
+            chapters = catalog.get("chapters", [])
+            list_data = []
+            for ch in chapters:
+                fn = ch.get("filename", "")
+                m = re.search(r"第(\d+)章", fn)
+                c_num = int(m.group(1)) if m else 0
+                list_data.append({
+                    "filename": fn,
+                    "chapter_number": c_num,
+                    "title": ch.get("title", fn),
+                    "char_count": ch.get("char_count", 0)
+                })
+            self.send_json({"ok": True, "book": book_id, "chapters": list_data})
+            return
+
+        # 调阅/下载番茄小说作家后台油猴发布脚本 (.user.js)
+        if path in ["/api/fanqie_publisher.user.js", "/novel/api/fanqie_publisher.user.js", "/fanqie_publisher.user.js", "/novel/fanqie_publisher.user.js"]:
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fanqie_publisher.user.js")
+            if os.path.exists(script_path):
+                with open(script_path, "rb") as fp:
+                    script_bytes = fp.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Disposition", 'inline; filename="fanqie_publisher.user.js"')
+                self.send_header("Content-Length", str(len(script_bytes)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(script_bytes)
+            else:
+                self.send_json({"error": "Script file not found"}, 404)
             return
 
         # 调阅单张概念插图 (流式输出 PNG)
