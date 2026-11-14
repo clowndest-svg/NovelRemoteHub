@@ -91,7 +91,7 @@ python -m py_compile cloud_hub.py local_bridge.py novel_manager.py illustration_
 python build_apk.py
 ```
 
-前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实绘图需要所选客户端具备可用账号及图像工具。Android 构建使用已安装的 SDK 35，默认路径为 `D:\Android\Sdk\platforms\android-35\android.jar`，也可通过 `NOVEL_HUB_ANDROID_JAR` 指定。安装包沿用原签名，版本 1.11.0，versionCode 16。实体手机安装、后台限制和系统下载行为需在实际设备验证。
+前端使用随项目提供的 Marked 和 DOMPurify，设定 Markdown 在渲染前清理。真实绘图需要所选客户端具备可用账号及图像工具。Android 构建使用已安装的 SDK 35，默认路径为 `D:\Android\Sdk\platforms\android-35\android.jar`，也可通过 `NOVEL_HUB_ANDROID_JAR` 指定。安装包沿用原签名，版本 1.11.1，versionCode 17。实体手机安装、后台限制和系统下载行为需在实际设备验证。
 
 Android 首次登录与七天登录缓存的验收见 [1.9.1 登录修复记录](docs/android-login-2026-11-13.md)。
 
@@ -104,3 +104,5 @@ Android 首次登录与七天登录缓存的验收见 [1.9.1 登录修复记录]
 详细审查、修复方案和本次验收记录见 [修复与优化方案](docs/repair-plan-2026-11-12.md)。
 
 分层写作流程与验收范围见 [1.11.0 发布记录](docs/layered-writing-2026-11-14.md)。
+
+1.11.1修复人物状态结构化返回兼容问题，记忆阶段保留原始输出并支持一次格式修复。详见 [续写修复记录](docs/writing-format-fix-2026-11-14.md)。

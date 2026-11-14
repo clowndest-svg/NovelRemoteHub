@@ -168,6 +168,42 @@ class StoryMemoryTests(unittest.TestCase):
         self.assertIn('全文复核专属标记', draft)
         self.assertIn('手动全文复核资料', draft)
 
+    def test_nested_character_fields_are_preserved_without_model_retry(self):
+        raw = {'summary': '片段摘要', 'synopsis': '全书摘要',
+            'characters': {'主角': {'identity': '研究员', 'location': '码头', 'items': ['旧信', '铜尺']}}, 'threads': []}
+        normalized = memory.validate_record(raw)
+        self.assertEqual(json.loads(normalized['characters']['主角']), raw['characters']['主角'])
+        raw_path = self.root / '.story-memory/raw/cached.txt'
+        atomic_write(raw_path, json.dumps(raw, ensure_ascii=False))
+        with patch.object(memory, 'ask', side_effect=AssertionError('不应重复调用')):
+            result = memory.memory_response(self.root, 'cached', self.generate, '原文', 64000, lambda m: None)
+        self.assertEqual(result, normalized)
+
+    def test_invalid_memory_json_gets_one_format_repair_and_saved_result(self):
+        calls = []
+        def malformed(prompt):
+            calls.append(prompt)
+            if '【阶段 更新记忆】' in prompt:
+                return '{"summary":"未完成JSON"'
+            return response('【阶段 更新记忆】')
+        result = memory.memory_response(self.root, 'repair', malformed, '只处理当前片段', 64000, lambda m: None)
+        self.assertTrue(result['summary'])
+        self.assertEqual(len(calls), 2)
+        self.assertIn('【阶段 修复记忆格式】', calls[1])
+        self.assertTrue((self.root / '.story-memory/raw/repair.repair.txt').is_file())
+        memory.memory_response(self.root, 'repair', malformed, '原文', 64000, lambda m: None)
+        self.assertEqual(len(calls), 2)
+
+    def test_persistent_invalid_memory_format_stops_after_one_repair(self):
+        calls = []
+        def invalid(prompt):
+            calls.append(prompt)
+            return '{}'
+        with self.assertRaises(ValueError):
+            memory.memory_response(self.root, 'invalid', invalid, '原文', 64000, lambda m: None)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue((self.root / '.story-memory/raw/invalid.txt').is_file())
+
     def test_settings_validate_mode_and_budget(self):
         for data in ({'writing_context_chars': True}, {'writing_context_chars': 1}, {'writing_context_mode': 'unknown'}):
             with self.assertRaises(ValueError):

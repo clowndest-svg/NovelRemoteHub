@@ -212,9 +212,9 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 16,
-    "versionName": "1.11.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.0",
+    "versionCode": 17,
+    "versionName": "1.11.1",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.1",
     "changelog": "分层剧情记忆、历史原文检索、草稿一致性审核与逐章记忆更新，支持全文复核及资料预算。",
     "forceUpdate": False
 }

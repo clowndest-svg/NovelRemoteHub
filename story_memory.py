@@ -71,13 +71,34 @@ def empty_state():
     return {'synopsis': '', 'characters': {}, 'threads': {}}
 
 
+MEMORY_FORMAT = {
+    'summary': '当前片段摘要，1800字符内',
+    'synopsis': '截至当前的剧情摘要，3500字符内',
+    'characters': {'人物名': '当前片段明确改变的状态，简洁字符串'},
+    'threads': [{'id': '已有伏笔编号或明确的新编号', 'status': 'open', 'detail': '原文支持的事实或兑现证据'}]
+}
+
+
 def validate_record(record):
+    record = dict(record)
     if not isinstance(record.get('summary'), str) or not record['summary'].strip() or len(record['summary']) > 1800:
         raise ValueError('章节记忆摘要无效或过长')
     if not isinstance(record.get('synopsis'), str) or len(record['synopsis']) > 3500:
         raise ValueError('全书剧情摘要无效或过长')
-    if not isinstance(record.get('characters'), dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in record['characters'].items()):
-        raise ValueError('人物状态格式无效')
+    characters = record.get('characters')
+    if not isinstance(characters, dict):
+        raise ValueError('人物状态必须为按人物名称索引的对象')
+    normalized = {}
+    for name, detail in characters.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError('人物名称无效')
+        if isinstance(detail, (dict, list)):
+            # Preserve all structured fields returned by agents without losing source facts.
+            detail = encode(detail)
+        if not isinstance(detail, str) or not detail.strip():
+            raise ValueError('人物状态必须为文字或结构化对象')
+        normalized[name] = detail
+    record['characters'] = normalized
     if not isinstance(record.get('threads'), list):
         raise ValueError('伏笔更新格式无效')
     for thread in record['threads']:
@@ -88,6 +109,28 @@ def validate_record(record):
     if len(encode(record)) > 11000:
         raise ValueError('单份记忆超出预算，请细化资料后重试')
     return record
+
+
+def memory_response(root, key, generate, prompt, budget, progress):
+    raw_path = root / '.story-memory' / 'raw' / (key + '.txt')
+    if raw_path.is_file():
+        raw = raw_path.read_text(encoding='utf-8-sig')
+        progress('复用已保存的记忆提取结果，核对返回格式')
+    else:
+        raw = ask(generate, '更新记忆', prompt, budget)
+        atomic_write(raw_path, raw)
+    try:
+        return validate_record(parse_object(raw))
+    except (ValueError, TypeError) as error:
+        progress('记忆结果格式需要修正，正在保留事实并修复JSON（一次）')
+        repair_prompt = (f'只修正以下结果的JSON结构，保留已提取的事实、状态和伏笔，不添加新事实。错误为 {error}。'
+            f'目标格式示例 {encode(MEMORY_FORMAT)}。characters的值必须为字符串，原有对象可序列化为JSON字符串。'
+            f'没有变化时characters为{{}}，threads为[]。只返回JSON对象。原始结果如下\n{raw}')
+        repaired = ask(generate, '修复记忆格式', repair_prompt, budget)
+        atomic_write(raw_path.with_suffix('.repair.txt'), repaired)
+        record = validate_record(parse_object(repaired))
+        atomic_write(raw_path, repaired)
+        return record
 
 
 def ensure_memory(root, documents, generate, budget, progress, expected=None, publish=True):
@@ -109,9 +152,9 @@ def ensure_memory(root, documents, generate, budget, progress, expected=None, pu
             prompt = f'''先前已核验记忆如下\n{encode(state)}
 当前来源 {name}，字符起点 {start + 1}\n{text}
 只提取当前原文明确支持的信息，区分计划与已发生事实。保持人物位置与认知、时间、能力、伤势、物品和关系。无法确定的事实标记不确定。
-严格输出 JSON 对象，summary 为当前片段摘要（1800字符内），synopsis 为截至当前的全书剧情摘要（3500字符内），characters 为有变化的人物状态映射，threads 为伏笔更新数组。
+严格输出以下格式的JSON对象，字段类型必须与示例一致：{encode(MEMORY_FORMAT)}。\n只返回当前片段明确改变的人物状态和伏笔，characters的值使用简洁字符串，不重复全员小传，不主动读取本任务材料以外的文件。摘要以事实和来源为主，避免扩写评论。
 threads 每项含 id、status（open 或 resolved）、detail。沿用已有伏笔 id，只有原文明示兑现才改为 resolved，detail 引述对应短句证据。没有更新时使用空对象或空数组。不得通过摘要遗漏来清除旧伏笔。'''
-            record = validate_record(parse_object(ask(generate, '更新记忆', prompt, budget)))
+            record = memory_response(root, chain, generate, prompt, budget, progress)
             if fingerprint(sources(root)) != fingerprint(documents if expected is None else expected):
                 raise RuntimeError('记忆构建期间资料已修改，请重试')
             atomic_json(path, {'key': chain, 'record': record})
