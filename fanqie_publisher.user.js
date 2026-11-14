@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 番茄小说作家助手 · 全自动发布与批量存草稿
 // @namespace    https://scientificexploration.art/novel
-// @version      1.1.0
-// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄作家后台，支持单章一键填充、作者有话说自动对齐、错别字拦截自愈与多章节全自动存草稿流水线！
+// @version      1.2.0
+// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄作家后台，支持智能贴边吸附、随处拖拽记忆、单章一键填充、作者有话说自动对齐、错别字拦截自愈与多章节全自动存草稿流水线！
 // @author       NovelRemoteHub
 // @match        https://fanqienovel.com/main/writer/*
 // @match        https://fanqienovel.com/page/*
@@ -38,6 +38,7 @@
 
     let chaptersCatalog = [];
     let isBatchRunning = false;
+    let isWidgetDragging = false;
 
     // ================= 状态持久化管理 =================
     function getBatchState() {
@@ -68,33 +69,80 @@
         return GM_getValue('nrh_last_book_id', '7706774841793186841');
     }
 
-    // ================= 样式注入 (黑金奢华科技主题) =================
+    // ================= 样式注入 (黑金奢华科技主题 + 边缘智能吸附抽屉) =================
     const STYLES = `
     #nrh-floating-widget {
         position: fixed;
-        right: 24px;
-        bottom: 90px;
+        right: 0;
+        top: 240px;
         width: 320px;
         background: rgba(15, 23, 42, 0.96);
         border: 1px solid rgba(234, 179, 8, 0.5);
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(234, 179, 8, 0.25);
-        border-radius: 12px;
+        border-right: none;
+        box-shadow: 0 10px 35px rgba(0, 0, 0, 0.8), 0 0 20px rgba(234, 179, 8, 0.25);
+        border-radius: 12px 0 0 12px;
         z-index: 2147483647;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
         color: #f1f5f9;
         font-size: 13px;
-        backdrop-filter: blur(8px);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        backdrop-filter: blur(10px);
+        transition: transform 0.28s cubic-bezier(0.2, 0, 0, 1), opacity 0.25s, box-shadow 0.25s;
+        box-sizing: border-box;
         overflow: hidden;
+        user-select: none;
     }
-    #nrh-floating-widget.minimized {
-        width: 160px;
-        height: 42px;
-        overflow: hidden;
-        border-color: rgba(234, 179, 8, 0.8);
+
+    /* 贴边折叠收起状态：仅在屏幕最右侧留出 32px 宽的金色科技小挂签，完全不遮挡网页正文与点击 */
+    #nrh-floating-widget.docked {
+        transform: translateX(calc(100% - 32px));
+        box-shadow: -4px 0 14px rgba(0, 0, 0, 0.5);
+        opacity: 0.88;
+        cursor: pointer;
     }
+    #nrh-floating-widget.docked:hover {
+        transform: translateX(calc(100% - 36px));
+        opacity: 1;
+        box-shadow: -6px 0 18px rgba(234, 179, 8, 0.45);
+    }
+    #nrh-floating-widget.docked #nrh-drag-header,
+    #nrh-floating-widget.docked #nrh-widget-body {
+        display: none !important;
+    }
+
+    /* 侧边小挂签条目 */
+    .nrh-dock-tab {
+        display: none;
+        width: 32px;
+        min-height: 116px;
+        background: linear-gradient(180deg, #ca8a04 0%, #eab308 50%, #ca8a04 100%);
+        color: #090d16;
+        border-radius: 8px 0 0 8px;
+        padding: 10px 0;
+        box-sizing: border-box;
+        cursor: pointer;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        box-shadow: inset 1px 0 2px rgba(255, 255, 255, 0.5);
+    }
+    #nrh-floating-widget.docked .nrh-dock-tab {
+        display: flex;
+    }
+    .nrh-dock-icon {
+        font-size: 14px;
+        filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+    }
+    .nrh-dock-text {
+        writing-mode: vertical-lr;
+        text-orientation: upright;
+        font-weight: 900;
+        font-size: 11px;
+        letter-spacing: 2px;
+    }
+
     #nrh-floating-widget .nrh-header {
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
         border-bottom: 1px solid rgba(234, 179, 8, 0.3);
         padding: 10px 14px;
         display: flex;
@@ -111,18 +159,24 @@
         align-items: center;
         gap: 6px;
     }
+    #nrh-floating-widget .nrh-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
     #nrh-floating-widget .nrh-controls button {
         background: transparent;
         border: none;
         color: #94a3b8;
         cursor: pointer;
-        padding: 2px 6px;
-        font-size: 14px;
+        padding: 3px 6px;
+        font-size: 12px;
         border-radius: 4px;
+        transition: all 0.15s;
     }
     #nrh-floating-widget .nrh-controls button:hover {
         color: #fef08a;
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.12);
     }
     #nrh-floating-widget .nrh-body {
         padding: 14px;
@@ -237,6 +291,25 @@
         font-weight: 700;
         font-family: inherit;
     }
+    /* 彻底关闭后留在屏幕边缘的微型复原圆点 */
+    #nrh-reopen-dot {
+        position: fixed;
+        right: 0;
+        top: 260px;
+        width: 14px;
+        height: 38px;
+        background: #eab308;
+        border-radius: 8px 0 0 8px;
+        opacity: 0.45;
+        cursor: pointer;
+        z-index: 2147483646;
+        transition: opacity 0.2s, width 0.2s;
+        box-shadow: -2px 0 8px rgba(0,0,0,0.4);
+    }
+    #nrh-reopen-dot:hover {
+        opacity: 1;
+        width: 18px;
+    }
     `;
 
     function injectStyles() {
@@ -292,7 +365,6 @@
             const titleIdx = allInputs.indexOf(titleInput);
             if (titleIdx > 0) {
                 const candidate = allInputs[titleIdx - 1];
-                // 验证该 candidate 周围或祖先中包含 "第" 或 "章"
                 let p = candidate.parentElement;
                 let depth = 0;
                 let isMatch = false;
@@ -311,7 +383,7 @@
             }
         }
 
-        // 策略 2：遍历所有 input，深度向上追溯祖先包含 "第" 和 "章"
+        // 策略 2：深度向上追溯祖先包含 "第" 和 "章"
         const inputs = Array.from(document.querySelectorAll('input:not(#nrh-floating-widget input)'));
         for (const input of inputs) {
             if (input === titleInput) continue;
@@ -568,8 +640,6 @@
         // 2. 填入标题
         const titleInput = getTitleInput();
         if (titleInput) {
-            // 若序号框成功注入数字，标题填入纯标题（如 "百年黄河大洪峰..."）；
-            // 若序号框未探测成功，兜底策略：在标题框追加 "第X章 " 确保永不漏填章节号！
             const pureTitle = packageData.chapter_title || '';
             const fullTitle = packageData.full_title || (`第${packageData.chapter_number}章 ` + pureTitle);
             const titleVal = numSuccess ? (pureTitle || fullTitle) : fullTitle;
@@ -755,11 +825,9 @@
         setBatchState(state);
         isBatchRunning = true;
 
-        // 如果当前已经在全新空白编辑页，直接执行当前章
         if (location.href.includes('enter_from=newchapter') && !location.href.match(/\/publish\/\d+/)) {
             await executeBatchStep();
         } else {
-            // 否则立即导航到空白新建章节页
             showToast('正在打开全新草稿编辑页...');
             window.location.replace(`https://fanqienovel.com/main/writer/${bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
         }
@@ -792,7 +860,6 @@
             return;
         }
 
-        // 额外平滑等待 1 秒让 React 完全稳定
         await new Promise(r => setTimeout(r, 1000));
 
         try {
@@ -800,7 +867,6 @@
             showToast(`正在从智笔云枢获取第 ${state.currentNum} 章发布数据...`);
             let pkg = null;
 
-            // 寻找对应章节文件名
             const targetChap = chaptersCatalog.find(c => c.chapter_number === state.currentNum);
             const fileParam = targetChap ? targetChap.filename : `第${String(state.currentNum).padStart(3, '0')}章.md`;
 
@@ -830,7 +896,6 @@
                 await new Promise(r => setTimeout(r, 800));
                 window.location.replace(`https://fanqienovel.com/main/writer/${state.bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
             } else {
-                // 全部章节录入完成！
                 const totalSaved = state.total;
                 const bookId = state.bookId;
                 setBatchState(null);
@@ -846,7 +911,7 @@
         }
     }
 
-    // ================= 悬浮控制面板构建 =================
+    // ================= 悬浮控制面板构建 (支持边缘智能吸附与拖拽记忆) =================
 
     function updateChapterSelect() {
         const selectEl = document.getElementById('nrh-chapter-select');
@@ -865,7 +930,6 @@
             selectEl.appendChild(opt);
         });
 
-        // 默认选中推算的下一章
         const nextNum = detectPageLastChapter();
         const found = chaptersCatalog.find(c => c.chapter_number === nextNum);
         if (found) selectEl.value = found.filename;
@@ -877,20 +941,29 @@
         const widget = document.createElement('div');
         widget.id = 'nrh-floating-widget';
         widget.innerHTML = `
+            <!-- 贴边小挂签：收起时显露出来，可点击展开，也可按住上下拖拽位置 -->
+            <div class="nrh-dock-tab" id="nrh-dock-tab" title="点击展开 智笔云枢 · 番茄助手 (上下拖拽可调整停留高度)">
+                <div class="nrh-dock-icon">🚀</div>
+                <div class="nrh-dock-text">智笔助手</div>
+            </div>
+
+            <!-- 展开后的完整头部 -->
             <div class="nrh-header" id="nrh-drag-header">
                 <div class="nrh-title">
                     <span>🚀 智笔云枢</span>
-                    <span class="nrh-badge">番茄助手 v1.1</span>
+                    <span class="nrh-badge">番茄助手 v1.2</span>
                 </div>
                 <div class="nrh-controls">
-                    <button id="nrh-btn-min" title="最小化/展开">_</button>
-                    <button id="nrh-btn-close" title="关闭">✕</button>
+                    <button id="nrh-btn-dock" title="贴边收起 (完全不遮挡网页内容与点击)">⇥ 贴边</button>
+                    <button id="nrh-btn-close" title="彻底关闭 (可通过右侧微小黄点重新呼出)">✕</button>
                 </div>
             </div>
+
+            <!-- 展开后的主体操作区 -->
             <div class="nrh-body" id="nrh-widget-body">
                 <div class="nrh-info-banner">
                     作品：<b>${CONFIG.bookName}</b><br>
-                    状态：<span style="color:#4ade80;">✓ 跨页流水线与独立章节录入已就绪</span>
+                    状态：<span style="color:#4ade80;">✓ 贴边吸附与防误触点击已就绪</span>
                 </div>
 
                 <div>
@@ -922,54 +995,173 @@
 
         document.body.appendChild(widget);
 
-        // 事件绑定
+        // 创建彻底关闭后的微型唤醒小黄点 (确保随时能一键点回)
+        const reopenDot = document.createElement('div');
+        reopenDot.id = 'nrh-reopen-dot';
+        reopenDot.title = '点击重新唤出 智笔云枢 · 番茄发布助手 (快捷键: Alt+N)';
+        reopenDot.style.display = 'none';
+        document.body.appendChild(reopenDot);
+
+        reopenDot.addEventListener('click', () => {
+            widget.style.display = 'block';
+            widget.classList.remove('docked');
+            reopenDot.style.display = 'none';
+            GM_setValue('nrh_widget_hidden', false);
+        });
+
+        // 按钮事件绑定
         document.getElementById('nrh-btn-fill').addEventListener('click', fillCurrentSelected);
         document.getElementById('nrh-btn-save').addEventListener('click', saveDraftNow);
         document.getElementById('nrh-btn-batch').addEventListener('click', startBatchPipeline);
         document.getElementById('nrh-btn-sync').addEventListener('click', loadChapters);
         document.getElementById('nrh-btn-clip').addEventListener('click', fillFromClipboard);
 
-        document.getElementById('nrh-btn-min').addEventListener('click', () => {
-            widget.classList.toggle('minimized');
-            const isMin = widget.classList.contains('minimized');
-            document.getElementById('nrh-widget-body').style.display = isMin ? 'none' : 'flex';
+        // 点击小挂签：展开面板
+        document.getElementById('nrh-dock-tab').addEventListener('click', (e) => {
+            if (isWidgetDragging) return;
+            widget.classList.remove('docked');
+            GM_setValue('nrh_widget_docked', false);
         });
 
+        // 点击“⇥ 贴边”：平滑缩回侧边挂签
+        document.getElementById('nrh-btn-dock').addEventListener('click', () => {
+            widget.classList.add('docked');
+            GM_setValue('nrh_widget_docked', true);
+        });
+
+        // 点击“✕ 关闭”：临时完全隐藏
         document.getElementById('nrh-btn-close').addEventListener('click', () => {
             widget.style.display = 'none';
+            reopenDot.style.display = 'block';
+            GM_setValue('nrh_widget_hidden', true);
+            showToast('番茄助手已隐藏至右侧小黄点，点击即可瞬间呼出 (或按 Alt+N)');
         });
 
-        // 拖拽支持
+        // 【防误触核心优化】：点击网页其他任何区域时，面板自动智能收起回侧边！彻底不阻挡用户点击浏览器页面
+        document.addEventListener('click', (e) => {
+            if (!widget.classList.contains('docked') && widget.style.display !== 'none') {
+                if (!widget.contains(e.target) && e.target !== reopenDot) {
+                    widget.classList.add('docked');
+                    GM_setValue('nrh_widget_docked', true);
+                }
+            }
+        });
+
+        // 键盘快捷键 Alt+N 瞬间唤醒/切换
+        window.addEventListener('keydown', (e) => {
+            if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+                e.preventDefault();
+                toggleWidget();
+            }
+        });
+
+        // 注册油猴专属菜单命令
+        try {
+            GM_registerMenuCommand('🚀 展开/收起 智笔云枢番茄助手 (Alt+N)', toggleWidget);
+        } catch (e) {}
+
+        // 恢复上次拖拽高度与吸附状态
+        restoreWidgetPosition(widget, reopenDot);
+
+        // 绑定上下自由拖拽 (挂签与标题栏均支持顺畅拖拽)
         makeDraggable(widget, document.getElementById('nrh-drag-header'));
+        makeDraggable(widget, document.getElementById('nrh-dock-tab'));
     }
 
-    function makeDraggable(el, handle) {
-        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-        handle.onmousedown = dragMouseDown;
+    function toggleWidget() {
+        const widget = document.getElementById('nrh-floating-widget');
+        const reopenDot = document.getElementById('nrh-reopen-dot');
+        if (!widget) return;
+        if (widget.style.display === 'none') {
+            widget.style.display = 'block';
+            widget.classList.remove('docked');
+            if (reopenDot) reopenDot.style.display = 'none';
+        } else if (widget.classList.contains('docked')) {
+            widget.classList.remove('docked');
+        } else {
+            widget.classList.add('docked');
+        }
+    }
 
-        function dragMouseDown(e) {
-            e.preventDefault();
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            document.onmouseup = closeDragElement;
-            document.onmousemove = elementDrag;
+    function restoreWidgetPosition(widget, reopenDot) {
+        const savedTop = GM_getValue('nrh_widget_top', null);
+        const isHidden = GM_getValue('nrh_widget_hidden', false);
+        const isDocked = GM_getValue('nrh_widget_docked', true);
+        const onEditorPage = location.href.includes('/publish') || location.href.includes('enter_from=newchapter');
+
+        if (savedTop !== null) {
+            const topNum = Math.max(20, Math.min(window.innerHeight - 140, parseInt(savedTop, 10)));
+            widget.style.top = topNum + 'px';
+            if (reopenDot) reopenDot.style.top = topNum + 'px';
+        } else {
+            widget.style.top = '220px';
+            if (reopenDot) reopenDot.style.top = '220px';
         }
 
-        function elementDrag(e) {
-            e.preventDefault();
-            pos1 = pos3 - e.clientX;
-            pos2 = pos4 - e.clientY;
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            el.style.top = (el.offsetTop - pos2) + "px";
-            el.style.left = (el.offsetLeft - pos1) + "px";
-            el.style.right = 'auto';
-            el.style.bottom = 'auto';
+        if (isHidden) {
+            widget.style.display = 'none';
+            if (reopenDot) reopenDot.style.display = 'block';
+            return;
         }
 
-        function closeDragElement() {
-            document.onmouseup = null;
-            document.onmousemove = null;
+        // 【智能页面感知】：在非编辑页（如签约管理、数据中心、作品信息），默认始终自动贴边收起！
+        if (!onEditorPage || isDocked) {
+            widget.classList.add('docked');
+        } else {
+            widget.classList.remove('docked');
+        }
+    }
+
+    function makeDraggable(widget, handle) {
+        let startY = 0;
+        let initialTop = 0;
+        let dragDistance = 0;
+
+        handle.addEventListener('mousedown', dragStart);
+
+        function dragStart(e) {
+            if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+                return;
+            }
+            isWidgetDragging = false;
+            dragDistance = 0;
+            startY = e.clientY;
+
+            const rect = widget.getBoundingClientRect();
+            initialTop = rect.top;
+
+            document.addEventListener('mousemove', dragMove);
+            document.addEventListener('mouseup', dragEnd);
+        }
+
+        function dragMove(e) {
+            const dy = e.clientY - startY;
+            dragDistance += Math.abs(dy);
+            if (Math.abs(dy) > 3) {
+                isWidgetDragging = true;
+                widget.style.transition = 'none';
+            }
+            if (isWidgetDragging) {
+                let newTop = Math.max(10, Math.min(window.innerHeight - 130, initialTop + dy));
+                widget.style.top = newTop + 'px';
+                const reopenDot = document.getElementById('nrh-reopen-dot');
+                if (reopenDot) reopenDot.style.top = newTop + 'px';
+            }
+        }
+
+        function dragEnd(e) {
+            document.removeEventListener('mousemove', dragMove);
+            document.removeEventListener('mouseup', dragEnd);
+
+            widget.style.transition = 'transform 0.28s cubic-bezier(0.2, 0, 0, 1), opacity 0.25s, box-shadow 0.25s';
+
+            if (isWidgetDragging) {
+                const finalTop = parseInt(widget.style.top, 10);
+                GM_setValue('nrh_widget_top', finalTop);
+                setTimeout(() => {
+                    isWidgetDragging = false;
+                }, 50);
+            }
         }
     }
 
@@ -980,10 +1172,8 @@
             createFloatingWidget();
             await loadChapters();
 
-            // 检查是否有跨页面未完成的批量流水线任务
             const batchState = getBatchState();
             if (batchState && batchState.active) {
-                // 如果当前在新建章节页且尚未保存，执行流水线当前步骤
                 if (location.href.includes('enter_from=newchapter') && !location.href.match(/\/publish\/\d+/)) {
                     await executeBatchStep();
                 } else if (!isBatchRunning) {
@@ -1000,7 +1190,6 @@
     } else {
         init();
     }
-    // 针对单页应用路由切换或异步渲染提供多阶段守护唤醒
     setTimeout(init, 1000);
     setTimeout(init, 2500);
 
