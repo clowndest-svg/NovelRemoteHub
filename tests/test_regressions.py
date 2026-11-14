@@ -577,6 +577,48 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(self.dispatch(**payload)[1]['task_id'], first['task_id'])
         atomic_json(self.root / 'book_tombstones.json', {})
 
+    def test_cover_thumbnail_cache_invalidation_and_original_download(self):
+        from PIL import Image
+        raw = io.BytesIO()
+        Image.effect_noise((1200, 1800), 60).convert('RGB').save(raw, 'PNG')
+        manager.save_book_cover(self.book, raw.getvalue(), root_dir=str(self.root / 'books'))
+        def get(query='', headers=None):
+            request = urllib.request.Request(self.url + '/api/cover?' + self.query + query,
+                headers={'X-Novel-Token': hub.AUTH_TOKEN, **(headers or {})})
+            return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request)
+        with get('&size=thumb&v=first') as image:
+            thumb = image.read()
+            etag = image.headers['ETag']
+            self.assertIn('private', image.headers['Cache-Control'])
+            self.assertIn('max-age=86400', image.headers['Cache-Control'])
+            self.assertEqual(image.headers['Content-Type'], 'image/jpeg')
+        with Image.open(io.BytesIO(thumb)) as resized:
+            self.assertLessEqual(resized.width, 320)
+            self.assertLessEqual(resized.height, 480)
+        self.assertLess(len(thumb), len(raw.getvalue()) // 10)
+        with self.assertRaises(urllib.error.HTTPError) as cached:
+            get('&size=thumb&v=first', {'If-None-Match': etag})
+        self.assertEqual(cached.exception.code, 304)
+        cached.exception.close()
+        with get('&download=1') as original:
+            self.assertEqual(original.read(), (self.path / '00_设定集/cover.png').read_bytes())
+        image = io.BytesIO()
+        Image.new('RGB', (80, 120), 'red').save(image, 'PNG')
+        manager.save_book_cover(self.book, image.getvalue(), root_dir=str(self.root / 'books'))
+        with get('&size=thumb&v=second', {'If-None-Match': etag}) as changed:
+            self.assertNotEqual(changed.headers['ETag'], etag)
+            self.assertNotEqual(changed.read(), thumb)
+        self.assertEqual(self.request('/api/cover?' + self.query + '&size=thumb', auth=False)[0], 401)
+
+    def test_memory_status_requires_auth_and_is_book_scoped(self):
+        code, denied = self.request('/api/writing_memory?book=' + urllib.parse.quote(self.book), auth=False)
+        self.assertEqual(code, 401)
+        code, data = self.request('/api/writing_memory?book=' + urllib.parse.quote(self.book))
+        self.assertEqual(code, 200)
+        self.assertIn('ready', data)
+        self.assertEqual(data['sources'], 2)
+        self.assertEqual(self.request('/api/writing_memory?book=..')[0], 400)
+
     def test_cloud_writing_real_http_transport_and_two_chapter_persistence(self):
         import time
         from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -586,8 +628,9 @@ class RegressionTests(unittest.TestCase):
             def do_POST(self):
                 payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 calls.append(payload)
-                number = re.search(r'第(\d+)章', payload['messages'][-1]['content']).group(1)
-                body = json.dumps({'choices':[{'finish_reason':'stop', 'message':{'content':f'# 第{number}章 桩章节\n\n' + '用于验证真实 HTTP 写作传输与保存。' * 50}}]}).encode()
+                from writing_fixtures import response
+                output = response(payload['messages'][-1]['content'])
+                body = json.dumps({'choices': [{'finish_reason': 'stop', 'message': {'content': output}}]}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(body)))
@@ -614,9 +657,11 @@ class RegressionTests(unittest.TestCase):
             task = hub.TASKS[result['task_id']]
             self.assertEqual(task['status'], 'completed', task['progress_log'])
             self.assertEqual(len(task['result']['files']), 2)
-            self.assertEqual(len(calls), 2)
+            self.assertGreater(len(calls), 2)
             self.assertEqual(calls[0]['thinking']['type'], 'disabled')
-            self.assertIn('桩章节', calls[1]['messages'][-1]['content'])
+            drafts = [call['messages'][-1]['content'] for call in calls if '【阶段 生成草稿】' in call['messages'][-1]['content']]
+            self.assertEqual(len(drafts), 2)
+            self.assertIn('第014章_延续.md', drafts[1])
             self.assertEqual(len(manager.chapter_files(self.path)), len(before) + 2)
         finally:
             network_patch.stop()
@@ -912,9 +957,11 @@ class SerialWritingTests(unittest.TestCase):
 
     def write_chapter(self, prompt, **kwargs):
         import re
-        number = int(re.search(r'第(\d+)章', prompt).group(1))
-        self.prompts.append(prompt)
-        (self.directory / f'第{number:03d}章_延续.md').write_text(f'第{number}章承接前情', encoding='utf-8')
+        from writing_fixtures import response
+        if '【阶段 生成草稿】' in prompt:
+            self.prompts.append(prompt)
+        output = re.search(r'只将本阶段要求的 JSON 或正文写入 `([^`]+)`', prompt).group(1)
+        atomic_write(output, response(prompt))
         return True, '完成'
 
     def run_serial(self, count):
@@ -926,7 +973,7 @@ class SerialWritingTests(unittest.TestCase):
         self.assertTrue(ok, result)
         self.assertEqual(sync.call_count, 2)
         self.assertIn('第002章_延续.md', self.prompts[1])
-        self.assertIn('第2章承接前情', self.prompts[1])
+        self.assertIn('正文承接前情', self.prompts[1])
         self.assertIn('人物位置与认知', self.prompts[1])
         self.assertEqual((self.directory / '第001章_起点.md').read_text(encoding='utf-8'), '第一章前情与伏笔')
 
@@ -944,12 +991,12 @@ class SerialWritingTests(unittest.TestCase):
 
     def test_failure_stops_remaining_chapters(self):
         def execute(prompt, **kwargs):
-            return self.write_chapter(prompt, **kwargs) if not self.prompts else (False, '额度不足')
+            return (False, '额度不足') if len(self.prompts) >= 1 and '【阶段 生成草稿】' in prompt else self.write_chapter(prompt, **kwargs)
         with patch.object(self.bridge, 'execute_agentapi', side_effect=execute) as execute_mock, patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(True, 0, 0)):
             ok, result = self.run_serial(3)
         self.assertFalse(ok)
         self.assertIn('1/3', result)
-        self.assertEqual(execute_mock.call_count, 2)
+        self.assertGreater(execute_mock.call_count, 2)
         self.assertEqual(len(list(self.directory.glob('*.md'))), 2)
 
     def test_missing_chapter_cannot_complete_batch(self):
@@ -963,7 +1010,7 @@ class SerialWritingTests(unittest.TestCase):
             ok, result = self.run_serial(3)
         self.assertFalse(ok)
         self.assertIn('1/3', result)
-        self.assertEqual(execute.call_count, 1)
+        self.assertGreater(execute.call_count, 1)
 
     def test_history_change_stops_batch(self):
         def execute(prompt, **kwargs):

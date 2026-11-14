@@ -1597,7 +1597,7 @@
                 <span id="status-text">检测中</span>
             </div>
             <!-- 官方域名下载链接 (App 内自动隐藏) -->
-            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.2" class="btn-apk-pill" download>
+            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.0" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
             <button class="btn-apk-pill" onclick="openSettingsModal()" title="系统全局设置与创作风控偏好" style="background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-main); cursor:pointer;">
@@ -1679,6 +1679,16 @@
                 </div>
             </div>
         </section>
+
+        <div class="setting-card" style="margin:10px 14px;">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+                <span id="writing-memory-status" role="status" style="font-size:12px;">写作记忆待检查</span>
+                <button class="tool-btn" onclick="loadWritingMemory()">刷新记忆状态</button>
+            </div>
+            <details style="margin-top:8px;font-size:12px;"><summary>按批次查看审核与来源</summary>
+                <select id="writing-review-batch" aria-label="审核批次" onchange="renderWritingReviews()" style="max-width:100%;margin:8px 0;"></select>
+                <div id="writing-memory-details" style="white-space:pre-wrap;overflow-wrap:anywhere;"></div></details>
+        </div>
 
         <!-- 2. 章节卷宗目录面板 -->
         <section id="panel-catalog" class="panel active">
@@ -2240,18 +2250,18 @@
 
                 <!-- 2. 长篇防吃书防护网 -->
                 <div class="setting-card">
-                    <div class="setting-card-title">🛡️ 长篇小说防“吃设定/吃伏笔”终极防护网</div>
+                    <div class="setting-card-title">写作资料与一致性审核</div>
                     <div class="setting-item">
                         <div>
-                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">每章完整通读全部设定文档</div>
-                            <div class="setting-desc">固定开启，完整读取本书所有设定，包含大纲、人物与伏笔账本</div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">设定与全书记忆更新</div>
+                            <div class="setting-desc">写作前核对文件版本，更新剧情、人物状态及带来源的伏笔记录</div>
                         </div>
                         <input type="checkbox" id="setting-check-ledger" checked disabled style="accent-color:var(--accent); width:18px; height:18px;">
                     </div>
                     <div class="setting-item">
                         <div>
-                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">每章完整通读此前全部章节</div>
-                            <div class="setting-desc">固定开启，从第一章读到最新章，每轮重新读取并核对前后因果</div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">上一章全文与历史原文溯源</div>
+                            <div class="setting-desc">根据本章计划检索历史原文，草稿审核通过并更新记忆后保存</div>
                         </div>
                         <input type="checkbox" id="setting-read-previous" checked disabled style="accent-color:var(--accent); width:18px; height:18px;">
                     </div>
@@ -2262,6 +2272,18 @@
                         </div>
                         <input type="checkbox" id="setting-strict-tomato" checked style="accent-color:var(--accent); width:18px; height:18px;">
                     </div>
+                </div>
+
+                <div class="setting-card">
+                    <div class="setting-card-title">写作上下文预算</div>
+                    <label for="setting-context-mode">资料模式</label>
+                    <select id="setting-context-mode" class="custom-select" style="width:100%;margin:8px 0;">
+                        <option value="layered">分层记忆与原文检索</option>
+                        <option value="full">全文复核（完整设定与历史正文）</option>
+                    </select>
+                    <label for="setting-context-budget">单次输入字符预算</label>
+                    <input id="setting-context-budget" type="number" min="24000" max="800000" step="1000" value="64000" style="width:100%;box-sizing:border-box;margin:8px 0;">
+                    <div class="setting-desc">字符数用于软件预检，请按所选模型容量设置并预留输出空间。模型仍可能拒绝超出其 Token 上限的请求。全文模式会增加用量与耗时，首次构建记忆需要处理已有资料。</div>
                 </div>
 
                 <!-- 3. DeepSeek 官方大模型 API 引擎配置 -->
@@ -2531,6 +2553,7 @@
                 CLIENT_CACHE.chapterFetchedAt[key] = Date.now();
             }
             applyChaptersData(data.chapters);
+            loadWritingMemory();
         }
 
         async function refreshSyncStatus() {
@@ -2950,14 +2973,14 @@
             
             const cardsHtml = BOOKS.map(b => {
                 const isCurrent = (b.id === CURRENT_BOOK);
-                const coverSrc = `${API}/cover?book=${encodeURIComponent(b.id)}&v=${encodeURIComponent(b.cover_version || '')}`;
+                const coverSrc = bookCoverUrl(b);
                 const genreBadge = b.genre || '宇宙科技修仙';
                 const desc = b.description ? escapeHtml(b.description).replace(/\n/g, ' ') : '暂无作品简介，点击【修改信息】即可补充故事背景与金手指介绍。';
                 return `
                     <div class="book-gallery-card ${isCurrent ? 'active-card' : ''}" onclick="if(!event.target.closest('button'))selectBook(${htmlArgument(b.id)})" style="background:var(--bg-secondary); border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'}; border-radius:10px; padding:12px; display:flex; gap:14px; margin-bottom:10px; position:relative; transition:all 0.2s ease;">
                         ${isCurrent ? '<div style="position:absolute; top:8px; right:8px; background:rgba(245,158,11,0.2); border:1px solid var(--accent); color:var(--accent); font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px;">● 当前创作中</div>' : ''}
                         <div style="flex-shrink:0; width:88px; height:120px; border-radius:6px; overflow:hidden; border:1px solid var(--border-highlight); background:#0b0f19; box-shadow:0 4px 10px rgba(0,0,0,0.5);">
-                            <img src="${coverSrc}" alt="${escapeHtml(b.title)}" style="width:100%; height:100%; object-fit:cover; display:block;" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' viewBox=\\'0 0 100 140\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23111827\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23e2b740\\' font-size=\\'12\\' text-anchor=\\'middle\\'>封面</text></svg>'">
+                            <img loading="lazy" decoding="async" width="88" height="120" src="${coverSrc}" alt="${escapeHtml(b.title)}" style="width:100%; height:100%; object-fit:cover; display:block;" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' viewBox=\\'0 0 100 140\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23111827\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23e2b740\\' font-size=\\'12\\' text-anchor=\\'middle\\'>封面</text></svg>'">
                         </div>
                         <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:space-between;">
                             <div>
@@ -2999,6 +3022,10 @@
         }
 
         // --- 作品信息与封面编辑 ---
+        function bookCoverUrl(book) {
+            return `${API}/cover?book=${encodeURIComponent(book.id)}&size=thumb&v=${encodeURIComponent(book.cover_version || '')}`;
+        }
+
         function openEditBookModal(bookId) {
             const book = BOOKS.find(b => b.id === bookId) || { id: bookId, title: bookId, genre: '', description: '' };
             document.getElementById("edit-book-id").value = book.id;
@@ -3009,7 +3036,7 @@
             document.getElementById("edit-book-tags").value = (book.tags || []).join("，");
             EDIT_COVER_BASE64 = null;
             document.getElementById("edit-book-cover-file").value = "";
-            document.getElementById("edit-book-cover-preview").src = `${API}/cover?book=${encodeURIComponent(bookId)}&v=${encodeURIComponent(book.cover_version || '')}`;
+            document.getElementById("edit-book-cover-preview").src = bookCoverUrl(book);
             document.getElementById("edit-book-modal").classList.add("show");
             showToast(`已载入作品《${book.title || bookId}》编辑资料`, "info", 1500);
         }
@@ -3511,6 +3538,8 @@
                     if (document.getElementById("setting-batch-count")) {
                         document.getElementById("setting-batch-count").value = s.batch_count || 1;
                     }
+                    document.getElementById("setting-context-mode").value = s.writing_context_mode || "layered";
+                    document.getElementById("setting-context-budget").value = s.writing_context_chars || 64000;
                     if (document.getElementById("setting-check-ledger")) {
                         document.getElementById("setting-check-ledger").checked = true;
                     }
@@ -3550,6 +3579,8 @@
                 default_effort: document.getElementById("setting-default-effort").value,
                 default_chapter_words: document.getElementById("setting-default-words").value,
                 batch_count: parseInt(document.getElementById("setting-batch-count").value) || 1,
+                writing_context_mode: document.getElementById("setting-context-mode").value,
+                writing_context_chars: Number(document.getElementById("setting-context-budget").value),
                 auto_check_ledger: document.getElementById("setting-check-ledger").checked,
                 auto_read_previous: document.getElementById("setting-read-previous").checked,
                 strict_tomato_layout: document.getElementById("setting-strict-tomato").checked,
@@ -3777,7 +3808,39 @@
         }
 
         // 加载章节与前章钩子 (SWR极速秒级渲染)
+        async function loadWritingMemory() {
+            const book = CURRENT_BOOK;
+            const el = document.getElementById('writing-memory-status');
+            if (!el || !book) return;
+            el.textContent = '正在检查写作资料…';
+            const data = await fetchAPI(`${API}/writing_memory?book=${encodeURIComponent(book)}`);
+            if (book !== CURRENT_BOOK) return;
+            if (!data || data.error) { el.textContent = '暂时无法取得写作记忆状态'; return; }
+            el.textContent = `${data.message} · ${data.indexed_sources}/${data.sources}份资料，共${data.source_chars || 0}字符 · ${data.open_threads}条待回收伏笔`;
+            WRITING_REVIEWS = data.reviews || [];
+            const select = document.getElementById('writing-review-batch');
+            select.replaceChildren(new Option('最近50条审核记录', 'all'));
+            const batches = [...new Set(WRITING_REVIEWS.map(review => review.batch).filter(Boolean))];
+            for (const batch of batches) {
+                const items = WRITING_REVIEWS.filter(review => review.batch === batch);
+                select.add(new Option(`第${Math.min(...items.map(review => review.chapter))}章起 · ${items.length}条记录 · 计划${items[0].batch_count}章`, batch));
+            }
+            renderWritingReviews();
+        }
+
+        let WRITING_REVIEWS = [];
+        function renderWritingReviews() {
+            const batch = document.getElementById('writing-review-batch').value;
+            const records = WRITING_REVIEWS.filter(review => batch === 'all' || review.batch === batch);
+            const states = {preparing:'正在更新记忆',failed:'已停止，查看原因',drafting:'草稿准备中', reviewed:'已审核', approved:'审核通过，正在保存', published:'已审核保存'};
+            document.getElementById('writing-memory-details').textContent = records.map(review => {
+                const refs = (review.references || []).map(ref => `${ref.source}（字符${ref.offset + 1}起）`);
+                return `第${review.chapter}章 · ${states[review.status] || review.status}\n引用原文\n${refs.join('\n') || '无'}\n审核意见\n${((review.audit || {}).issues || []).join('\n') || '未记录问题'}${review.error ? '\n停止原因\n' + review.error : ''}`;
+            }).join('\n\n') || '首次写作时自动建立记忆，后续显示每批逐章自动审核结果。';
+        }
+
         async function loadChapters() {
+            loadWritingMemory();
             if (!CURRENT_BOOK) { applyChaptersData([]); return; }
             const book = CURRENT_BOOK;
             try {
@@ -4093,7 +4156,7 @@
                     <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
                     <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
                 `;
-                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与剧情发展边界，每轮重新完整读取全部设定文档、对应细纲与伏笔账本，从第一章到最新章完整通读全部已有正文并核对人物状态、时间线与伏笔，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
+                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与剧情发展边界，每轮更新剧情记忆、人物状态及伏笔，核对本章细纲、上一章全文及相关历史原文，草稿审核通过后保存，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
             } else if (wf === "polish") {
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('黄金留存')">🔥 黄金留存率爆改 (前3章优化)</div>

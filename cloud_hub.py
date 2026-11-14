@@ -212,10 +212,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 15,
-    "versionName": "1.10.2",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.2",
-    "changelog": "每章完整读取全部设定和全部前文，统一多书创作上下文，补齐作者与标签编辑。",
+    "versionCode": 16,
+    "versionName": "1.11.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.0",
+    "changelog": "分层剧情记忆、历史原文检索、草稿一致性审核与逐章记忆更新，支持全文复核及资料预算。",
     "forceUpdate": False
 }
 
@@ -379,6 +379,11 @@ def sync_book(body):
     for filename in glob.glob(os.path.join(book_path, "00_设定集", "*.md")):
         with open(filename, encoding="utf-8", errors="ignore") as stream:
             actual_settings.append({"filename": os.path.basename(filename), "content": stream.read()})
+    memory_status = body.get("writing_memory")
+    if isinstance(memory_status, dict) and memory_status.get("ready") is True and len(json.dumps(memory_status)) < 100000:
+        import story_memory
+        if memory_status.get("revision") == story_memory.fingerprint(story_memory.sources(book_path)):
+            save_json_file(os.path.join(book_path, ".story-memory", "remote-status.json"), memory_status)
     receipt = content_fingerprint(actual_chapters, actual_settings)
     return {"ok": True, "chapters_count": len(chapters), "settings_count": len(settings),
             "fingerprint": receipt, "snapshot": book_snapshot(book_path)}
@@ -631,7 +636,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 safe_component(query["file"][0])
             if self.path.split("?")[0].rstrip("/").endswith((
                     "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
-                    "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/cover", "/app_settings", "/sync_manifest", "/sync_document")):
+                    "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/app_settings", "/sync_manifest", "/sync_document")):
                 with WRITE_LOCK:
                     self.handle_get()
             else:
@@ -765,50 +770,51 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(APP_VERSION_INFO)
             return
 
-        # 书籍封面接口 (公网流式直出：有真实封面输出真实图片，无封面动态输出矢量SVG)
+        # Authenticated versioned display thumbnails and original downloads.
         if path in ("/api/cover", "/novel/api/cover"):
             if not self.check_auth():
                 self.send_json({"error": "Unauthorized"}, 401)
                 return
             book_id = qs.get("book", [""])[0]
-            cover_data = None
-            mime_type = "image/png"
-            if book_id:
-                try:
-                    bpath, btitle = novel_manager.get_book_path(book_id, BOOKS_DIR)
-                    # 优先检测真实封面文件
-                    for ext in [".png", ".jpg", ".jpeg", ".webp"]:
-                        cand = os.path.join(bpath, "00_设定集", f"cover{ext}")
-                        if os.path.exists(cand) and os.path.isfile(cand):
-                            with open(cand, "rb") as fp:
-                                cover_data = fp.read()
-                            mime_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else ("image/webp" if ext == ".webp" else "image/png")
-                            break
-                        cand2 = os.path.join(bpath, f"cover{ext}")
-                        if os.path.exists(cand2) and os.path.isfile(cand2):
-                            with open(cand2, "rb") as fp:
-                                cover_data = fp.read()
-                            mime_type = "image/jpeg" if ext in [".jpg", ".jpeg"] else ("image/webp" if ext == ".webp" else "image/png")
-                            break
-                    if not cover_data:
-                        meta = novel_manager.read_book_meta(bpath)
-                        svg = generate_svg_cover(btitle or book_id, meta.get("genre", "科技修仙"))
-                        cover_data = svg.encode("utf-8")
-                        mime_type = "image/svg+xml; charset=utf-8"
-                except Exception:
-                    pass
-            if not cover_data:
-                svg = generate_svg_cover(book_id or "大秦科技修仙", "科技修仙")
-                cover_data = svg.encode("utf-8")
+            bpath, title = novel_manager.get_book_path(book_id, BOOKS_DIR)
+            candidates = [Path(bpath) / directory / ("cover" + ext)
+                for ext in (".png", ".jpg", ".jpeg", ".webp") for directory in ("00_设定集", "")]
+            cover = next((item for item in candidates if item.is_file()), None)
+            thumbnail = qs.get("size") == ["thumb"] and qs.get("download") != ["1"]
+            if cover:
+                if not cover.resolve().is_relative_to(Path(bpath).resolve()):
+                    raise ValueError("封面路径超出作品目录")
+                info = cover.stat()
+                signature = f"{cover}:{info.st_mtime_ns}:{info.st_ctime_ns}:{info.st_size}:{thumbnail}"
+                etag = '"' + hashlib.sha256(signature.encode()).hexdigest() + '"'
+                mime_type = "image/jpeg" if thumbnail or cover.suffix in (".jpg", ".jpeg") else ("image/webp" if cover.suffix == ".webp" else "image/png")
+                cover_data = None
+            else:
+                meta = novel_manager.read_book_meta(bpath)
+                cover_data = generate_svg_cover(title, meta.get("genre", "")).encode("utf-8")
+                etag = '"' + hashlib.sha256(cover_data).hexdigest() + '"'
                 mime_type = "image/svg+xml; charset=utf-8"
-
+            cache_control = "private, max-age=86400" if qs.get("v") else "private, max-age=0, must-revalidate"
+            # Authentication is checked before conditional cache handling.
+            cached = self.headers.get("If-None-Match", "").split(",")
+            if etag in [item.strip() for item in cached]:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Vary", "Cookie, X-Novel-Token")
+                self.send_header("Cache-Control", cache_control)
+                self.end_headers()
+                return
+            if cover_data is None:
+                cover_data = novel_manager.cover_thumbnail(str(cover), signature) if thumbnail else cover.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", mime_type)
             self.send_header("Content-Length", str(len(cover_data)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", cache_control)
+            self.send_header("Vary", "Cookie, X-Novel-Token")
             if qs.get("download") == ["1"]:
-                fname = f"cover_{book_id}.png" if "png" in mime_type else f"cover_{book_id}.svg"
-                self.send_header("Content-Disposition", f'attachment; filename="{urllib.parse.quote(fname)}"')
+                extension = cover.suffix if cover else ".svg"
+                self.send_header("Content-Disposition", 'attachment; filename="cover' + extension + '"')
             self.end_headers()
             self.wfile.write(cover_data)
             return
@@ -848,6 +854,13 @@ class HubHandler(BaseHTTPRequestHandler):
         # 以下需认证
         if not self.check_auth() and not path.endswith("/api/login"):
             self.send_json({"error": "Unauthorized", "need_login": True}, 401)
+            return
+
+        if path in ("/api/writing_memory", "/novel/api/writing_memory"):
+            import story_memory
+            book_path, _ = novel_manager.get_book_path(qs.get("book", [""])[0], BOOKS_DIR)
+            with WRITE_LOCK:
+                self.send_json(story_memory.status(book_path))
             return
 
         # 获取所有书籍 (多书架，启用内存+Redis缓存)

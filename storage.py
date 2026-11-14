@@ -39,3 +39,20 @@ def atomic_write(path, data):
 
 def atomic_json(path, data):
     atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def atomic_create(path, data):
+    """Publish a complete file with exclusive creation, preserving existing targets."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = data.encode("utf-8") if isinstance(data, str) else data
+    fd, temporary = tempfile.mkstemp(prefix=".create-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)

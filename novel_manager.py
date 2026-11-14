@@ -19,6 +19,7 @@ import io
 import datetime
 import base64
 import uuid
+from functools import lru_cache
 from PIL import Image
 from storage import within, safe_component, atomic_json, atomic_write
 
@@ -131,6 +132,23 @@ def decode_cover(image_data):
         raise ValueError("封面图片无法读取") from error
 
 
+@lru_cache(maxsize=128)
+def cover_thumbnail(filename, signature):
+    """Version-keyed display image cache, bounded independently of original size."""
+    from PIL import ImageOps
+    with Image.open(filename) as source:
+        image = ImageOps.exif_transpose(source)
+        image.thumbnail((320, 480), Image.Resampling.LANCZOS)
+        if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+            rgba = image.convert("RGBA")
+            background = Image.new("RGB", rgba.size, "#111827")
+            background.paste(rgba, mask=rgba.getchannel("A"))
+            image = background
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, "JPEG", quality=82, optimize=True)
+        return buffer.getvalue()
+
+
 def save_book_cover(book_id, image_data, ext="png", root_dir=None):
     if root_dir is None and isinstance(ext, str) and (os.path.isdir(ext) or "\\" in ext or "/" in ext):
         root_dir = ext
@@ -162,6 +180,8 @@ def get_user_settings(config_dir=None):
         "default_effort": "高",
         "default_chapter_words": "4000-5000",
         "batch_count": 1,
+        "writing_context_mode": "layered",
+        "writing_context_chars": 64000,
         "auto_read_previous": True,
         "auto_check_ledger": True,
         "strict_tomato_layout": True,
@@ -198,6 +218,11 @@ def save_user_settings(settings, config_dir=None):
     for key in ("deepseek_api_key", "deepseek_base_url", "default_effort", "deepseek_default_model"):
         if key in settings and (not isinstance(settings[key], str) or len(settings[key]) > 4096):
             raise ValueError("模型设置格式无效")
+    if settings.get("writing_context_mode", "layered") not in ("layered", "full"):
+        raise ValueError("写作资料模式无效")
+    budget = settings.get("writing_context_chars", 64000)
+    if isinstance(budget, bool) or not isinstance(budget, int) or not 24000 <= budget <= 800000:
+        raise ValueError("写作资料预算须为24000到800000字符")
     cfg_path = os.path.join(config_dir or os.path.dirname(__file__), ".user_settings.json")
     current = get_user_settings(config_dir)
     current.update(settings)

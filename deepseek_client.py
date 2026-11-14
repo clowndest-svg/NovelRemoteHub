@@ -205,57 +205,32 @@ def generate_content(prompt, model="deepseek-flash", effort="high", system_promp
         return content, reasoning
 
 
-def writing_material(book_root, config_dir=None):
+def writing_material(book_root, config_dir=None, query="作品整体发展", model="deepseek-flash", effort="high", progress_cb=None):
     import novel_manager
+    import story_memory
     preferences = novel_manager.get_user_settings(config_dir)
     files = novel_manager.chapter_files(book_root)
     number = max((int(match.group(1)) for filename in files
                   if (match := re.search(r"第(\d+)章", Path(filename).name))), default=0) + 1
-    material, _ = novel_manager.full_writing_context(book_root)
-    material += "\n动笔前完整通读全部设定及全部历史章节，逐项核对人物状态、时间线、能力限制与未回收伏笔。发现冲突先报告，资料超出上下文时明确失败，禁止省略或截断前文。"
+    def generate(prompt):
+        return generate_content(prompt, model, effort, config_dir=config_dir, progress_cb=progress_cb)[0]
+    material = story_memory.instruction_material(Path(book_root).resolve(), query, preferences, generate, progress_cb or (lambda message: None))
     return material, number, files, preferences
 
 
 def write_serial_chapters(book_root, book_id, count=1, user_prompt="", model="deepseek-flash", effort="high", config_dir=None, progress_cb=None, write_lock=None, on_chapter=None):
     import novel_manager
-    count = novel_manager.validate_chapter_count(count)
-    last_added = None
-    guard = write_lock or nullcontext()
-    for index in range(count):
-        with guard:
-            material, number, files, preferences = writing_material(book_root, config_dir)
-            revision = book_snapshot(book_root)["revision"]
-        words = preferences["default_chapter_words"]
-        layout = "中文全角标点，短段落，对话单列，段落间空行。" if preferences["strict_tomato_layout"] else "段落清晰，保持本书原有格式。"
-        prompt = f"创作《{book_id}》第{number:03d}章，目标{words}字。\n{material}\n【作者要求】\n{user_prompt}\n承接前文人物、地点、时间线、能力限制与伏笔。第一行必须为第{number:03d}章 标题，随后输出完整正文。{layout}"
-        if progress_cb:
-            progress_cb(f"续写进度 {index}/{count}，已载入全部设定和{len(files)}章完整前文，正在创作第{number:03d}章")
-        content, _ = generate_content(prompt, model, effort, "你是小说作者。遵循所提供作品的题材、世界观、人物与创作要求。", config_dir, progress_cb)
-        with guard:
-            first, _, body = content.strip().partition("\n")
-            title = re.match(rf"^#*\s*第0*{number}章[ _：:]+(.+)$", first.strip())
-            if not title or len(body.strip()) < 500 or book_snapshot(book_root)["revision"] != revision:
-                draft = Path(book_root) / ".generation-drafts" / (uuid.uuid4().hex + ".md")
-                atomic_write(draft, content)
-                raise RuntimeError(f"章节编号、内容或创作期间文件版本发生异常，生成稿已保留于 {draft}")
-            suffix = re.sub(r'[\\/*?:"<>|]', '', title.group(1)).strip().rstrip('. ')
-            if not suffix:
-                raise ValueError("章节标题为空")
-            directory = Path(files[-1]).parent if files else Path(book_root) / "01_正文" / "第一卷_人界篇"
-            target = directory / f"第{number:03d}章_{suffix[:100]}.md"
-            if target.exists():
-                raise RuntimeError("目标章节已存在，请重新读取目录后续写")
-            atomic_write(target, f"# 第{number:03d}章 {suffix}\n\n{body.strip()}\n")
-            last_added = str(target)
-            if on_chapter:
-                on_chapter(str(target))
-        if progress_cb:
-            progress_cb(f"续写进度 {index + 1}/{count}，第{number:03d}章已保存")
-    return True, f"已完成 {count} 章续写", last_added
+    import story_memory
+    preferences = novel_manager.get_user_settings(config_dir)
+    def generate(prompt):
+        content, _ = generate_content(prompt, model, effort, "遵循作品来源与任务要求。结构化阶段仅返回要求的 JSON。", config_dir, progress_cb)
+        return content
+    return story_memory.write_chapters(book_root, count, user_prompt, preferences, generate,
+        progress_cb or (lambda message: None), write_lock, on_chapter)
 
 
 def execute_instruction(book_root, book_id, user_prompt, model="deepseek-flash", effort="high", config_dir=None, progress_cb=None):
-    material, _, _, _ = writing_material(book_root, config_dir)
+    material, _, _, _ = writing_material(book_root, config_dir, user_prompt, model, effort, progress_cb)
     content, _ = generate_content(f"【作品资料与前章】\n{material}\n【作者要求】\n{user_prompt}", model, effort,
                                  f"你正在辅助创作《{book_id}》，严格遵循本书题材、人物与设定。", config_dir, progress_cb)
     return True, content
