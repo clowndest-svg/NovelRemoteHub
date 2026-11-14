@@ -426,8 +426,11 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress):
     output = Path(root) / '.story-memory' / 'agent-results' / (uuid.uuid4().hex + '.txt')
     output.parent.mkdir(parents=True, exist_ok=True)
     before = story_memory.fingerprint(story_memory.sources(root))
-    instruction = (prompt + f"\n当前作品根目录 `{root}`。仅使用本任务材料及该作品目录内资料，检索范围限定于本作品。\n本次为分阶段创作。只将本阶段要求的 JSON 或正文写入 `{output}`，"
-        "然后返回完成回执。作品正式正文、设定与记忆索引由软件管理，保持这些文件原样。")
+    instruction = (prompt + f"\n当前作品根目录 `{root}`。本阶段完整输入已在消息中提供。"
+        f"\n本次为分阶段创作。只将本阶段要求的 JSON 或正文写入 `{output}`，然后返回完成回执。"
+        "输出与回执的父目录均已建立。直接使用一次脚本写入结果和本次新回执，再读取这两个文件校验。"
+        "文件访问范围限定为本次指定输出和新回执，其他阶段的暂存文件与旧回执均与本任务无关。"
+        "作品正式正文、设定与记忆索引由软件管理，保持这些文件原样。")
     ok, result = execute_agentapi(instruction, title=f"【分阶段创作】《{book_id}》", engine_mode=engine,
         model_tier=model, reasoning_effort=effort, progress_cb=progress)
     if story_memory.fingerprint(story_memory.sources(root)) != before:

@@ -133,37 +133,90 @@ def memory_response(root, key, generate, prompt, budget, progress):
         return record
 
 
+def checkpoint_chunks(root, documents):
+    chain = digest(str(root.resolve()) + str(SCHEMA))
+    chunks = []
+    for name, text in documents.items():
+        for start in range(0, len(text), CHUNK_SIZE):
+            part = text[start:start + CHUNK_SIZE]
+            chain = digest(chain + name + str(start) + digest(part))
+            chunks.append({'source': name, 'offset': start, 'text': part, 'key': chain})
+    return chunks
+
+
+def batch_memory(root, group, state, generate, budget, progress):
+    key = digest(encode([part['key'] for part in group]))
+    raw_path = root / '.story-memory' / 'batches' / (key + '.txt')
+    sections = '\n'.join(f"【片段 id={part['key']}】{part['source']} 字符{part['offset'] + 1}\n{part['text']}" for part in group)
+    prompt = (f'已发生剧情记忆\n{encode(state)}\n{sections}\n'
+        '依序提取上述每个片段，严格返回JSON对象records数组，数量与顺序和片段一致。每项包含id及以下字段：'
+        f'{encode(MEMORY_FORMAT)}。id使用对应片段的id，summary尽量控制700字符内，synopsis控制1500字符内。'
+        '每项synopsis为截至该片段的已发生剧情，人物与伏笔只写本片段明确改变的信息。'
+        '人物状态使用简洁字符串，已发生事实与未来规划明确区分。仅使用消息材料，直接保存本批结果。')
+    raw = raw_path.read_text(encoding='utf-8-sig') if raw_path.is_file() else ask(generate, '批量更新记忆', prompt, budget)
+    atomic_write(raw_path, raw)
+    def validate(text):
+        data = parse_object(text).get('records')
+        if not isinstance(data, list) or [item.get('id') for item in data if isinstance(item, dict)] != [part['key'] for part in group]:
+            raise ValueError('批量记忆的片段编号、数量或顺序不一致')
+        return [validate_record(item) for item in data]
+    try:
+        records = validate(raw)
+    except (ValueError, TypeError) as error:
+        progress('批量记忆格式需要修正，保留事实并修复JSON（一次）')
+        raw = ask(generate, '修复记忆格式', f'只修正JSON结构并保留事实。错误 {error}。返回records数组，每项按顺序包含id及{encode(MEMORY_FORMAT)}的字段。id顺序必须为{encode([item["key"] for item in group])}。\n原始结果\n{raw}', budget)
+        atomic_write(raw_path.with_suffix('.repair.txt'), raw)
+        records = validate(raw)
+        atomic_write(raw_path, raw)
+    for part, record in zip(group, records):
+        atomic_json(root / '.story-memory' / 'raw' / (part['key'] + '.txt'), record)
+    return records
+
+
 def ensure_memory(root, documents, generate, budget, progress, expected=None, publish=True):
-    """Chained checkpoints invalidate everything following an edited source chunk."""
+    """Index settings locally and derive chronology from batched chapter originals."""
     root = Path(root)
     state = empty_state()
     records = []
-    chain = digest(str(root.resolve()) + str(SCHEMA))
-    chunks = [(name, start, text[start:start + CHUNK_SIZE])
-              for name, text in documents.items() for start in range(0, len(text), CHUNK_SIZE)]
-    for index, (name, start, text) in enumerate(chunks):
-        chain = digest(chain + name + str(start) + digest(text))
-        path = root / '.story-memory' / 'checkpoints' / (chain + '.json')
+    chunks = checkpoint_chunks(root, documents)
+    index = 0
+    while index < len(chunks):
+        part = chunks[index]
+        path = root / '.story-memory' / 'checkpoints' / (part['key'] + '.json')
         cached = load_json(path, {})
-        if cached.get('key') == chain:
-            record = validate_record(cached['record'])
+        setting = part['source'].startswith('00_设定集/')
+        group = [part]
+        if cached.get('key') == part['key']:
+            extracted = [validate_record(cached['record'])]
+        elif setting:
+            # Reference plans remain searchable originals and do not overwrite current plot states.
+            lines = [line.strip() for line in part['text'].splitlines() if line.strip()]
+            extracted = [{'summary': '\n'.join(lines)[:1200], 'synopsis': state['synopsis'], 'characters': {}, 'threads': []}]
+        elif (root / '.story-memory' / 'raw' / (part['key'] + '.txt')).is_file():
+            extracted = [memory_response(root, part['key'], generate, '', budget, progress)]
         else:
-            progress(f'更新作品记忆 {index + 1}/{len(chunks)}，{name} 字符{start + 1}–{start + len(text)}')
-            prompt = f'''先前已核验记忆如下\n{encode(state)}
-当前来源 {name}，字符起点 {start + 1}\n{text}
-只提取当前原文明确支持的信息，区分计划与已发生事实。保持人物位置与认知、时间、能力、伤势、物品和关系。无法确定的事实标记不确定。
-严格输出以下格式的JSON对象，字段类型必须与示例一致：{encode(MEMORY_FORMAT)}。\n只返回当前片段明确改变的人物状态和伏笔，characters的值使用简洁字符串，不重复全员小传，不主动读取本任务材料以外的文件。摘要以事实和来源为主，避免扩写评论。
-threads 每项含 id、status（open 或 resolved）、detail。沿用已有伏笔 id，只有原文明示兑现才改为 resolved，detail 引述对应短句证据。没有更新时使用空对象或空数组。不得通过摘要遗漏来清除旧伏笔。'''
-            record = memory_response(root, chain, generate, prompt, budget, progress)
-            if fingerprint(sources(root)) != fingerprint(documents if expected is None else expected):
-                raise RuntimeError('记忆构建期间资料已修改，请重试')
-            atomic_json(path, {'key': chain, 'record': record})
-        state['synopsis'] = record['synopsis']
-        for character, detail in record['characters'].items():
-            state['characters'][character] = {'detail': detail, 'source': name, 'offset': start}
-        for thread in record['threads']:
-            state['threads'][thread['id']] = {**thread, 'source': name, 'offset': start}
-        records.append({'source': name, 'offset': start, 'summary': record['summary'], 'key': chain})
+            for following in chunks[index + 1:index + 3]:
+                if (following['source'].startswith('00_设定集/')
+                        or (root / '.story-memory/checkpoints' / (following['key'] + '.json')).is_file()
+                        or (root / '.story-memory/raw' / (following['key'] + '.txt')).is_file()
+                        or sum(len(item['text']) for item in group) + len(following['text']) > 15000):
+                    break
+                group.append(following)
+            progress(f'更新作品记忆 {index + 1}–{index + len(group)}/{len(chunks)}，批量读取正文原文')
+            extracted = batch_memory(root, group, state, generate, budget, progress)
+        if fingerprint(sources(root)) != fingerprint(documents if expected is None else expected):
+            raise RuntimeError('记忆构建期间资料已修改，请重试')
+        for item, record in zip(group, extracted):
+            path = root / '.story-memory/checkpoints' / (item['key'] + '.json')
+            atomic_json(path, {'key': item['key'], 'record': record})
+            if not item['source'].startswith('00_设定集/'):
+                state['synopsis'] = record['synopsis']
+                for character, detail in record['characters'].items():
+                    state['characters'][character] = {'detail': detail, 'source': item['source'], 'offset': item['offset']}
+                for thread in record['threads']:
+                    state['threads'][thread['id']] = {**thread, 'source': item['source'], 'offset': item['offset']}
+            records.append({'source': item['source'], 'offset': item['offset'], 'summary': record['summary'], 'key': item['key']})
+        index += len(group)
     status = {'schema': SCHEMA, 'revision': fingerprint(documents), 'sources': len(documents),
               'chunks': len(records), 'open_threads': sum(t['status'] == 'open' for t in state['threads'].values()),
               'state': state, 'records': records}
@@ -178,11 +231,15 @@ def tokens(text):
         text[i:i + 2] for i in range(len(text) - 1) if '\u4e00' <= text[i] <= '\u9fff' and '\u4e00' <= text[i + 1] <= '\u9fff')
 
 
-def retrieve(documents, records, query, required, allowance):
+def retrieve(documents, records, query, required, allowance, covered=None):
+    covered = set(covered or ())
+    required = set(required) - covered
     candidates = []
     words = tokens(query)
     for record in records:
         name, offset = record['source'], record['offset']
+        if name in covered:
+            continue
         text = documents[name][offset:offset + CHUNK_SIZE]
         score = len(words & tokens(record['summary'] + '\n' + text))
         candidates.append((score, name, offset, text))
@@ -190,8 +247,11 @@ def retrieve(documents, records, query, required, allowance):
     selected = []
     references = []
     remaining = allowance
+    selected_settings = set()
     for score, name, offset, text in candidates:
         explicit = name in required
+        if name.startswith('00_设定集/') and name in selected_settings:
+            continue
         if not explicit and (score == 0 or len(references) >= 8):
             continue
         section = f'【原文 {name} 字符{offset + 1}–{offset + len(text)}】\n{text}\n'
@@ -202,6 +262,8 @@ def retrieve(documents, records, query, required, allowance):
         selected.append(section)
         references.append({'source': name, 'offset': offset, 'length': len(text)})
         remaining -= len(section)
+        if name.startswith('00_设定集/'):
+            selected_settings.add(name)
     if any(name not in {ref['source'] for ref in references} for name in required):
         raise ValueError('计划引用的历史章节不存在或未能完整载入')
     return '\n'.join(selected), references
@@ -276,9 +338,29 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                 previous = documents[latest_name] if latest_name else '（首章）'
                 base = f'本轮只创作第{number:03d}章。\n作者要求\n{user_prompt}\n计划\n{plan["plan"]}\n全书剧情、人物位置与认知、未回收伏笔\n{encode(active_state)}\n上一章完整正文 {latest_name}\n{previous}\n'
                 # Include original settings when they fit, otherwise require source retrieval from their indexed memories.
-                settings = '\n'.join(f'【设定 {name}】\n{text}' for name, text in documents.items() if name.startswith('00_设定集/'))
-                setting_index = '\n'.join(encode(record) for record in memory['records'] if record['source'].startswith('00_设定集/'))
-                base += '\n设定原文\n' + settings if len(settings) < budget // 4 else '\n全部设定索引与摘要\n' + setting_index
+                covered = {latest_name} if latest_name else set()
+                core = []
+                core_refs = []
+                setting_index = []
+                def setting_priority(item):
+                    name = item[0]
+                    return (0 if '人物' in name or '总纲' in name else 1, name)
+                for name, text in sorted(documents.items(), key=setting_priority):
+                    if not name.startswith('00_设定集/'):
+                        continue
+                    setting_index.append(f'{name}（{len(text)}字符）\n{text[:300]}')
+                    if sum(len(item) for item in core) + len(text) < budget // 3:
+                        core.append(f'【设定原文 {name}】\n{text}')
+                        covered.add(name)
+                        core_refs.append({'source': name, 'offset': 0, 'length': len(text)})
+                    chapter_match = re.search(rf'(?m)^[-#* \t]*第0*{number}章[^\n]*', text)
+                    if chapter_match:
+                        following = re.search(r'(?m)^[-#* \t]*第0*\d+章[^\n]*', text[chapter_match.end():])
+                        end = chapter_match.end() + following.start() if following else min(len(text), chapter_match.start() + CHUNK_SIZE)
+                        core.append(f'【本章细纲 {name} 字符{chapter_match.start() + 1}起】\n{text[chapter_match.start():end]}')
+                        covered.add(name)
+                        core_refs.append({'source': name, 'offset': chapter_match.start(), 'length': end - chapter_match.start()})
+                base += '\n核心设定与本章细纲\n' + '\n'.join(core) + '\n全部设定目录\n' + '\n'.join(setting_index)
                 if preferences.get('writing_context_mode') == 'full':
                     context, _ = novel_manager.full_writing_context(str(root))
                     base += '\n手动全文复核资料\n' + context
@@ -287,8 +369,11 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                     allowance = budget - len(base) - 10000
                     if allowance < 0:
                         raise ValueError('核心记忆、设定及上一章超出预算，请调整预算后重试')
-                    context, refs = retrieve(documents, memory['records'], user_prompt + plan['plan'], set(required), allowance)
+                    context, refs = retrieve(documents, memory['records'], user_prompt + plan['plan'], set(required), allowance, covered)
                     base += '\n历史溯源原文\n' + context
+                    refs = core_refs + refs
+                    if latest_name:
+                        refs.append({'source': latest_name, 'offset': 0, 'length': len(previous)})
                 review = {**load_json(run, {}), 'batch': batch_id, 'batch_count': count, 'chapter': number, 'source_revision': revision, 'plan': plan, 'references': refs, 'status': 'drafting'}
                 atomic_json(run, review)
                 words = preferences.get('default_chapter_words', '4000-5000')

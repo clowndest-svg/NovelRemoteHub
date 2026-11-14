@@ -86,7 +86,7 @@ class StoryMemoryTests(unittest.TestCase):
             nonlocal drafting
             if '【阶段 生成草稿】' in prompt:
                 drafting = True
-            if drafting and '【阶段 更新记忆】' in prompt:
+            if drafting and '更新记忆】' in prompt:
                 raise RuntimeError('额度不足')
             return self.generate(prompt)
         with self.assertRaisesRegex(RuntimeError, '额度不足'):
@@ -203,6 +203,47 @@ class StoryMemoryTests(unittest.TestCase):
             memory.memory_response(self.root, 'invalid', invalid, '原文', 64000, lambda m: None)
         self.assertEqual(len(calls), 2)
         self.assertTrue((self.root / '.story-memory/raw/invalid.txt').is_file())
+
+    def test_desktop_stage_limits_file_access_and_uses_existing_input(self):
+        import local_bridge
+        import re
+        def execute(prompt, **kwargs):
+            self.assertIn('本阶段完整输入已在消息中提供', prompt)
+            self.assertIn('文件访问范围限定为本次指定输出和新回执', prompt)
+            self.assertIn('直接使用一次脚本写入结果', prompt)
+            target = re.search(r'只将本阶段要求的 JSON 或正文写入 `([^`]+)`', prompt).group(1)
+            atomic_write(target, '{"ok":true}')
+            return True, '完成'
+        with patch.object(local_bridge, 'execute_agentapi', side_effect=execute):
+            result = local_bridge.desktop_stage(self.root, '作品', '阶段资料', 'antigravity', 'model', 'high', lambda m: None)
+        self.assertEqual(json.loads(result), {'ok': True})
+
+    def test_large_setting_reference_loads_relevant_section_and_outline(self):
+        name = '00_设定集/全240章细纲.md'
+        text = ('前文设定。' * 7000) + '\n第002章 新章计划\n本章调查旧约。\n第003章 远期计划\n'
+        atomic_write(self.root / name, text)
+        def generate(prompt):
+            if '【阶段 本章计划】' in prompt:
+                return json.dumps({'plan': '依据细纲调查旧约', 'sources': [name]}, ensure_ascii=False)
+            return self.generate(prompt)
+        self.write(generate=generate)
+        draft = next(p for p in self.requests if '【阶段 生成草稿】' in p)
+        self.assertIn('本章调查旧约', draft)
+        self.assertLess(len(draft), 64000)
+
+    def test_future_setting_plans_do_not_overwrite_current_character_state(self):
+        atomic_write(self.root / '00_设定集/未来计划.md', '主角百年后成为皇帝，现阶段仍在码头。')
+        index = memory.ensure_memory(self.root, memory.sources(self.root), self.generate, 64000, lambda m: None)
+        self.assertTrue(all(not character['source'].startswith('00_设定集/') for character in index['state']['characters'].values()))
+        self.assertTrue(any(record['source'].startswith('00_设定集/') for record in index['records']))
+
+    def test_history_build_uses_batched_requests_with_exact_source_ids(self):
+        for number in range(2, 7):
+            atomic_write(self.root / f'01_正文/第一卷/第{number:03d}章.md', f'历史章{number}事实。')
+        memory.ensure_memory(self.root, memory.sources(self.root), self.generate, 64000, lambda m: None)
+        calls = [request for request in self.requests if '【阶段 批量更新记忆】' in request]
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(len(__import__('re').findall(r'【片段 id=', request)) == 3 for request in calls))
 
     def test_settings_validate_mode_and_budget(self):
         for data in ({'writing_context_chars': True}, {'writing_context_chars': 1}, {'writing_context_mode': 'unknown'}):

@@ -215,7 +215,7 @@ APP_VERSION_INFO = {
     "versionCode": 17,
     "versionName": "1.11.1",
     "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.1",
-    "changelog": "分层剧情记忆、历史原文检索、草稿一致性审核与逐章记忆更新，支持全文复核及资料预算。",
+    "changelog": "修复人物状态返回格式，明确阶段提示词，批量构建正文记忆并按段引用长设定。",
     "forceUpdate": False
 }
 

@@ -4,6 +4,10 @@ import re
 
 
 def response(prompt):
+    if '【阶段 批量更新记忆】' in prompt:
+        keys = re.findall(r'【片段 id=([a-f0-9]+)】', prompt)
+        records = [dict(json.loads(response('【阶段 更新记忆】')), id=key) for key in keys]
+        return json.dumps({'records': records}, ensure_ascii=False)
     if '【阶段 更新记忆】' in prompt:
         return json.dumps({'summary': '原文事件与线索', 'synopsis': '故事按原文继续发展',
             'characters': {'主角': '位置与认知见本章'},
