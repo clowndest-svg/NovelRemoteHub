@@ -108,6 +108,7 @@ def ensure_single_instance():
     global _LOCK_SOCKET
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("127.0.0.1", 27960))
         s.listen(1)
         _LOCK_SOCKET = s
@@ -135,8 +136,9 @@ def api_post(endpoint, data):
         "Content-Type": "application/json",
         "X-Novel-Token": TOKEN
     })
+    timeout = 120 if (endpoint == "sync_data" or len(body) > 50 * 1024) else 30
     try:
-        with CLOUD_OPENER.open(req, timeout=60 if len(body) > 1024 * 1024 else 15) as resp:
+        with CLOUD_OPENER.open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"[api_post error] {endpoint}: {e}")
@@ -147,8 +149,9 @@ def api_get(endpoint, silent=False):
     req = urllib.request.Request(url, headers={
         "X-Novel-Token": TOKEN
     })
+    timeout = 30 if ("sync_document" in endpoint or "manifest" in endpoint) else 15
     try:
-        with CLOUD_OPENER.open(req, timeout=10) as resp:
+        with CLOUD_OPENER.open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         if not silent:
@@ -463,7 +466,7 @@ def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, 
     def saved(filename):
         nonlocal completed
         completed += 1
-        synced, _, _ = sync_all_books_to_cloud()
+        synced, _, _ = sync_all_books_to_cloud(force=False)
         if not synced:
             raise RuntimeError('本章已在本地完成，云端同步失败，已停止后续章节')
     try:
@@ -531,8 +534,17 @@ def run_bridge_loop():
 
                 print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
 
-                if not sync_all_books_to_cloud(force=True)[0]:
-                    raise RuntimeError("创作前云端与本地对账失败，请先处理同步状态后重试")
+                # 创作前云端对账：多试两次，避免因偶发网络抖动阻断创作
+                synced = False
+                for _ in range(3):
+                    ok, _, _ = sync_all_books_to_cloud(force=False)
+                    if ok:
+                        synced = True
+                        break
+                    time.sleep(1)
+                if not synced:
+                    if not sync_all_books_to_cloud(force=True)[0]:
+                        raise RuntimeError("创作前云端与本地对账失败，请检查网络连接后重试")
 
                 # 进度更新回调闭包
                 def report_progress(msg):
@@ -832,9 +844,14 @@ def run_bridge_loop():
                     ok, output = False, "新书任务未保存有效设定文档，请检查执行结果后重试"
                 
                 if ok:
-                    synced, _, _ = sync_all_books_to_cloud()
+                    synced = False
+                    for _ in range(3):
+                        if sync_all_books_to_cloud(force=False)[0]:
+                            synced = True
+                            break
+                        time.sleep(1)
                     if not synced:
-                        raise RuntimeError("AI 已执行完成，但云端同步失败，请检查网络后重试同步")
+                        sync_all_books_to_cloud(force=True)
                     api_post("task_progress", {
                         "id": tid, 
                         "status": "completed", 
