@@ -20,3 +20,6 @@ apk_tools/
 
 .local-access.txt
 .user_settings.json
+
+.bridge-task-reports.json
+.bridge-active-task.json

@@ -36,6 +36,7 @@ import novel_manager
 import deepseek_client
 from sync_protocol import content_fingerprint, book_snapshot, digest, cover_fingerprint
 import library_sync
+import http.client
 
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
 class SafeDaemonLogStream:
@@ -95,25 +96,48 @@ SYNC_REQUEST = threading.Event()
 SYNC_REQUEST_ID = 0
 SYNC_RECEIPTS = {}
 SYNC_REPORT_PENDING = False
+SYNC_LAST_ERROR = ""
+SYNC_CONFLICT = False
 BRIDGE_PREFERENCES = {}
+TASK_REPORTS_PATH = Path(__file__).with_name('.bridge-task-reports.json')
+ACTIVE_JOB_PATH = Path(__file__).with_name('.bridge-active-task.json')
+TASK_REPORT_LOCK = threading.RLock()
 
-# 忽略 SSL 证书校验 (安全直连)
+# 独立直连并校验服务器证书。
 SSL_CTX = ssl.create_default_context()
-CLOUD_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=SSL_CTX))
+
+
+class CloudHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        if self.host == 'scientificexploration.art':
+            # Keep hostname verification and SNI while bypassing Clash Fake-IP DNS.
+            self._create_connection = lambda address, timeout, source_address: socket.create_connection(
+                (CONFIG.get('server_ip', '124.220.54.64'), address[1]), timeout, source_address)
+        super().connect()
+
+
+class CloudHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, request):
+        return self.do_open(CloudHTTPSConnection, request, context=self._context)
+
+
+CLOUD_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), CloudHTTPSHandler(context=SSL_CTX))
 
 
 # 0. 单实例互斥守护 (端口锁)
 _LOCK_SOCKET = None
-def ensure_single_instance():
+def ensure_single_instance(port=27960):
     global _LOCK_SOCKET
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(("127.0.0.1", 27960))
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        s.bind(("127.0.0.1", port))
         s.listen(1)
         _LOCK_SOCKET = s
         return True
-    except Exception:
+    except OSError:
+        s.close()
         print("[Daemon] 另一个 NovelRemoteHub 本地守护进程已经在运行中，当前进程退出避免重复。")
         sys.exit(0)
 
@@ -137,12 +161,53 @@ def api_post(endpoint, data):
         "X-Novel-Token": TOKEN
     })
     timeout = 120 if (endpoint == "sync_data" or len(body) > 50 * 1024) else 30
-    try:
-        with CLOUD_OPENER.open(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"[api_post error] {endpoint}: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            with CLOUD_OPENER.open(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            with error:
+                try:
+                    result = json.load(error)
+                except (ValueError, OSError):
+                    result = {'error': f'HTTP {error.code}'}
+            print(f"[api_post error] {endpoint}: HTTP {error.code} {result.get('error', '')}")
+            if error.code < 500 and error.code != 429:
+                return result
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            print(f"[api_post error] {endpoint}: {error}")
+        if attempt < 2:
+            time.sleep(attempt + 1)
+    return None
+
+
+def report_task(payload):
+    """Persist terminal reports until the cloud acknowledges them, including across restarts."""
+    payload = dict(payload)
+    payload.setdefault('event_id', uuid.uuid4().hex)
+    with TASK_REPORT_LOCK:
+        reports = story_memory.load_json(TASK_REPORTS_PATH, {})
+        terminal = payload.get('status') in ('completed', 'failed')
+        if terminal:
+            reports[payload['id']] = payload
+            atomic_json(TASK_REPORTS_PATH, reports)
+        result = api_post('task_progress', payload)
+        if terminal and result and result.get('ok'):
+            reports.pop(payload['id'], None)
+            atomic_json(TASK_REPORTS_PATH, reports)
+            active = story_memory.load_json(ACTIVE_JOB_PATH, {})
+            if active.get('id') == payload['id']:
+                ACTIVE_JOB_PATH.unlink(missing_ok=True)
+        return result
+
+
+def flush_task_reports():
+    with TASK_REPORT_LOCK:
+        for payload in story_memory.load_json(TASK_REPORTS_PATH, {}).values():
+            result = report_task(payload)
+            if not result or not result.get('ok'):
+                return False
+    return True
 
 def api_get(endpoint, silent=False):
     url = f"{CLOUD_SERVER_URL}/{endpoint.lstrip('/')}"
@@ -302,7 +367,8 @@ def sync_all_books_to_cloud(force=True):
 
 
 def _sync_all_books_to_cloud(force):
-    global SYNC_REPORT_PENDING
+    global SYNC_REPORT_PENDING, SYNC_LAST_ERROR, SYNC_CONFLICT
+    SYNC_CONFLICT = False
     total_chapters = 0
     total_settings = 0
     convs = collect_all_conversations()
@@ -361,10 +427,11 @@ def _sync_all_books_to_cloud(force):
                 else:
                     all_ok = False
                     SYNC_RECEIPTS.pop(book_id, None)
-                    error = f"《{book_id}》同步未确认，将自动重试"
+                    error = (res or {}).get('error') or f"《{book_id}》同步未确认，将自动重试"
     except Exception as failure:
         all_ok = False
         error = str(failure)
+        SYNC_CONFLICT = isinstance(failure, ValueError)
     if attempted or force or not all_ok or SYNC_REPORT_PENDING:
         report = api_post("sync_report", {"ok": all_ok, "error": error, "request_id": request_id,
                           "books_count": books_count, "chapters_count": total_chapters,
@@ -374,7 +441,21 @@ def _sync_all_books_to_cloud(force):
             all_ok = False
     if error:
         print(f"[Sync] {error}")
+    SYNC_LAST_ERROR = error or ("同步状态回执未确认" if not all_ok else "")
     return all_ok, total_chapters, total_settings
+
+
+def wait_for_cloud_sync(progress):
+    attempt = 0
+    while True:
+        if sync_all_books_to_cloud(force=False)[0]:
+            return
+        if SYNC_CONFLICT:
+            raise RuntimeError(SYNC_LAST_ERROR)
+        attempt += 1
+        progress(f'正在重试云端同步（第{attempt}次），已保存成果，连接恢复后继续。{SYNC_LAST_ERROR}')
+        SYNC_REQUEST.set()
+        time.sleep(min(attempt * 5, 30))
 
 
 def sync_loop():
@@ -411,6 +492,8 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
 """
     try:
         if session is not None and session.get('id'):
+            if engine_mode == 'antigravity' and session.get('receipt'):
+                desktop_agents.wait_for_receipt(session['receipt'], session['id'], progress_cb, engine_mode)
             conversation = desktop_agents.continue_conversation(session['id'], prompt, model_tier, engine_mode, reasoning_effort)
             action = '续接'
         else:
@@ -418,6 +501,8 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
             if session is not None:
                 session['id'] = conversation
             action = '建立'
+        if session is not None:
+            session['receipt'] = str(receipt)
         if progress_cb:
             progress_cb(f"已在小说工作区{action} {engine_mode} 会话 {conversation}，完全访问权限已校验")
         result = desktop_agents.wait_for_receipt(receipt, conversation, progress_cb, engine_mode)
@@ -433,6 +518,7 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
 
 
 def desktop_stage(root, book_id, prompt, engine, model, effort, progress, session=None):
+    stage_title = '审稿' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else '写作'
     if session is not None:
         if session.get('id') and session.get('book_root') != str(Path(root).resolve()):
             raise ValueError('批次会话属于其他作品，已停止续接')
@@ -440,12 +526,32 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessio
     output = Path(root) / '.story-memory' / 'agent-results' / (uuid.uuid4().hex + '.txt')
     output.parent.mkdir(parents=True, exist_ok=True)
     before = story_memory.fingerprint(story_memory.sources(root))
+    if canonical_engine(engine) == 'antigravity':
+        marker = uuid.uuid4().hex
+        instruction = (prompt + f'\n【本次阶段编号 {marker}】\n'
+            '本阶段只需在最终回复中返回所要求的完整 JSON 对象或完整章节正文，不加代码围栏或完成说明。'
+            '软件负责保存回复、生成回执、检查来源和发布正文。无需调用工具、执行命令、写文件或统计精确字数。')
+        if session is not None and session.get('id'):
+            if session.get('receipt'):
+                desktop_agents.wait_for_receipt(session.pop('receipt'), session['id'], progress, engine)
+            conversation = desktop_agents.continue_conversation(session['id'], instruction, model, engine, effort)
+        else:
+            conversation = desktop_agents.new_conversation(instruction, f'【{stage_title}】《{book_id}》', model, engine, effort)
+            if session is not None:
+                session['id'] = conversation
+        progress(f'已在小说工作区连接 antigravity 会话 {conversation}，等待本阶段完整回复')
+        result = agent_client.wait_for_response(conversation, marker, progress)
+        atomic_write(output, result)
+        if story_memory.fingerprint(story_memory.sources(root)) != before:
+            raise RuntimeError('历史正文发生变化或设定被执行端修改，已停止任务')
+        return result
     instruction = (prompt + f"\n当前作品根目录 `{root}`。本阶段完整输入已在消息中提供。"
         f"\n本次为分阶段创作。只将本阶段要求的 JSON 或正文写入 `{output}`，然后返回完成回执。"
         "输出与回执的父目录均已建立。直接使用一次脚本写入结果和本次新回执，再读取这两个文件校验。"
+        "两个文件校验通过后立即结束本阶段并回复完成。"
         "文件访问范围限定为本次指定输出和新回执，其他阶段的暂存文件与旧回执均与本任务无关。"
         "作品正式正文、设定与记忆索引由软件管理，保持这些文件原样。")
-    ok, result = execute_agentapi(instruction, title=f"【{'审稿' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else '写作'}】《{book_id}》", engine_mode=engine,
+    ok, result = execute_agentapi(instruction, title=f"【{stage_title}】《{book_id}》", engine_mode=engine,
         model_tier=model, reasoning_effort=effort, progress_cb=progress, session=session)
     if story_memory.fingerprint(story_memory.sources(root)) != before:
         raise RuntimeError('历史正文发生变化或设定被执行端修改，已停止任务')
@@ -456,21 +562,56 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessio
     return output.read_text(encoding='utf-8-sig')
 
 
-def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress, sessions=None):
+def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress, sessions=None, task_id=None):
+    count = novel_manager.validate_chapter_count(count)
     completed = 0
     root, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
-    sessions = sessions if sessions is not None else {'writer': {}, 'reviewer': {}}
+    checkpoint = Path(root) / '.story-memory/tasks' / (safe_component(task_id) + '.json') if task_id else None
+    state = story_memory.load_json(checkpoint, {}) if checkpoint else {}
+    batch_id = state.get('batch_id') or uuid.uuid4().hex
+    sessions = sessions if sessions is not None else state.get('sessions', {'writer': {}, 'reviewer': {}})
+    state.update(batch_id=batch_id, sessions=sessions, count=count)
+    if checkpoint:
+        atomic_json(checkpoint, state)
+        for review_path in (Path(root) / '.story-memory/reviews').glob('*.json'):
+            review = story_memory.load_json(review_path, {})
+            if review.get('batch') != batch_id or review.get('status') not in ('approved', 'published'):
+                continue
+            target = Path(review['target']).resolve()
+            if review.get('status') == 'approved' and not target.exists():
+                continue
+            if not target.is_relative_to(Path(root).resolve()) or not target.is_file():
+                return False, '已保存章节缺失，恢复任务前请核对原稿'
+            if story_memory.digest(target.read_text(encoding='utf-8-sig')) != review.get('target_hash'):
+                return False, '已保存章节发生修改，恢复任务前请核对原稿'
+            completed += 1
+    recovered = completed
     def generate(prompt):
         role = 'reviewer' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else 'writer'
-        return desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessions[role])
+        try:
+            return desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessions[role])
+        finally:
+            if checkpoint:
+                atomic_json(checkpoint, state)
     def saved(filename):
         nonlocal completed
         completed += 1
-        synced, _, _ = sync_all_books_to_cloud(force=False)
-        if not synced:
-            raise RuntimeError('本章已在本地完成，云端同步失败，已停止后续章节')
+        wait_for_cloud_sync(progress)
     try:
-        return story_memory.write_chapters(root, count, user_prompt, BRIDGE_PREFERENCES, generate, progress, on_chapter=saved)[:2]
+        if recovered:
+            progress(f'正在恢复原任务，已保存 {recovered}/{count} 章，核对同步后继续剩余章节')
+            wait_for_cloud_sync(progress)
+        remaining = count - recovered
+        if remaining < 0:
+            raise ValueError('任务已保存章数超过请求数量，请核对任务记录')
+        def batch_progress(message):
+            if recovered:
+                message = re.sub(r'续写进度 (\d+)/\d+', lambda m: f'续写进度 {recovered + int(m.group(1))}/{count}', message)
+            progress(message)
+        if remaining:
+            story_memory.write_chapters(root, remaining, user_prompt, BRIDGE_PREFERENCES, generate, batch_progress,
+                                        on_chapter=saved, batch_id=batch_id, batch_count=count)
+        return True, f'已完成 {completed} 章续写'
     except Exception as error:
         return False, f"连续续写已停止，已完成 {completed}/{count} 章。{error}"
 
@@ -515,12 +656,28 @@ def run_bridge_loop():
 
     while True:
         try:
+            if not flush_task_reports():
+                time.sleep(5)
+                continue
             # 1. 轮询云端任务
-            data = api_get("pending_task")
+            active = story_memory.load_json(ACTIVE_JOB_PATH, {})
+            if active:
+                remote = api_get('task_status?' + urllib.parse.urlencode({'id': active['id']}))
+                if not remote:
+                    time.sleep(5)
+                    continue
+                if remote.get('status') in ('completed', 'failed') or remote.get('error'):
+                    ACTIVE_JOB_PATH.unlink(missing_ok=True)
+                    continue
+                data = {'task': active}
+            else:
+                data = api_get("pending_task")
             if data and data.get("refresh_agents"):
                 api_post("sync_agents", desktop_agents.catalog())
             if data and data.get("task"):
                 task = data["task"]
+                if task.get('extra_data', {}).get('workflow') == 'serial':
+                    atomic_json(ACTIVE_JOB_PATH, task)
                 tid = task["id"]
                 ACTIVE_TASK = tid
                 action = task.get("action", "creative_instruction")
@@ -534,21 +691,14 @@ def run_bridge_loop():
 
                 print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
 
-                # 创作前云端对账：多试两次，避免因偶发网络抖动阻断创作
-                synced = False
-                for _ in range(3):
-                    ok, _, _ = sync_all_books_to_cloud(force=False)
-                    if ok:
-                        synced = True
-                        break
-                    time.sleep(1)
-                if not synced:
-                    if not sync_all_books_to_cloud(force=True)[0]:
-                        raise RuntimeError("创作前云端与本地对账失败，请检查网络连接后重试")
+                report_task({'id': tid, 'status': 'running', 'log': '电脑已领取任务，正在核对云端资料'})
+
+                # 等待对账确认，短暂断网期间保留当前任务。
+                wait_for_cloud_sync(lambda msg: report_task({'id': tid, 'status': 'running', 'log': msg}))
 
                 # 进度更新回调闭包
                 def report_progress(msg):
-                    api_post("task_progress", {"id": tid, "status": "running", "log": msg})
+                    report_task({"id": tid, "status": "running", "log": msg})
 
                 # A. 远程唤醒/健康检查指令
                 if action == "wake_antigravity":
@@ -563,7 +713,7 @@ def run_bridge_loop():
                     api_post("sync_agents", desktop_agents.catalog())
                     proxy_ok, proxy_msg = check_proxy_health()
                     log_text = f"✅ 电脑端健康检测完毕：\n1. 引擎状态：{ensure_msg}\n2. 网络代理：{proxy_msg}"
-                    api_post("task_progress", {"id": tid, "status": "completed", "log": log_text})
+                    report_task({"id": tid, "status": "completed", "log": log_text})
                     time.sleep(1)
                     continue
 
@@ -671,7 +821,7 @@ def run_bridge_loop():
                     latest = api_get("chapter_extras?" + query)
                     if latest and latest.get("meta"):
                         atomic_json(illu_dir / "meta.json", latest["meta"])
-                    api_post("task_progress", {"id": tid, "status": "completed",
+                    report_task({"id": tid, "status": "completed",
                         "log": "章节文案已生成并保存" if notes_only else f"已生成并同步 {len(meta_res['illustrations'])} 张二维水墨场景插画与互动文案",
                         "result": {"conversation_id": meta_res["conversation_id"]}})
                     continue
@@ -697,7 +847,7 @@ def run_bridge_loop():
                             break
 
                     if not target_file_path or not os.path.exists(target_file_path):
-                        api_post("task_progress", {"id": tid, "status": "failed", "log": f"未找到对应章节正文文件: {chapter_filename}"})
+                        report_task({"id": tid, "status": "failed", "log": f"未找到对应章节正文文件: {chapter_filename}"})
                         continue
 
                     # 自动安全备份原章节文件
@@ -801,11 +951,11 @@ def run_bridge_loop():
                             )
                             if ok:
                                 sync_all_books_to_cloud()
-                            api_post("task_progress", {"id": tid, "status": "completed" if ok else "failed", "log": output})
+                            report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
                             continue
                         ok, output = execute_serial_chapters(book_id, extra_data.get("chapter_count", 1), user_prompt,
-                            engine, model_tier, reasoning_effort, report_progress)
-                        api_post("task_progress", {"id": tid, "status": "completed" if ok else "failed", "log": output})
+                            engine, model_tier, reasoning_effort, report_progress, task_id=tid)
+                        report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
                         continue
                     else:
                         if engine == "deepseek":
@@ -815,7 +965,7 @@ def run_bridge_loop():
                             )
                             if ok:
                                 sync_all_books_to_cloud()
-                            api_post("task_progress", {"id": tid, "status": "completed" if ok else "failed", "log": output})
+                            report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
                             continue
                         prompt = f"""【《{book_id}》小说辅助构思与推演指令】
 当前小说工程工作区：`D:\\小说\\{book_id}`
@@ -844,15 +994,8 @@ def run_bridge_loop():
                     ok, output = False, "新书任务未保存有效设定文档，请检查执行结果后重试"
                 
                 if ok:
-                    synced = False
-                    for _ in range(3):
-                        if sync_all_books_to_cloud(force=False)[0]:
-                            synced = True
-                            break
-                        time.sleep(1)
-                    if not synced:
-                        sync_all_books_to_cloud(force=True)
-                    api_post("task_progress", {
+                    wait_for_cloud_sync(report_progress)
+                    report_task({
                         "id": tid, 
                         "status": "completed", 
                         "log": f"{output.strip()}\n\n成果已校验并同步至云端。"
@@ -860,7 +1003,7 @@ def run_bridge_loop():
                     print(f"[Task] 成功执行任务: {task_title}")
                     # 立即全量同步最新生成的文件
                 else:
-                    api_post("task_progress", {
+                    report_task({
                         "id": tid, 
                         "status": "failed", 
                         "log": output
@@ -869,7 +1012,7 @@ def run_bridge_loop():
         except Exception as e:
             print(f"[Loop Exception] {e}")
             if ACTIVE_TASK:
-                api_post("task_progress", {"id": ACTIVE_TASK, "status": "failed", "log": str(e)})
+                report_task({"id": ACTIVE_TASK, "status": "failed", "log": str(e)})
         finally:
             ACTIVE_TASK = None
 

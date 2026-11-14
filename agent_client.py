@@ -133,6 +133,52 @@ def continue_conversation(conversation_id, prompt, model=None, effort=None):
     return conversation_id
 
 
+def read_receipt(path):
+    receipt = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    if not isinstance(receipt, dict):
+        raise ValueError('执行端完成回执必须为 JSON 对象')
+    if receipt.get('error'):
+        raise RuntimeError(str(receipt['error']))
+    return receipt
+
+
+def wait_for_response(conversation_id, marker, progress=None, timeout=1200):
+    """Read the final reply belonging to this stage, excluding earlier conversation turns."""
+    deadline = time.monotonic() + timeout
+    next_report = 0
+    last_activity = None
+    while time.monotonic() < deadline:
+        try:
+            trajectory = rpc('GetCascadeTrajectory', {'cascadeId': conversation_id}, timeout=10)
+        except (OSError, RuntimeError, ValueError):
+            trajectory = {}
+        steps = trajectory.get('trajectory', {}).get('steps', [])
+        boundary = next((i for i in range(len(steps) - 1, -1, -1)
+            if steps[i].get('type') == 'CORTEX_STEP_TYPE_USER_INPUT' and any(
+                marker in item.get('text', '') for item in steps[i].get('userInput', {}).get('items', []))), None)
+        if boundary is not None and steps[boundary + 1:]:
+            current = steps[boundary + 1:]
+            last = current[-1]
+            activity = (len(current), last.get('status'), last.get('metadata', {}).get('completedAt'))
+            if activity != last_activity:
+                deadline = time.monotonic() + timeout
+                last_activity = activity
+            if trajectory.get('status') == 'CASCADE_RUN_STATUS_IDLE':
+                if last.get('type') == 'CORTEX_STEP_TYPE_ERROR_MESSAGE':
+                    error = last.get('errorMessage', {}).get('error', {})
+                    message = error.get('modelErrorMessage') or error.get('shortError') or error.get('userErrorMessage') or '执行端已终止任务'
+                    raise RuntimeError('Antigravity 执行失败 ' + str(message)[:1000])
+                response = last.get('plannerResponse', {}).get('response')
+                if isinstance(response, str) and response.strip() and not last.get('plannerResponse', {}).get('toolCalls'):
+                    return response.strip()
+                raise RuntimeError('Antigravity 本阶段已结束，但未返回完整的正文或 JSON')
+        if progress and time.monotonic() >= next_report:
+            progress(f'Antigravity 会话 {conversation_id} 正在生成本阶段文本…')
+            next_report = time.monotonic() + 15
+        time.sleep(2)
+    raise TimeoutError(f'Antigravity 阶段长时间未返回新进展，会话 {conversation_id}')
+
+
 def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
     """A task-specific receipt is written last, after the requested files exist."""
     deadline = time.monotonic() + timeout
@@ -141,14 +187,14 @@ def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
     invalid_receipt = False
     idle_since = None
     recovery_sent = False
+    receipt = None
+    last_activity = None
     while time.monotonic() < deadline:
         if Path(path).is_file():
             try:
-                receipt = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-                if receipt.get("error"):
-                    raise RuntimeError(str(receipt["error"]))
-                return receipt
-            except json.JSONDecodeError:
+                receipt = read_receipt(path)
+                invalid_receipt = False
+            except (json.JSONDecodeError, OSError):
                 invalid_receipt = True
         if time.monotonic() >= next_status:
             next_status = time.monotonic() + 10
@@ -156,21 +202,29 @@ def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
                 trajectory = rpc("GetCascadeTrajectory", {"cascadeId": conversation_id}, timeout=5)
             except (RuntimeError, OSError, ValueError):
                 trajectory = {}
-            if invalid_receipt and trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE":
+            idle = trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE"
+            if invalid_receipt and idle:
                 try:
-                    receipt = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+                    receipt = read_receipt(path)
                 except json.JSONDecodeError as error:
                     raise ValueError("执行端已结束，但完成回执不是有效 JSON，请核对本轮成果") from error
-                if receipt.get("error"):
-                    raise RuntimeError(str(receipt["error"]))
-                return receipt
             steps = trajectory.get("trajectory", {}).get("steps", [])
-            if (trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE" and steps
+            if steps:
+                last = steps[-1]
+                activity = (trajectory.get('numTotalSteps', len(steps)), last.get('status'),
+                            last.get('metadata', {}).get('completedAt'))
+                if activity != last_activity:
+                    deadline = time.monotonic() + timeout
+                    last_activity = activity
+            if (idle and steps
                     and steps[-1].get("type") == "CORTEX_STEP_TYPE_ERROR_MESSAGE"):
                 error = steps[-1].get("errorMessage", {}).get("error", {})
                 message = error.get("modelErrorMessage") or error.get("shortError") or error.get("userErrorMessage") or "执行端已终止任务"
                 raise RuntimeError("Antigravity 执行失败 " + str(message)[:1000])
-            if trajectory.get("status") == "CASCADE_RUN_STATUS_IDLE" and steps and steps[-1].get("type") == "CORTEX_STEP_TYPE_PLANNER_RESPONSE":
+            if idle and receipt is not None:
+                # The agent can keep editing after writing its receipt. Never start the next turn early.
+                return read_receipt(path)
+            if idle and steps and steps[-1].get("type") == "CORTEX_STEP_TYPE_PLANNER_RESPONSE":
                 idle_since = idle_since if idle_since is not None else time.monotonic()
                 if time.monotonic() - idle_since >= 15:
                     if recovery_sent:

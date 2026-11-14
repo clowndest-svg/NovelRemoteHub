@@ -1707,12 +1707,18 @@ class HubHandler(BaseHTTPRequestHandler):
                 if t["status"] in ("completed", "failed"):
                     self.send_json({"ok": True, "terminal": True})
                     return
+                event_id = body.get('event_id')
+                if event_id and event_id in t.get('progress_events', []):
+                    self.send_json({'ok': True, 'deduplicated': True})
+                    return
                 t["status"] = new_status
                 t["heartbeat_at"] = time.time()
                 log_entry = body.get("log")
                 if log_entry:
                     t["progress_log"].append(f"[{time.strftime('%H:%M:%S')}] {str(log_entry)[:4000]}")
                     t["progress_log"] = t["progress_log"][-200:]
+                if event_id:
+                    t['progress_events'] = (t.get('progress_events', []) + [str(event_id)[:100]])[-200:]
                 if t["status"] in ("completed", "failed"):
                     t["completed_at"] = time.time()
                     t["result"] = body.get("result")

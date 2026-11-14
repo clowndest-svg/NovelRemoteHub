@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 番茄小说作家助手 · 全自动发布与批量存草稿
 // @namespace    https://scientificexploration.art/novel
-// @version      1.0.0
+// @version      1.1.0
 // @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄作家后台，支持单章一键填充、作者有话说自动对齐、错别字拦截自愈与多章节全自动存草稿流水线！
 // @author       NovelRemoteHub
 // @match        https://fanqienovel.com/main/writer/*
@@ -11,6 +11,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_deleteValue
 // @grant        GM_notification
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
@@ -33,11 +34,41 @@
         saveDelayMs: GM_getValue('save_delay_ms', 1800)
     };
 
+    const BATCH_STORAGE_KEY = 'nrh_fanqie_batch_pipeline_v1';
+
     let chaptersCatalog = [];
-    let currentFillChapter = null;
     let isBatchRunning = false;
 
-    // ================= 样式注入 (黑金奢华主题，契合 NovelRemoteHub) =================
+    // ================= 状态持久化管理 =================
+    function getBatchState() {
+        try {
+            const raw = GM_getValue(BATCH_STORAGE_KEY, null);
+            if (!raw) return null;
+            return typeof raw === 'string' ? JSON.parse(raw) : raw;
+        } catch (e) {
+            console.error('[NRH Publisher] 解析批量状态异常:', e);
+            return null;
+        }
+    }
+
+    function setBatchState(state) {
+        if (state) {
+            GM_setValue(BATCH_STORAGE_KEY, JSON.stringify(state));
+        } else {
+            GM_deleteValue(BATCH_STORAGE_KEY);
+        }
+    }
+
+    function getBookIdFromUrl() {
+        const m = location.href.match(/writer\/(?:preview\/)?(\d+)/);
+        if (m) {
+            GM_setValue('nrh_last_book_id', m[1]);
+            return m[1];
+        }
+        return GM_getValue('nrh_last_book_id', '7706774841793186841');
+    }
+
+    // ================= 样式注入 (黑金奢华科技主题) =================
     const STYLES = `
     #nrh-floating-widget {
         position: fixed;
@@ -134,6 +165,10 @@
         background: linear-gradient(135deg, #3b82f6, #1d4ed8);
         color: #fff;
     }
+    .nrh-btn-danger {
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        color: #fff;
+    }
     .nrh-btn-outline {
         background: rgba(30, 41, 59, 0.6);
         border: 1px solid rgba(234, 179, 8, 0.4);
@@ -179,13 +214,33 @@
         border-radius: 8px;
         font-size: 13px;
         font-weight: 700;
-        z-index: 1000000;
+        z-index: 2147483647;
         pointer-events: none;
         transition: opacity 0.3s, transform 0.3s;
+    }
+    #nrh-batch-banner {
+        position: fixed;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.98));
+        border: 2px solid #eab308;
+        border-radius: 10px;
+        padding: 10px 20px;
+        color: #fff;
+        z-index: 2147483646;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8), 0 0 25px rgba(234, 179, 8, 0.4);
+        font-size: 13px;
+        font-weight: 700;
+        font-family: inherit;
     }
     `;
 
     function injectStyles() {
+        if (document.getElementById('nrh-tampermonkey-styles')) return;
         const styleEl = document.createElement('style');
         styleEl.id = 'nrh-tampermonkey-styles';
         styleEl.textContent = STYLES;
@@ -211,44 +266,89 @@
 
     // ================= DOM 元素高精度探测器 =================
 
-    function getChapterNumberInput() {
-        // 番茄后台章节号输入框：第 [41] 章
-        const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="number"], input:not([type])'));
+    function getTitleInput() {
+        // 番茄后台章节标题输入框：placeholder 包含 "标题" 或 "章节名"
+        const byPh = document.querySelector('input[placeholder*="标题"], input[placeholder*="章节名"]');
+        if (byPh && !byPh.closest('#nrh-floating-widget')) return byPh;
+
+        const inputs = Array.from(document.querySelectorAll('input:not(#nrh-floating-widget input)'));
         for (const input of inputs) {
-            const parent = input.parentElement;
-            if (!parent) continue;
-            const text = parent.innerText || '';
             const ph = input.getAttribute('placeholder') || '';
-            if (text.includes('第') && text.includes('章') && !ph.includes('标题')) {
-                return input;
-            }
-            if (input.className && (input.className.includes('chapter-number') || input.className.includes('chapter_number'))) {
+            if (ph.includes('标题') || ph.includes('章节名')) return input;
+            if (input.className && input.className.toLowerCase().includes('title') && !input.className.toLowerCase().includes('number')) {
                 return input;
             }
         }
         return null;
     }
 
-    function getTitleInput() {
-        // 番茄后台章节标题输入框
-        const byPh = document.querySelector('input[placeholder*="标题"], input[placeholder*="章节名"]');
-        if (byPh) return byPh;
-        const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+    function getChapterNumberInput() {
+        // 番茄后台章节序号输入框：位于标题输入框前或在 "第 ... 章" 容器内
+        const titleInput = getTitleInput();
+
+        // 策略 1：根据 titleInput 在 DOM 中的顺序查找其前面的紧邻 input
+        if (titleInput) {
+            const allInputs = Array.from(document.querySelectorAll('input:not(#nrh-floating-widget input)'));
+            const titleIdx = allInputs.indexOf(titleInput);
+            if (titleIdx > 0) {
+                const candidate = allInputs[titleIdx - 1];
+                // 验证该 candidate 周围或祖先中包含 "第" 或 "章"
+                let p = candidate.parentElement;
+                let depth = 0;
+                let isMatch = false;
+                while (p && depth < 4) {
+                    const text = p.innerText || '';
+                    if (text.includes('第') || text.includes('章')) {
+                        isMatch = true;
+                        break;
+                    }
+                    p = p.parentElement;
+                    depth++;
+                }
+                if (isMatch || !candidate.placeholder) {
+                    return candidate;
+                }
+            }
+        }
+
+        // 策略 2：遍历所有 input，深度向上追溯祖先包含 "第" 和 "章"
+        const inputs = Array.from(document.querySelectorAll('input:not(#nrh-floating-widget input)'));
         for (const input of inputs) {
+            if (input === titleInput) continue;
             const ph = input.getAttribute('placeholder') || '';
-            if (ph.includes('标题') || ph.includes('章节名')) return input;
-            if (input.className && (input.className.toLowerCase().includes('title') && !input.className.toLowerCase().includes('number'))) {
+            if (ph.includes('标题') || ph.includes('搜索')) continue;
+
+            let p = input.parentElement;
+            let depth = 0;
+            while (p && depth < 4) {
+                const text = p.innerText || '';
+                if (text.includes('第') && text.includes('章')) {
+                    return input;
+                }
+                p = p.parentElement;
+                depth++;
+            }
+        }
+
+        // 策略 3：检查兄弟元素
+        for (const input of inputs) {
+            if (input === titleInput) continue;
+            const prev = input.previousElementSibling?.innerText || '';
+            const next = input.nextElementSibling?.innerText || '';
+            if (prev.includes('第') || next.includes('章')) {
                 return input;
             }
         }
+
         return null;
     }
 
     function getBodyEditor() {
         // 番茄后台正文编辑器 (ProseMirror / contenteditable)
         const prose = document.querySelector('.ProseMirror[contenteditable="true"]');
-        if (prose) return prose;
-        const editables = Array.from(document.querySelectorAll('div[contenteditable="true"]'));
+        if (prose && !prose.closest('#nrh-floating-widget')) return prose;
+
+        const editables = Array.from(document.querySelectorAll('div[contenteditable="true"]:not(#nrh-floating-widget div)'));
         for (const el of editables) {
             const ph = el.getAttribute('placeholder') || el.getAttribute('data-placeholder') || '';
             if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话')) continue;
@@ -258,16 +358,32 @@
         return document.querySelector('textarea[placeholder*="正文"]');
     }
 
+    function expandAuthorNoteIfCollapsed() {
+        // 如果“作者有话说”处于折叠状态（存在 "+ 添加" 按钮），自动点击展开
+        const elements = Array.from(document.querySelectorAll('button, span, div'));
+        for (const el of elements) {
+            const text = (el.innerText || '').trim();
+            if (text === '+ 添加' || text === '+添加' || text === '添加') {
+                const parentText = el.parentElement?.parentElement?.innerText || el.parentElement?.innerText || '';
+                if (parentText.includes('作者有话说') || parentText.includes('作家的话')) {
+                    el.click();
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     function getAuthorNoteInput() {
-        // 番茄后台作者有话说
-        const textareas = Array.from(document.querySelectorAll('textarea'));
+        // 番茄后台作者有话说文本框
+        const textareas = Array.from(document.querySelectorAll('textarea:not(#nrh-floating-widget textarea)'));
         for (const ta of textareas) {
             const ph = ta.getAttribute('placeholder') || '';
             if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话') || ph.includes('增强更多互动')) {
                 return ta;
             }
         }
-        const editables = Array.from(document.querySelectorAll('div[contenteditable="true"]'));
+        const editables = Array.from(document.querySelectorAll('div[contenteditable="true"]:not(#nrh-floating-widget div)'));
         for (const el of editables) {
             const ph = el.getAttribute('placeholder') || el.getAttribute('data-placeholder') || '';
             if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('增强更多互动')) {
@@ -286,15 +402,6 @@
         return null;
     }
 
-    function getNextStepButton() {
-        const buttons = Array.from(document.querySelectorAll('button, a'));
-        for (const btn of buttons) {
-            const t = (btn.innerText || '').trim();
-            if (t === '下一步') return btn;
-        }
-        return null;
-    }
-
     // ================= 浏览器原生仿真事件模拟 =================
 
     function fillInputValue(inputEl, value) {
@@ -303,15 +410,23 @@
 
         const proto = inputEl.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+
+        // 清除 React 内部的 _valueTracker，确保 React 侦测到 value 变化
+        if (inputEl._valueTracker) {
+            inputEl._valueTracker.setValue('');
+        }
+
         if (setter) {
             setter.call(inputEl, value);
         } else {
             inputEl.value = value;
         }
 
-        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-        inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-        inputEl.dispatchEvent(new Event('blur', { bubbles: true }));
+        // 触发全量事件链
+        inputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        inputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: String(value), inputType: 'insertText' }));
+        inputEl.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
         return true;
     }
 
@@ -327,7 +442,7 @@
         sel.addRange(range);
         document.execCommand('delete', false, null);
 
-        // 分段转为 <p>　　段落文本</p>
+        // 分段转为带中文全角缩进的段落 <p>　　段落文本</p>
         const paragraphs = text.split('\n\n').filter(p => p.trim());
         const html = paragraphs.map(p => {
             const cleanP = p.trim().startsWith('\u3000\u3000') ? p.trim() : ('\u3000\u3000' + p.trim());
@@ -349,9 +464,9 @@
             editorEl.innerHTML = html;
         }
 
-        editorEl.dispatchEvent(new Event('input', { bubbles: true }));
-        editorEl.dispatchEvent(new Event('change', { bubbles: true }));
-        editorEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+        editorEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        editorEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        editorEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
         return true;
     }
 
@@ -418,7 +533,6 @@
             }
         } catch (e) {
             console.warn('[NRH Publisher] 获取章节列表失败:', e);
-            // 备用：从页面解析上次提交章节并推算
             detectPageLastChapter();
         }
     }
@@ -445,14 +559,20 @@
 
         // 1. 填入章节序号
         const numInput = getChapterNumberInput();
+        let numSuccess = false;
         if (numInput && packageData.chapter_number) {
             fillInputValue(numInput, String(packageData.chapter_number));
+            numSuccess = (numInput.value === String(packageData.chapter_number));
         }
 
         // 2. 填入标题
         const titleInput = getTitleInput();
         if (titleInput) {
-            const titleVal = packageData.chapter_title || packageData.full_title;
+            // 若序号框成功注入数字，标题填入纯标题（如 "百年黄河大洪峰..."）；
+            // 若序号框未探测成功，兜底策略：在标题框追加 "第X章 " 确保永不漏填章节号！
+            const pureTitle = packageData.chapter_title || '';
+            const fullTitle = packageData.full_title || (`第${packageData.chapter_number}章 ` + pureTitle);
+            const titleVal = numSuccess ? (pureTitle || fullTitle) : fullTitle;
             fillInputValue(titleInput, titleVal);
         }
 
@@ -466,6 +586,8 @@
         }
 
         // 4. 填入作者有话说
+        expandAuthorNoteIfCollapsed();
+        await new Promise(r => setTimeout(r, 200));
         const noteInput = getAuthorNoteInput();
         if (noteInput && packageData.author_note) {
             fillInputValue(noteInput, packageData.author_note);
@@ -507,14 +629,12 @@
             }
 
             let pkg = null;
-            // 尝试按 JSON 发布包解析
             if (text.trim().startsWith('{') && text.trim().endsWith('}')) {
                 try {
                     pkg = JSON.parse(text);
                 } catch (e) {}
             }
 
-            // 若非 JSON，按纯文本自动智能分拣
             if (!pkg) {
                 const lines = text.split('\n');
                 let firstLine = lines[0].trim();
@@ -528,7 +648,6 @@
                     title = m[2].trim() || firstLine;
                 }
 
-                // 检查是否包含作者有话说分割线
                 let authorNote = '';
                 const noteIdx = bodyLines.findIndex(l => l.includes('【作者有话说】') || l.includes('【随章互动】'));
                 if (noteIdx !== -1) {
@@ -551,7 +670,7 @@
         }
     }
 
-    // ================= 自动存草稿与批量流水线 =================
+    // ================= 自动存草稿 =================
 
     async function saveDraftNow() {
         const btn = getSaveDraftButton();
@@ -562,8 +681,8 @@
         btn.click();
         showToast('正在保存草稿并监视风控弹窗...');
 
-        // 持续 3 秒监听并自动处理疑似错别字弹窗
-        for (let i = 0; i < 15; i++) {
+        // 持续 3.5 秒监听并自动处理疑似错别字弹窗
+        for (let i = 0; i < 18; i++) {
             await new Promise(r => setTimeout(r, 200));
             if (autoDismissSpellcheckModal()) break;
         }
@@ -571,15 +690,42 @@
         return true;
     }
 
-    async function runBatchPipeline() {
-        if (isBatchRunning) return;
-        if (!chaptersCatalog || chaptersCatalog.length === 0) {
-            await loadChapters();
-        }
+    // ================= 跨页面状态机：批量全自动存草稿流水线 =================
 
-        const startInput = prompt('请输入批量起始章节号 (例如 41)：', '41');
+    function showBatchBanner(currentNum, endNum, total) {
+        let banner = document.getElementById('nrh-batch-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'nrh-batch-banner';
+            document.body.appendChild(banner);
+        }
+        const progress = Math.round(((currentNum - (endNum - total + 1)) / total) * 100);
+        banner.innerHTML = `
+            <span>🚀 智笔云枢 · 批量录入中：正在处理第 <b>${currentNum}</b> 章 / 目标第 <b>${endNum}</b> 章 (进度 ${progress}%)</span>
+            <button id="nrh-stop-batch-btn" class="nrh-btn nrh-btn-danger" style="padding:4px 10px; font-size:11px;">🛑 终止批量</button>
+        `;
+        document.getElementById('nrh-stop-batch-btn').onclick = stopBatchPipeline;
+    }
+
+    function removeBatchBanner() {
+        const banner = document.getElementById('nrh-batch-banner');
+        if (banner) banner.remove();
+    }
+
+    function stopBatchPipeline() {
+        setBatchState(null);
+        removeBatchBanner();
+        isBatchRunning = false;
+        alert('🛑 批量全自动流水线已安全停止。已保存的草稿不受影响。');
+    }
+
+    async function startBatchPipeline() {
+        if (isBatchRunning) return;
+
+        const defaultStart = detectPageLastChapter() || 41;
+        const startInput = prompt('请输入批量起始章节号 (例如 41)：', String(defaultStart));
         if (!startInput) return;
-        const endInput = prompt('请输入批量结束章节号 (例如 50)：', '50');
+        const endInput = prompt('请输入批量结束章节号 (例如 50)：', String(parseInt(startInput, 10) + 9));
         if (!endInput) return;
 
         const startNum = parseInt(startInput, 10);
@@ -590,54 +736,113 @@
         }
 
         const count = endNum - startNum + 1;
-        if (!confirm(`即将开始全自动流水线：\n• 目标范围：第 ${startNum} 章 ~ 第 ${endNum} 章\n• 共计：${count} 个章节\n• 过程：自动填充 ➔ 自动存草稿 ➔ 自动消解错字提示 ➔ 自动切入下一章\n\n确认立即全自动执行？`)) {
+        const bookId = getBookIdFromUrl();
+
+        if (!confirm(`即将启动全自动多章节存草稿流水线：\n\n• 目标范围：第 ${startNum} 章 ~ 第 ${endNum} 章 (共 ${count} 篇草稿)\n• 原理：每次自动开启全新独立草稿 ➔ 注入正文/标题/序号 ➔ 存草稿 ➔ 消解风控 ➔ 自动切入下一篇草稿\n• 终点：全部存入番茄草稿箱后自动返回列表\n\n确认立即启动？`)) {
+            return;
+        }
+
+        const state = {
+            active: true,
+            bookId: bookId,
+            bookName: CONFIG.bookName,
+            startNum: startNum,
+            endNum: endNum,
+            currentNum: startNum,
+            total: count
+        };
+
+        setBatchState(state);
+        isBatchRunning = true;
+
+        // 如果当前已经在全新空白编辑页，直接执行当前章
+        if (location.href.includes('enter_from=newchapter') && !location.href.match(/\/publish\/\d+/)) {
+            await executeBatchStep();
+        } else {
+            // 否则立即导航到空白新建章节页
+            showToast('正在打开全新草稿编辑页...');
+            window.location.replace(`https://fanqienovel.com/main/writer/${bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
+        }
+    }
+
+    async function executeBatchStep() {
+        const state = getBatchState();
+        if (!state || !state.active) {
+            removeBatchBanner();
             return;
         }
 
         isBatchRunning = true;
-        showToast(`🚀 批量流水线已启动 (共 ${count} 章)，请保持页面在前台...`, 5000);
+        showBatchBanner(state.currentNum, state.endNum, state.total);
+
+        // 1. 等待编辑区加载完成 (最多等待 15 秒)
+        showToast(`[${state.currentNum - state.startNum + 1}/${state.total}] 正在等待第 ${state.currentNum} 章编辑页就绪...`);
+        let ready = false;
+        for (let i = 0; i < 30; i++) {
+            if (getBodyEditor() && getTitleInput()) {
+                ready = true;
+                break;
+            }
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        if (!ready) {
+            alert(`等待编辑器就绪超时，请确认当前处于番茄章节编辑页面！流水线已暂停。`);
+            stopBatchPipeline();
+            return;
+        }
+
+        // 额外平滑等待 1 秒让 React 完全稳定
+        await new Promise(r => setTimeout(r, 1000));
 
         try {
-            for (let num = startNum; num <= endNum; num++) {
-                showToast(`[${num - startNum + 1}/${count}] 正在处理第 ${num} 章...`);
+            // 2. 调阅本章发布数据包
+            showToast(`正在从智笔云枢获取第 ${state.currentNum} 章发布数据...`);
+            let pkg = null;
 
-                // 寻找对应章节文件名
-                const targetChap = chaptersCatalog.find(c => c.chapter_number === num);
-                const fileParam = targetChap ? targetChap.filename : `第${String(num).padStart(3, '0')}章.md`;
+            // 寻找对应章节文件名
+            const targetChap = chaptersCatalog.find(c => c.chapter_number === state.currentNum);
+            const fileParam = targetChap ? targetChap.filename : `第${String(state.currentNum).padStart(3, '0')}章.md`;
 
-                const pkg = await apiGet(`fanqie_publish_package?book=${encodeURIComponent(CONFIG.bookName)}&file=${encodeURIComponent(fileParam)}`);
-                if (!pkg || !pkg.ok) {
-                    throw new Error(`获取第 ${num} 章发布数据失败`);
-                }
-
-                // 填充数据
-                await executeFillChapter(pkg);
-                await new Promise(r => setTimeout(r, 800));
-
-                // 存草稿
-                await saveDraftNow();
-                await new Promise(r => setTimeout(r, CONFIG.saveDelayMs));
-
-                // 如果未到最后一章，尝试点击新建章节
-                if (num < endNum) {
-                    showToast(`第 ${num} 章已存，正在创建下一章...`);
-                    // 寻找“新建章节”按钮或直接在当前编辑器清空/重载
-                    const newBtn = Array.from(document.querySelectorAll('button, a')).find(el => el.innerText && el.innerText.includes('新建章节'));
-                    if (newBtn) {
-                        newBtn.click();
-                        await new Promise(r => setTimeout(r, 2000));
-                    } else {
-                        // 若无独立新建按钮，提示等待或刷新
-                        await new Promise(r => setTimeout(r, 1500));
-                    }
-                }
+            try {
+                pkg = await apiGet(`fanqie_publish_package?book=${encodeURIComponent(CONFIG.bookName)}&file=${encodeURIComponent(fileParam)}`);
+            } catch (e) {
+                console.warn('[NRH Publisher] 无法通过接口获取，尝试剪贴板');
             }
 
-            alert(`🎉 全部 ${count} 个章节已全自动填入并存入番茄草稿箱！\n您可以进入草稿箱查验并择机发布。`);
+            if (!pkg || !pkg.ok) {
+                throw new Error(`获取第 ${state.currentNum} 章数据失败，请确认中枢服务正常并已写入本章。`);
+            }
+
+            // 3. 填充数据
+            await executeFillChapter(pkg);
+            await new Promise(r => setTimeout(r, 1000));
+
+            // 4. 存草稿并消解弹窗
+            await saveDraftNow();
+            await new Promise(r => setTimeout(r, CONFIG.saveDelayMs));
+
+            // 5. 步进或收尾
+            if (state.currentNum < state.endNum) {
+                state.currentNum++;
+                setBatchState(state);
+                showToast(`✅ 第 ${state.currentNum - 1} 章已安全入库！正在跳转创建第 ${state.currentNum} 章...`);
+                await new Promise(r => setTimeout(r, 800));
+                window.location.replace(`https://fanqienovel.com/main/writer/${state.bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
+            } else {
+                // 全部章节录入完成！
+                const totalSaved = state.total;
+                const bookId = state.bookId;
+                setBatchState(null);
+                removeBatchBanner();
+                isBatchRunning = false;
+
+                alert(`🎉 恭喜！全部 ${totalSaved} 个章节 (第 ${state.startNum} 章 ~ 第 ${state.endNum} 章) 已全部成功独立录入番茄草稿箱！\n\n点击确定后将为您自动跳转至草稿箱查验。`);
+                window.location.replace(`https://fanqienovel.com/main/writer/${bookId}/publish`);
+            }
         } catch (e) {
-            alert(`批量流程中断: ${e.message}`);
-        } finally {
-            isBatchRunning = false;
+            alert(`批量流程异常中断: ${e.message}`);
+            stopBatchPipeline();
         }
     }
 
@@ -675,7 +880,7 @@
             <div class="nrh-header" id="nrh-drag-header">
                 <div class="nrh-title">
                     <span>🚀 智笔云枢</span>
-                    <span class="nrh-badge">番茄助手</span>
+                    <span class="nrh-badge">番茄助手 v1.1</span>
                 </div>
                 <div class="nrh-controls">
                     <button id="nrh-btn-min" title="最小化/展开">_</button>
@@ -685,7 +890,7 @@
             <div class="nrh-body" id="nrh-widget-body">
                 <div class="nrh-info-banner">
                     作品：<b>${CONFIG.bookName}</b><br>
-                    状态：<span style="color:#4ade80;">✓ 纯净排版与错字自愈已就绪</span>
+                    状态：<span style="color:#4ade80;">✓ 跨页流水线与独立章节录入已就绪</span>
                 </div>
 
                 <div>
@@ -720,7 +925,7 @@
         // 事件绑定
         document.getElementById('nrh-btn-fill').addEventListener('click', fillCurrentSelected);
         document.getElementById('nrh-btn-save').addEventListener('click', saveDraftNow);
-        document.getElementById('nrh-btn-batch').addEventListener('click', runBatchPipeline);
+        document.getElementById('nrh-btn-batch').addEventListener('click', startBatchPipeline);
         document.getElementById('nrh-btn-sync').addEventListener('click', loadChapters);
         document.getElementById('nrh-btn-clip').addEventListener('click', fillFromClipboard);
 
@@ -769,11 +974,22 @@
     }
 
     // ================= 初始化启动 =================
-    function init() {
+    async function init() {
         try {
             injectStyles();
             createFloatingWidget();
-            loadChapters();
+            await loadChapters();
+
+            // 检查是否有跨页面未完成的批量流水线任务
+            const batchState = getBatchState();
+            if (batchState && batchState.active) {
+                // 如果当前在新建章节页且尚未保存，执行流水线当前步骤
+                if (location.href.includes('enter_from=newchapter') && !location.href.match(/\/publish\/\d+/)) {
+                    await executeBatchStep();
+                } else if (!isBatchRunning) {
+                    showBatchBanner(batchState.currentNum, batchState.endNum, batchState.total);
+                }
+            }
         } catch (e) {
             console.error('[NRH Publisher] 悬浮窗构建异常:', e);
         }

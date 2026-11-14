@@ -375,6 +375,14 @@ class RegressionTests(unittest.TestCase):
         tid = self.dispatch()[1]['task_id']
         self.assertEqual(self.request('/api/task_progress', {'id': tid, 'status': 'bad'})[0], 400)
 
+    def test_retried_progress_event_is_applied_once(self):
+        tid = self.dispatch()[1]['task_id']
+        payload = {'id': tid, 'status': 'running', 'log': '正在创作', 'event_id': 'same-event'}
+        self.request('/api/task_progress', payload)
+        result = self.request('/api/task_progress', payload)[1]
+        self.assertTrue(result['deduplicated'])
+        self.assertEqual(sum('正在创作' in line for line in hub.TASKS[tid]['progress_log']), 1)
+
     def test_cache_invalidation_isolates_redis(self):
         class FakeRedis:
             def __init__(self): self.keys = {'novel:cache:books': 'x', 'other:important': 'keep'}
@@ -887,7 +895,35 @@ class DesktopAgentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'result.json'
             path.write_text('{"summary":"done","files":[]}', encoding='utf-8-sig')
-            self.assertEqual(agent_client.wait_for_receipt(path, 'id')['summary'], 'done')
+            with patch('agent_client.rpc', return_value={'status': 'CASCADE_RUN_STATUS_IDLE'}):
+                self.assertEqual(agent_client.wait_for_receipt(path, 'id')['summary'], 'done')
+
+    def test_receipt_waits_until_agent_finishes_edits(self):
+        import agent_client
+        import itertools
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'result.json'
+            path.write_text('{"summary":"early","files":[]}', encoding='utf-8')
+            def status(*args, **kwargs):
+                if calls.call_count == 1:
+                    return {'status': 'CASCADE_RUN_STATUS_RUNNING'}
+                path.write_text('{"summary":"final","files":[]}', encoding='utf-8')
+                return {'status': 'CASCADE_RUN_STATUS_IDLE'}
+            with patch('agent_client.rpc', side_effect=status) as calls, patch('agent_client.time.sleep'), \
+                    patch('agent_client.time.monotonic', side_effect=itertools.count(0, 5)):
+                self.assertEqual(agent_client.wait_for_receipt(path, 'id')['summary'], 'final')
+            self.assertEqual(calls.call_count, 2)
+
+    def test_receipt_does_not_hide_terminal_error(self):
+        import agent_client
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'result.json'
+            path.write_text('{"summary":"early","files":[]}', encoding='utf-8')
+            trajectory = {'status': 'CASCADE_RUN_STATUS_IDLE', 'trajectory': {'steps': [
+                {'type': 'CORTEX_STEP_TYPE_ERROR_MESSAGE', 'errorMessage': {'error': {'shortError': 'failed after save'}}}]}}
+            with patch('agent_client.rpc', return_value=trajectory):
+                with self.assertRaisesRegex(RuntimeError, 'failed after save'):
+                    agent_client.wait_for_receipt(path, 'id')
 
     def test_antigravity_reports_terminal_error_without_waiting_for_receipt(self):
         import agent_client
@@ -1014,12 +1050,28 @@ class SerialWritingTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn('0/2', result)
 
-    def test_sync_failure_stops_after_local_completion(self):
-        with patch.object(self.bridge, 'execute_agentapi', side_effect=self.write_chapter) as execute, patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(False, 0, 0)):
+    def test_sync_outage_recovers_without_stopping_or_duplicate_chapters(self):
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=self.write_chapter), \
+                patch.object(self.bridge, 'SYNC_CONFLICT', False), \
+                patch.object(self.bridge, 'time') as clock, \
+                patch.object(self.bridge, 'sync_all_books_to_cloud', side_effect=[(True, 0, 0)] + [(False, 0, 0)] * 4 + [(True, 0, 0)] * 9) as sync:
+            ok, result = self.run_serial(10)
+        self.assertTrue(ok, result)
+        self.assertEqual(len(self.prompts), 10)
+        self.assertEqual(len(list(self.directory.glob('*.md'))), 11)
+        self.assertEqual(sync.call_count, 14)
+        self.assertEqual(clock.sleep.call_count, 4)
+
+    def test_sync_conflict_preserves_local_chapter_and_stops_batch(self):
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=self.write_chapter), \
+                patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(False, 0, 0)), \
+                patch.object(self.bridge, 'SYNC_CONFLICT', True), \
+                patch.object(self.bridge, 'SYNC_LAST_ERROR', '两端同时修改，请核对'):
             ok, result = self.run_serial(3)
         self.assertFalse(ok)
         self.assertIn('1/3', result)
-        self.assertGreater(execute.call_count, 1)
+        self.assertIn('两端同时修改', result)
+        self.assertEqual(len(self.prompts), 1)
 
     def test_history_change_stops_batch(self):
         def execute(prompt, **kwargs):

@@ -74,6 +74,10 @@ class TestFanqiePublisher(unittest.TestCase):
         text = js_path.read_text(encoding="utf-8")
         self.assertIn("// ==UserScript==", text)
         self.assertIn("@match        https://fanqienovel.com/main/writer/*", text)
+        self.assertIn("@grant        GM_deleteValue", text)
+        self.assertIn("1.1.0", text)
+        self.assertIn("nrh_fanqie_batch_pipeline", text)
+        self.assertIn("expandAuthorNoteIfCollapsed", text)
         self.assertIn("智笔云枢", text)
 
 if __name__ == "__main__":

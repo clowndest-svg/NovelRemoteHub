@@ -448,13 +448,13 @@ def audit_response(generate, base, content, budget, progress, current_state=None
         return validate(ask(generate, '修复审核格式', repair, budget))
 
 
-def write_chapters(root, count, user_prompt, preferences, generate, progress, write_lock=None, on_chapter=None):
+def write_chapters(root, count, user_prompt, preferences, generate, progress, write_lock=None, on_chapter=None, batch_id=None, batch_count=None):
     count = novel_manager.validate_chapter_count(count)
     root = Path(root).resolve()
     budget = preferences.get('writing_context_chars', 64000)
     guard = write_lock or nullcontext()
     completed, last_added = 0, None
-    batch_id = uuid.uuid4().hex
+    batch_id = batch_id or uuid.uuid4().hex
     with book_lock(root):
         for _ in range(count):
             with guard:
@@ -465,7 +465,7 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
             if preferences.get('writing_context_mode') == 'full' and sum(map(len, documents.values())) + len(user_prompt) + 2000 > budget:
                 raise ValueError('全文复核资料超出预算，请调整预算后重试')
             run = root / '.story-memory/reviews' / (str(time.time_ns()) + '-' + uuid.uuid4().hex + '.json')
-            with tracked_review(run, number, batch_id, count):
+            with tracked_review(run, number, batch_id, batch_count or count):
                 memory = ensure_memory(root, documents, generate, budget, progress)
                 base, references = writing_context(root, documents, memory, number, user_prompt, preferences)
                 review = {**load_json(run, {}), 'source_revision': revision, 'references': references, 'status': 'drafting'}

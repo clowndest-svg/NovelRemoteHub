@@ -4675,7 +4675,7 @@
                         if (waiting.length) term.innerText += '\n轮到本任务时，将从当时最新章节继续。';
                         for (const item of waiting) term.innerText += `\n前序任务（${item.chapter_count} 章/项） ${item.progress}`;
                     } else if (data.status === 'running') {
-                        const stage = [...(data.progress_log || [])].reverse().find(line => /核验现有全书账本|正在沿用本任务|缺少全书账本|历史正文有修订|更新作品记忆|第\d+章，|续写进度|格式需要修正/.test(line));
+                        const stage = [...(data.progress_log || [])].reverse().find(line => /核验现有全书账本|正在沿用本任务|缺少全书账本|历史正文有修订|更新作品记忆|第\d+章，|续写进度|格式需要修正|正在重试云端同步/.test(line));
                         document.getElementById('pipeline-status-text').innerText = stage ? stage.replace(/^\[[^\]]+\]\s*/, '') : '电脑已接收，正在执行';
                     }
                     term.scrollTop = term.scrollHeight;
@@ -4687,8 +4687,9 @@
                         if (onSuccess) await onSuccess();
                     } else if (data.status === "failed") {
                         clearInterval(TASK_POLL_TIMER);
-                        document.getElementById("pipeline-status-text").innerText = `❌ 任务中断`;
-                        term.innerText += `\n\n❌ 任务已停止，具体原因见上方日志与审核记录。`;
+                        const reason = (data.progress_log || []).at(-1) || '执行端未返回错误说明';
+                        document.getElementById("pipeline-status-text").innerText = `❌ ${reason.replace(/^\[[^\]]+\]\s*/, '')}`;
+                        term.innerText += `\n\n❌ ${reason}`;
                         await loadChapters();
                     }
                 } catch (e) {}

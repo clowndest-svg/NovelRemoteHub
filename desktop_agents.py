@@ -41,5 +41,5 @@ def continue_conversation(conversation, prompt, model=None, engine='antigravity'
 def wait_for_receipt(path, conversation, progress=None, engine='antigravity', timeout=1200):
     if canonical_engine(engine) == 'codex':
         codex_client.CLIENT.wait(conversation, progress, timeout)
-        return agent_client.wait_for_receipt(path, conversation, None, timeout=5)
+        return agent_client.read_receipt(path)
     return agent_client.wait_for_receipt(path, conversation, progress, timeout)

@@ -218,7 +218,7 @@ class StoryMemoryTests(unittest.TestCase):
             atomic_write(target, '{"ok":true}')
             return True, '完成'
         with patch.object(local_bridge, 'execute_agentapi', side_effect=execute):
-            result = local_bridge.desktop_stage(self.root, '作品', '阶段资料', 'antigravity', 'model', 'high', lambda m: None)
+            result = local_bridge.desktop_stage(self.root, '作品', '阶段资料', 'codex', 'model', 'high', lambda m: None)
         self.assertEqual(json.loads(result), {'ok': True})
 
     def test_large_setting_reference_loads_relevant_section_and_outline(self):
