@@ -25,6 +25,7 @@
     // 默认配置
     const CONFIG = {
         hubUrl: GM_getValue('hub_url', 'https://124.220.54.64/novel'),
+        token: GM_getValue('hub_token', ''),
         bookName: GM_getValue('book_name', '给政哥讲量子力学，他竟肉身硬抗二向箔'),
         autoDismissTypo: GM_getValue('auto_dismiss_typo', true),
         saveDelayMs: GM_getValue('save_delay_ms', 1800)
@@ -378,11 +379,15 @@
 
     function apiGet(endpoint) {
         return new Promise((resolve, reject) => {
-            const url = CONFIG.hubUrl.replace(/\/+$/, '') + '/api/' + endpoint.replace(/^\/+/, '');
+            const sep = endpoint.includes('?') ? '&' : '?';
+            const authParam = CONFIG.token ? `${sep}token=${encodeURIComponent(CONFIG.token)}` : '';
+            const url = CONFIG.hubUrl.replace(/\/+$/, '') + '/api/' + endpoint.replace(/^\/+/, '') + authParam;
+            const headers = { 'Accept': 'application/json' };
+            if (CONFIG.token) headers['X-Novel-Token'] = CONFIG.token;
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: url,
-                headers: { 'Accept': 'application/json' },
+                headers: headers,
                 timeout: 10000,
                 onload: (res) => {
                     if (res.status >= 200 && res.status < 300) {

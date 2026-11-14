@@ -852,6 +852,37 @@ class HubHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # 调阅/下载番茄小说作家后台油猴发布脚本 (.user.js) - 免登录拦截，支持动态注入当前站点地址与授权 Token
+        if path.endswith("/fanqie_publisher.user.js"):
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fanqie_publisher.user.js")
+            if os.path.exists(script_path):
+                with open(script_path, "r", encoding="utf-8") as fp:
+                    script_text = fp.read()
+                host_url = f"https://{self.headers.get('Host', '124.220.54.64')}/novel"
+                current_token = qs.get("token", [""])[0]
+                if not current_token:
+                    cookie_header = self.headers.get("Cookie", "")
+                    for item in cookie_header.split(";"):
+                        item = item.strip()
+                        if item.startswith("novel_token="):
+                            current_token = item[len("novel_token="):]
+                if not current_token and AUTH_TOKEN:
+                    current_token = AUTH_TOKEN
+                if current_token:
+                    script_text = script_text.replace("token: GM_getValue('hub_token', '')", f"token: GM_getValue('hub_token', '{current_token}')")
+                script_text = script_text.replace("https://124.220.54.64/novel", host_url)
+                script_bytes = script_text.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Disposition", 'inline; filename="fanqie_publisher.user.js"')
+                self.send_header("Content-Length", str(len(script_bytes)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(script_bytes)
+            else:
+                self.send_json({"error": "Script file not found"}, 404)
+            return
+
         # 以下需认证
         if not self.check_auth() and not path.endswith("/api/login"):
             self.send_json({"error": "Unauthorized", "need_login": True}, 401)
@@ -1060,23 +1091,6 @@ class HubHandler(BaseHTTPRequestHandler):
                     "char_count": ch.get("char_count", 0)
                 })
             self.send_json({"ok": True, "book": book_id, "chapters": list_data})
-            return
-
-        # 调阅/下载番茄小说作家后台油猴发布脚本 (.user.js)
-        if path in ["/api/fanqie_publisher.user.js", "/novel/api/fanqie_publisher.user.js", "/fanqie_publisher.user.js", "/novel/fanqie_publisher.user.js"]:
-            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fanqie_publisher.user.js")
-            if os.path.exists(script_path):
-                with open(script_path, "rb") as fp:
-                    script_bytes = fp.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/javascript; charset=utf-8")
-                self.send_header("Content-Disposition", 'inline; filename="fanqie_publisher.user.js"')
-                self.send_header("Content-Length", str(len(script_bytes)))
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(script_bytes)
-            else:
-                self.send_json({"error": "Script file not found"}, 404)
             return
 
         # 调阅单张概念插图 (流式输出 PNG)
