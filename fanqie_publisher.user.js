@@ -6,6 +6,8 @@
 // @author       NovelRemoteHub
 // @match        https://fanqienovel.com/main/writer/*
 // @match        https://fanqienovel.com/page/*
+// @match        *://fanqienovel.com/*
+// @match        *://*.fanqienovel.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -39,14 +41,14 @@
     const STYLES = `
     #nrh-floating-widget {
         position: fixed;
-        right: 20px;
-        bottom: 70px;
+        right: 24px;
+        bottom: 90px;
         width: 320px;
-        background: rgba(15, 23, 42, 0.95);
-        border: 1px solid rgba(234, 179, 8, 0.4);
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 15px rgba(234, 179, 8, 0.2);
+        background: rgba(15, 23, 42, 0.96);
+        border: 1px solid rgba(234, 179, 8, 0.5);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(234, 179, 8, 0.25);
         border-radius: 12px;
-        z-index: 999999;
+        z-index: 2147483647;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
         color: #f1f5f9;
         font-size: 13px;
@@ -767,10 +769,23 @@
     }
 
     // ================= 初始化启动 =================
-    injectStyles();
-    setTimeout(() => {
-        createFloatingWidget();
-        loadChapters();
-    }, 1500);
+    function init() {
+        try {
+            injectStyles();
+            createFloatingWidget();
+            loadChapters();
+        } catch (e) {
+            console.error('[NRH Publisher] 悬浮窗构建异常:', e);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+    // 针对单页应用路由切换或异步渲染提供多阶段守护唤醒
+    setTimeout(init, 1000);
+    setTimeout(init, 2500);
 
 })();
