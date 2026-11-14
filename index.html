@@ -1597,7 +1597,7 @@
                 <span id="status-text">检测中</span>
             </div>
             <!-- 官方域名下载链接 (App 内自动隐藏) -->
-            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.1" class="btn-apk-pill" download>
+            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.2" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
             <button class="btn-apk-pill" onclick="openSettingsModal()" title="系统全局设置与创作风控偏好" style="background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-main); cursor:pointer;">
@@ -2554,6 +2554,7 @@
             }
             applyChaptersData(data.chapters);
             loadWritingMemory();
+            restoreWritingTask();
         }
 
         async function refreshSyncStatus() {
@@ -3631,6 +3632,10 @@
             document.getElementById('dispatch-btn').disabled = false;
             showToast(`正在切换创作作品至《${bookId}》...`, "info", 1800);
             rememberNotesDraft();
+            if (TASK_POLL_TIMER) clearInterval(TASK_POLL_TIMER);
+            ACTIVE_TASK_ID = null;
+            document.getElementById('term-container').style.display = 'none';
+            document.getElementById('task-terminal').innerText = '';
             CURRENT_BOOK = bookId;
             CURRENT_INDEX = 0;
             CURRENT_TOMATO_FILE = "";
@@ -3643,6 +3648,7 @@
             updateBookLabels();
             closeBookDrawer();
             await loadChapters();
+            restoreWritingTask();
             switchWorkflowTab(CURRENT_WORKFLOW);
             if (document.getElementById("panel-tomato").classList.contains("active") && CHAPTERS.length) {
                 openTomatoAudit(CHAPTERS.length - 1);
@@ -4268,12 +4274,27 @@
             }
         }
 
+        async function restoreWritingTask() {
+            const book = CURRENT_BOOK;
+            if (!book) return;
+            const task = await fetchAPI(`${API}/task_status?book=${encodeURIComponent(book)}`);
+            if (book !== CURRENT_BOOK || !task.id || task.id === ACTIVE_TASK_ID) return;
+            ACTIVE_TASK_ID = task.id;
+            document.getElementById('term-container').style.display = 'block';
+            document.getElementById('task-terminal').innerText = (task.progress_log || []).join('\n');
+            document.getElementById('pipeline-status-text').innerText = '已恢复当前作品的任务进度';
+            startPolling(() => loadChapters());
+        }
+
         function startPolling(onSuccess) {
             if (TASK_POLL_TIMER) clearInterval(TASK_POLL_TIMER);
             TASK_POLL_TIMER = setInterval(async () => {
                 if (!ACTIVE_TASK_ID) return;
                 try {
-                    const data = await fetchAPI(`${API}/task_status?id=${ACTIVE_TASK_ID}`);
+                    const taskId = ACTIVE_TASK_ID;
+                    const book = CURRENT_BOOK;
+                    const data = await fetchAPI(`${API}/task_status?id=${taskId}`);
+                    if (taskId !== ACTIVE_TASK_ID || book !== CURRENT_BOOK) return;
                     const term = document.getElementById("task-terminal");
                     term.innerText = (data.progress_log || []).join("\n");
                     if (data.status === 'pending') {
@@ -4283,7 +4304,8 @@
                         if (waiting.length) term.innerText += '\n轮到本任务时，将从当时最新章节继续。';
                         for (const item of waiting) term.innerText += `\n前序任务（${item.chapter_count} 章/项） ${item.progress}`;
                     } else if (data.status === 'running') {
-                        document.getElementById('pipeline-status-text').innerText = '电脑已接收，正在执行';
+                        const stage = [...(data.progress_log || [])].reverse().find(line => /核验现有全书账本|正在沿用本任务|缺少全书账本|历史正文有修订|更新作品记忆|第\d+章，|续写进度|格式需要修正/.test(line));
+                        document.getElementById('pipeline-status-text').innerText = stage ? stage.replace(/^\[[^\]]+\]\s*/, '') : '电脑已接收，正在执行';
                     }
                     term.scrollTop = term.scrollHeight;
 
@@ -4295,7 +4317,7 @@
                     } else if (data.status === "failed") {
                         clearInterval(TASK_POLL_TIMER);
                         document.getElementById("pipeline-status-text").innerText = `❌ 任务中断`;
-                        term.innerText += `\n\n❌ 任务中断，请检查公司电脑执行端`;
+                        term.innerText += `\n\n❌ 任务已停止，具体原因见上方日志与审核记录。`;
                         await loadChapters();
                     }
                 } catch (e) {}

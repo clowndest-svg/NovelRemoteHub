@@ -234,6 +234,20 @@ class CodexClient:
             raise RuntimeError('Codex 桌面任务的小说工作区归属校验失败')
         initial = codex_desktop.call_desktop('read_thread', {'threadId': identifier, 'turnLimit': 1, 'includeOutputs': False}, self.caller_thread)
         initial_turn = initial['turns'][0]['id']
+        return self._send_existing(identifier, prompt, chosen, effort, initial_turn)
+
+    def continue_conversation(self, identifier, prompt, model=None, effort=None):
+        catalog = self.discover()
+        chosen, effort = selected_model(catalog, model, effort)
+        threads = codex_desktop.call_desktop('list_threads', {'limit': 100}, self.caller_thread).get('threads', [])
+        thread = next((item for item in threads if item['id'] == identifier), {})
+        if thread.get('projectId') != self.desktop_project or not is_workspace(thread.get('cwd', '')):
+            raise RuntimeError('续接会话的小说工作区校验失败')
+        previous = codex_desktop.call_desktop('read_thread', {'threadId': identifier, 'turnLimit': 1, 'includeOutputs': False}, self.caller_thread)
+        initial_turn = previous['turns'][0]['id']
+        return self._send_existing(identifier, prompt, chosen, effort, initial_turn)
+
+    def _send_existing(self, identifier, prompt, chosen, effort, initial_turn):
         codex_desktop.require_full_access()
         codex_desktop.call_desktop('send_message_to_thread', {
             'threadId': identifier, 'hostId': 'local', 'prompt': prompt,

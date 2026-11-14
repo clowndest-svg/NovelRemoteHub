@@ -106,8 +106,6 @@ def validate_record(record):
                 or thread.get('status') not in ('open', 'resolved') or not isinstance(thread.get('detail'), str)
                 or not thread['detail'].strip()):
             raise ValueError('伏笔编号、状态或说明无效')
-    if len(encode(record)) > 11000:
-        raise ValueError('单份记忆超出预算，请细化资料后重试')
     return record
 
 
@@ -173,7 +171,7 @@ def batch_memory(root, group, state, generate, budget, progress):
     return records
 
 
-def ensure_memory(root, documents, generate, budget, progress, expected=None, publish=True):
+def rebuild_history_memory(root, documents, generate, budget, progress, expected=None, publish=True):
     """Index settings locally and derive chronology from batched chapter originals."""
     root = Path(root)
     state = empty_state()
@@ -223,6 +221,76 @@ def ensure_memory(root, documents, generate, budget, progress, expected=None, pu
     if publish:
         atomic_json(root / '.story-memory' / 'index.json', status)
     return status
+
+
+def fold_state(state, record, source, offset=0):
+    state = json.loads(encode(state))
+    state['synopsis'] = record['synopsis']
+    for name, detail in record['characters'].items():
+        state['characters'][name] = {'detail': detail, 'source': source, 'offset': offset}
+    for thread in record['threads']:
+        state['threads'][thread['id']] = {**thread, 'source': source, 'offset': offset}
+    return state
+
+
+def memory_index(root, documents, state, previous=None, chapter_summary=None):
+    previous = previous or {}
+    known = {record['key']: record['summary'] for record in previous.get('records', [])}
+    records = []
+    for part in checkpoint_chunks(root, documents):
+        summary = known.get(part['key'], part['text'][:600])
+        if chapter_summary and part['source'] == chapter_summary[0]:
+            summary = chapter_summary[1]
+        records.append({key: part[key] for key in ('source', 'offset', 'key')} | {'summary': summary})
+    return {'schema': SCHEMA, 'pipeline': 2, 'revision': fingerprint(documents),
+        'source_hashes': {name: digest(text) for name, text in documents.items()},
+        'sources': len(documents), 'chunks': len(records), 'state': state, 'records': records,
+        'open_threads': sum(thread['status'] == 'open' for thread in state['threads'].values())}
+
+
+def ensure_memory(root, documents, generate, budget, progress, expected=None, publish=True):
+    root = Path(root)
+    previous = load_json(root / '.story-memory/index.json', {})
+    if previous.get('pipeline') == 2 and previous.get('revision') == fingerprint(documents):
+        return previous
+    chapters = [name for name in documents if name.startswith('01_正文/')]
+    ledgers = [name for name in documents if name.startswith('00_设定集/') and ('账本' in name or '长期记忆' in name)]
+    prior_state = previous.get('state', empty_state()) if previous.get('pipeline') == 2 else empty_state()
+    old_hashes = previous.get('source_hashes', {})
+    changed = [name for name, text in documents.items() if old_hashes and old_hashes.get(name) != digest(text)]
+    removed = [name for name in old_hashes if name not in documents]
+    rewritten_history = any(name.startswith('01_正文/') and name in old_hashes for name in changed + removed)
+    if rewritten_history:
+        progress('历史正文有修订或删除，重新核对受影响的剧情记忆')
+        rebuilt = rebuild_history_memory(root, documents, generate, budget, progress, expected, False)
+        result = memory_index(root, documents, rebuilt['state'], rebuilt)
+    elif not chapters:
+        result = memory_index(root, documents, empty_state(), previous)
+    elif ledgers or previous.get('pipeline') == 2:
+        latest = chapters[-1]
+        references = list(dict.fromkeys(ledgers + changed + [latest]))
+        materials = '\n'.join(f'【来源 {name}】\n{documents[name]}' for name in references)
+        prompt = (f'核验并初始化截至最新章的全书记忆。当前已核验记忆\n{encode(prior_state)}\n'
+            f'当前最新正文 {latest}。变更资料 {encode(changed)}。\n{materials}\n'
+            '完整账本作为前情参考，结合最新正文与变更内容核对当前事实，未来规划仅作为规划，明确标注不确定内容。'
+            '返回完整的当前人物状态与全部未回收伏笔，只有明确兑现才改为resolved，事实与规划清楚标注。返回以下JSON，人物状态只保留当前必要信息，'
+            f'省略重复的人物小传：{encode(MEMORY_FORMAT)}。只使用消息材料。')
+        if len(prompt) + 500 > budget:
+            result = rebuild_history_memory(root, documents, generate, budget, progress, expected, False)
+            result = memory_index(root, documents, result['state'], result)
+        else:
+            progress('核验现有全书账本与最新章，复用已有前情记忆')
+            record = memory_response(root, 'seed-' + fingerprint(documents), generate, prompt, budget, progress)
+            result = memory_index(root, documents, fold_state(prior_state, record, ledgers[0] if ledgers else latest), previous)
+    else:
+        progress('作品缺少全书账本，首次按批次建立历史记忆')
+        rebuilt = rebuild_history_memory(root, documents, generate, budget, progress, expected, False)
+        result = memory_index(root, documents, rebuilt['state'], rebuilt)
+    if fingerprint(sources(root)) != fingerprint(documents if expected is None else expected):
+        raise RuntimeError('记忆核验期间资料已修改，请重试')
+    if publish:
+        atomic_json(root / '.story-memory/index.json', result)
+    return result
 
 
 def tokens(text):
@@ -277,7 +345,7 @@ def status(root):
     if data.get('revision') != current and remote.get('revision') == current:
         data = remote
     reports = sorted((Path(root) / '.story-memory' / 'reviews').glob('*.json'))
-    recent = [load_json(path, {}) for path in reversed(reports[-50:])]
+    recent = [{key: value for key, value in load_json(path, {}).items() if key != 'memory_update'} for path in reversed(reports[-50:])]
     combined = {encode([item.get('batch'), item.get('chapter')]): item for item in remote.get('reviews', []) + recent}
     recent = sorted(combined.values(), key=lambda item: item.get('created_at', 0), reverse=True)[:50]
     latest = recent[0] if recent else data.get('last_review', {})
@@ -301,13 +369,91 @@ def tracked_review(path, chapter, batch, count):
         raise
 
 
+def writing_context(root, documents, memory, number, user_prompt, preferences, explicit=None):
+    budget = preferences.get('writing_context_chars', 64000)
+    state = memory['state']
+    active = {**state, 'threads': {key: item for key, item in state['threads'].items() if item['status'] == 'open'}}
+    files = novel_manager.chapter_files(str(root))
+    latest = Path(files[-1]).relative_to(root).as_posix() if files else None
+    previous = documents[latest] if latest else '（首章）'
+    core, outline, refs, setting_index = [], [], [], []
+    covered = {latest} if latest else set()
+    settings = [(name, text) for name, text in documents.items() if name.startswith('00_设定集/')]
+    settings.sort(key=lambda item: (0 if '人物' in item[0] or '总纲' in item[0] else 1, item[0]))
+    for name, text in settings:
+        setting_index.append(f'{name}（{len(text)}字符）\n{text[:300]}')
+        if sum(len(item) for item in core) + len(text) < budget // 3:
+            core.append(f'【设定原文 {name}】\n{text}')
+            covered.add(name)
+            refs.append({'source': name, 'offset': 0, 'length': len(text)})
+        match = re.search(rf'(?m)^[-#* \t]*第0*{number}章[^\n]*', text)
+        if match:
+            following = re.search(r'(?m)^[-#* \t]*第0*\d+章[^\n]*', text[match.end():])
+            end = match.end() + following.start() if following else min(len(text), match.start() + CHUNK_SIZE)
+            section = text[match.start():end]
+            outline.append(section)
+            core.append(f'【本章细纲 {name}】\n{section}')
+            covered.add(name)
+            refs.append({'source': name, 'offset': match.start(), 'length': end - match.start()})
+    base = (f'本轮只创作第{number:03d}章。\n作者要求\n{user_prompt}\n'
+        f'全书当前剧情、人物位置与认知、未回收伏笔\n{encode(active)}\n'
+        f'上一章完整正文 {latest}\n{previous}\n核心设定与本章细纲\n' + '\n'.join(core)
+        + '\n全部设定目录\n' + '\n'.join(setting_index) + '\n本书资料文件目录\n' + '\n'.join(documents))
+    if latest:
+        refs.append({'source': latest, 'offset': 0, 'length': len(previous)})
+    if preferences.get('writing_context_mode') == 'full':
+        full, _ = novel_manager.full_writing_context(str(root))
+        return base + '\n手动全文复核资料\n' + full, [{'source': name, 'offset': 0, 'length': len(text)} for name, text in documents.items()]
+    query = user_prompt + '\n'.join(outline)
+    required = set(explicit or ())
+    for name, item in active['characters'].items():
+        if name in query and item['source'] in documents:
+            required.add(item['source'])
+    for chapter in re.findall(r'第0*(\d+)章', query):
+        if int(chapter) < number:
+            required.update(name for name in documents if name.startswith('01_正文/') and re.search(rf'第0*{int(chapter)}章', name))
+    if not required.issubset(documents):
+        raise ValueError('历史来源引用超出当前作品')
+    allowance = budget - len(base) - 10000
+    if allowance < 0:
+        raise ValueError('核心记忆、设定及上一章超出预算，请调整预算后重试')
+    originals, selected = retrieve(documents, memory['records'], query, required, allowance, covered)
+    return base + '\n历史溯源原文\n' + originals, refs + selected
+
+
+def audit_response(generate, base, content, budget, progress, current_state=None):
+    example = {'passed': True, 'issues': [], **MEMORY_FORMAT}
+    prompt = (base + '\n待审核草稿\n' + content
+        + '\n独立核对设定、人物认知与关系、时间地点、能力伤势、物品、因果及伏笔。'
+        '信息不足必须判为未通过，issues写出具体问题及来源。通过时在同一返回中更新截至本章的剧情摘要、'
+        '发生变化的人物状态和伏笔。沿用原伏笔id，只有明确兑现才能resolved，省略旧伏笔表示保持原状态。'
+        f'只返回JSON，格式示例 {encode(example)}。未通过时仅需passed和issues。')
+    raw = ask(generate, '一致性审核', prompt, budget)
+    def validate(text):
+        data = parse_object(text)
+        if not isinstance(data.get('passed'), bool) or not isinstance(data.get('issues'), list):
+            raise ValueError('审核结论或问题清单格式无效')
+        issues = [encode(item) if isinstance(item, dict) else item for item in data['issues']]
+        if any(not isinstance(item, str) for item in issues):
+            raise ValueError('审核问题内容格式无效')
+        audit = {'passed': data['passed'], 'issues': issues}
+        update = validate_record(data) if audit['passed'] and not issues else None
+        return audit, update
+    try:
+        return validate(raw)
+    except (ValueError, TypeError) as error:
+        progress('正在原审稿会话修正返回格式（一次）')
+        repair = (f'修正审核JSON。错误 {error}。保留事实和审核结论，格式应为{encode(example)}。'
+            f'当前剧情记忆\n{encode(current_state or empty_state())}\n草稿\n{content}\n原返回\n{raw}')
+        return validate(ask(generate, '修复审核格式', repair, budget))
+
+
 def write_chapters(root, count, user_prompt, preferences, generate, progress, write_lock=None, on_chapter=None):
     count = novel_manager.validate_chapter_count(count)
     root = Path(root).resolve()
     budget = preferences.get('writing_context_chars', 64000)
     guard = write_lock or nullcontext()
-    last_added = None
-    completed = 0
+    completed, last_added = 0, None
     batch_id = uuid.uuid4().hex
     with book_lock(root):
         for _ in range(count):
@@ -315,88 +461,45 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                 documents = sources(root)
                 revision = fingerprint(documents)
                 files = novel_manager.chapter_files(str(root))
-                number = max((int(m.group(1)) for p in files if (m := re.search(r'第(\d+)章', Path(p).name))), default=0) + 1
-            run = root / '.story-memory' / 'reviews' / (str(time.time_ns()) + '-' + uuid.uuid4().hex + '.json')
+                number = max((int(match.group(1)) for name in files if (match := re.search(r'第(\d+)章', Path(name).name))), default=0) + 1
+            if preferences.get('writing_context_mode') == 'full' and sum(map(len, documents.values())) + len(user_prompt) + 2000 > budget:
+                raise ValueError('全文复核资料超出预算，请调整预算后重试')
+            run = root / '.story-memory/reviews' / (str(time.time_ns()) + '-' + uuid.uuid4().hex + '.json')
             with tracked_review(run, number, batch_id, count):
                 memory = ensure_memory(root, documents, generate, budget, progress)
-                state = memory['state']
-                active_state = {**state, 'threads': {k: v for k, v in state['threads'].items() if v['status'] == 'open'}}
-                catalog = '\n'.join(documents)
-                plan_prompt = f'''本章第{number:03d}章，作者要求\n{user_prompt}\n全书记忆\n{encode(active_state)}\n资料目录\n{catalog}
-    先规划本章出场人物、时间地点、因果链、能力边界及伏笔推进。重登场、旧约兑现、伏笔回收必须要求核对来源全文。
-    返回 JSON {{"plan":"本章计划", "sources":["必须溯源的目录内文件路径"]}}。文件必须来自上列目录，sources 仅列本章需要核对的文件。'''
-                progress(f'第{number:03d}章，制定计划并定位历史原文')
-                plan = parse_object(ask(generate, '本章计划', plan_prompt, budget))
-                required = plan.get('sources')
-                if not isinstance(plan.get('plan'), str) or not plan['plan'].strip() or not isinstance(required, list) or any(not isinstance(p, str) or p not in documents for p in required):
-                    raise ValueError('本章计划或来源引用无效')
-                subject = user_prompt + plan['plan']
-                linked = [entry['source'] for name, entry in active_state['characters'].items() if name in subject]
-                linked += [entry['source'] for name, entry in active_state['threads'].items() if name in subject]
-                required = list(set(required + linked))
-                latest_name = Path(files[-1]).relative_to(root).as_posix() if files else None
-                previous = documents[latest_name] if latest_name else '（首章）'
-                base = f'本轮只创作第{number:03d}章。\n作者要求\n{user_prompt}\n计划\n{plan["plan"]}\n全书剧情、人物位置与认知、未回收伏笔\n{encode(active_state)}\n上一章完整正文 {latest_name}\n{previous}\n'
-                # Include original settings when they fit, otherwise require source retrieval from their indexed memories.
-                covered = {latest_name} if latest_name else set()
-                core = []
-                core_refs = []
-                setting_index = []
-                def setting_priority(item):
-                    name = item[0]
-                    return (0 if '人物' in name or '总纲' in name else 1, name)
-                for name, text in sorted(documents.items(), key=setting_priority):
-                    if not name.startswith('00_设定集/'):
-                        continue
-                    setting_index.append(f'{name}（{len(text)}字符）\n{text[:300]}')
-                    if sum(len(item) for item in core) + len(text) < budget // 3:
-                        core.append(f'【设定原文 {name}】\n{text}')
-                        covered.add(name)
-                        core_refs.append({'source': name, 'offset': 0, 'length': len(text)})
-                    chapter_match = re.search(rf'(?m)^[-#* \t]*第0*{number}章[^\n]*', text)
-                    if chapter_match:
-                        following = re.search(r'(?m)^[-#* \t]*第0*\d+章[^\n]*', text[chapter_match.end():])
-                        end = chapter_match.end() + following.start() if following else min(len(text), chapter_match.start() + CHUNK_SIZE)
-                        core.append(f'【本章细纲 {name} 字符{chapter_match.start() + 1}起】\n{text[chapter_match.start():end]}')
-                        covered.add(name)
-                        core_refs.append({'source': name, 'offset': chapter_match.start(), 'length': end - chapter_match.start()})
-                base += '\n核心设定与本章细纲\n' + '\n'.join(core) + '\n全部设定目录\n' + '\n'.join(setting_index)
-                if preferences.get('writing_context_mode') == 'full':
-                    context, _ = novel_manager.full_writing_context(str(root))
-                    base += '\n手动全文复核资料\n' + context
-                    refs = [{'source': name, 'offset': 0, 'length': len(text)} for name, text in documents.items()]
-                else:
-                    allowance = budget - len(base) - 10000
-                    if allowance < 0:
-                        raise ValueError('核心记忆、设定及上一章超出预算，请调整预算后重试')
-                    context, refs = retrieve(documents, memory['records'], user_prompt + plan['plan'], set(required), allowance, covered)
-                    base += '\n历史溯源原文\n' + context
-                    refs = core_refs + refs
-                    if latest_name:
-                        refs.append({'source': latest_name, 'offset': 0, 'length': len(previous)})
-                review = {**load_json(run, {}), 'batch': batch_id, 'batch_count': count, 'chapter': number, 'source_revision': revision, 'plan': plan, 'references': refs, 'status': 'drafting'}
+                base, references = writing_context(root, documents, memory, number, user_prompt, preferences)
+                review = {**load_json(run, {}), 'source_revision': revision, 'references': references, 'status': 'drafting'}
                 atomic_json(run, review)
                 words = preferences.get('default_chapter_words', '4000-5000')
                 layout = '中文全角标点、短段落、对话单列。' if preferences.get('strict_tomato_layout', True) else '保持本书原有排版。'
-                draft_prompt = base + f'\n按本书题材与设定创作，目标{words}字。{layout}第一行必须为第{number:03d}章 标题，随后仅输出完整正文。存在无法解释的矛盾时停止并报告。'
-                progress(f'第{number:03d}章，已准备{len(base)}字符资料及{len(refs)}处原文，开始草稿')
-                content = ask(generate, '生成草稿', draft_prompt, budget)
+                instructions = (f'先在本会话内部规划本章因果与伏笔，再创作完整正文，目标{words}字。{layout}'
+                    f'第一行必须为第{number:03d}章 标题，随后仅输出正文。'
+                    '若必须核对的历史材料缺失，返回JSON {"needed_sources":["本书目录内文件路径"],"reason":"需要核对的内容"}，软件补充后再写正文。')
+                progress(f'第{number:03d}章，写作会话规划并生成草稿，使用{len(base)}字符资料')
+                content = ask(generate, '生成草稿', base + '\n' + instructions, budget)
+                if content.lstrip().startswith(('{', '```json')):
+                    request = parse_object(content)
+                    required = request.get('needed_sources')
+                    if not isinstance(required, list) or not required or any(not isinstance(name, str) or name not in documents for name in required):
+                        raise ValueError('历史来源引用无效，补充请求必须属于当前作品')
+                    base, references = writing_context(root, documents, memory, number, user_prompt + '\n' + str(request.get('reason', '')), preferences, required)
+                    review.update(references=references)
+                    atomic_json(run, review)
+                    progress(f'第{number:03d}章，已补充请求的历史原文，在原写作会话继续')
+                    content = ask(generate, '生成草稿', base + '\n' + instructions, budget)
                 draft = root / '.generation-drafts' / (run.stem + '.md')
                 atomic_write(draft, content)
                 if fingerprint(sources(root)) != revision:
                     raise RuntimeError(f'创作期间资料已修改，生成稿已保留于 {draft}')
                 for attempt in range(2):
-                    audit_prompt = base + '\n待审核草稿\n' + content + '\n逐项核对设定、时间地点、人物认知与关系、能力伤势、物品、因果及伏笔。返回 JSON {"passed":true或false,"issues":["具体问题及来源"]}。信息不足必须判为未通过。'
-                    audit = parse_object(ask(generate, '一致性审核', audit_prompt, budget))
-                    if not isinstance(audit.get('passed'), bool) or not isinstance(audit.get('issues'), list) or any(not isinstance(p, str) for p in audit['issues']):
-                        raise ValueError('一致性审核返回格式无效，草稿已保留')
+                    progress(f'第{number:03d}章，审稿会话核对一致性并准备记忆更新')
+                    audit, update = audit_response(generate, base, content, budget, progress, memory['state'])
                     review.update(status='reviewed', audit=audit, draft=str(draft))
                     atomic_json(run, review)
                     if audit['passed'] and not audit['issues']:
                         break
                     if attempt == 1:
                         raise RuntimeError(f'一致性审核未通过，草稿已保留于 {draft}')
-                    progress(f'第{number:03d}章，依据审核意见修订草稿')
                     content = ask(generate, '修订草稿', base + '\n原稿\n' + content + '\n审核问题\n' + encode(audit['issues']) + '\n修正后输出原标题与完整正文。', budget)
                     atomic_write(draft, content)
                 first, _, body = content.strip().partition('\n')
@@ -406,21 +509,20 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                 suffix = re.sub(r'[\\/*?:"<>|]', '', title.group(1)).strip().rstrip('. ')
                 if not suffix:
                     raise ValueError('章节标题为空，草稿已保留')
-                directory = Path(files[-1]).parent if files else root / '01_正文' / '第一卷_人界篇'
+                directory = Path(files[-1]).parent if files else root / '01_正文/第一卷_人界篇'
                 target = directory / f'第{number:03d}章_{suffix[:100]}.md'
                 final_text = f'# 第{number:03d}章 {suffix}\n\n{body.strip()}\n'
-                prospective = {**documents, target.relative_to(root).as_posix(): final_text}
-                # Build updated memory before publishing. A failed memory update keeps the novel unchanged.
-                progress(f'第{number:03d}章，审核通过，准备更新记忆')
-                # Reuse checkpoints via the real root; revision verification is handled by the publication guard.
-                next_memory = prepare_append(root, documents, prospective, generate, budget, progress)
+                target_name = target.relative_to(root).as_posix()
+                prospective = {**documents, target_name: final_text}
+                next_state = fold_state(memory['state'], update, target_name)
+                next_memory = memory_index(root, prospective, next_state, memory, (target_name, update['summary']))
                 with guard:
                     if fingerprint(sources(root)) != revision:
                         raise RuntimeError(f'历史正文发生变化或设定已修改，生成稿已保留于 {draft}')
-                    review.update(status='approved', target=str(target), target_hash=digest(final_text))
+                    review.update(status='approved', target=str(target), target_hash=digest(final_text), memory_update=update)
                     atomic_json(run, review)
                     atomic_create(target, final_text)
-                    atomic_json(root / '.story-memory' / 'index.json', next_memory)
+                    atomic_json(root / '.story-memory/index.json', next_memory)
                     review.update(status='published')
                     atomic_json(run, review)
                     completed += 1
@@ -429,11 +531,6 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                         on_chapter(str(target))
                 progress(f'续写进度 {completed}/{count}，第{number:03d}章已审核保存并更新记忆')
     return True, f'已完成 {completed} 章续写', last_added
-
-
-def prepare_append(root, original, prospective, generate, budget, progress):
-    """Prepare derived data for an unpublished chapter without changing the visible index."""
-    return ensure_memory(root, prospective, generate, budget, progress, expected=original, publish=False)
 
 
 def instruction_material(root, query, preferences, generate, progress):

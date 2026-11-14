@@ -33,7 +33,7 @@ class StoryMemoryTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn('第003章', target)
         stages = [request.splitlines()[0] for request in self.requests]
-        self.assertEqual(stages.count('【阶段 本章计划】'), 2)
+        self.assertEqual(stages.count('【阶段 本章计划】'), 0)
         self.assertEqual(stages.count('【阶段 一致性审核】'), 2)
         self.assertTrue(memory.status(self.root)['ready'])
         reviews = list((self.root / '.story-memory/reviews').glob('*.json'))
@@ -86,7 +86,7 @@ class StoryMemoryTests(unittest.TestCase):
             nonlocal drafting
             if '【阶段 生成草稿】' in prompt:
                 drafting = True
-            if drafting and '更新记忆】' in prompt:
+            if drafting and '【阶段 一致性审核】' in prompt:
                 raise RuntimeError('额度不足')
             return self.generate(prompt)
         with self.assertRaisesRegex(RuntimeError, '额度不足'):
@@ -110,8 +110,8 @@ class StoryMemoryTests(unittest.TestCase):
 
     def test_source_references_are_book_scoped(self):
         def invalid(prompt):
-            if '【阶段 本章计划】' in prompt:
-                return json.dumps({'plan': '借用别书', 'sources': ['../另一本书/章节.md']})
+            if '【阶段 生成草稿】' in prompt:
+                return json.dumps({'needed_sources': ['../另一本书/章节.md'], 'reason': '借用别书'})
             return self.generate(prompt)
         with self.assertRaisesRegex(ValueError, '引用无效'):
             self.write(generate=invalid)
@@ -120,9 +120,12 @@ class StoryMemoryTests(unittest.TestCase):
     def test_required_historical_source_is_loaded_in_full(self):
         atomic_write(self.root / '01_正文/第一卷/第000章 旧约.md', '最早原文开始' + '追溯内容' * 1900 + '最早原文结尾')
         required = '01_正文/第一卷/第000章 旧约.md'
+        requested = False
         def retrieve(prompt):
-            if '【阶段 本章计划】' in prompt:
-                return json.dumps({'plan': '回收旧约，核对旧约原文', 'sources': [required]})
+            nonlocal requested
+            if '【阶段 生成草稿】' in prompt and not requested:
+                requested = True
+                return json.dumps({'needed_sources': [required], 'reason': '核对旧约原文'})
             return self.generate(prompt)
         self.write(generate=retrieve)
         draft = next(p for p in self.requests if '【阶段 生成草稿】' in p)
@@ -133,8 +136,8 @@ class StoryMemoryTests(unittest.TestCase):
         atomic_write(self.root / '01_正文/第一卷/第000章 旧约.md', '旧约' * 40000)
         required = '01_正文/第一卷/第000章 旧约.md'
         def retrieve(prompt):
-            if '【阶段 本章计划】' in prompt:
-                return json.dumps({'plan': '核对旧约', 'sources': [required]})
+            if '【阶段 生成草稿】' in prompt:
+                return json.dumps({'needed_sources': [required], 'reason': '核对旧约'})
             return self.generate(prompt)
         with self.assertRaisesRegex(ValueError, '超出预算'):
             self.write(generate=retrieve)
@@ -222,9 +225,12 @@ class StoryMemoryTests(unittest.TestCase):
         name = '00_设定集/全240章细纲.md'
         text = ('前文设定。' * 7000) + '\n第002章 新章计划\n本章调查旧约。\n第003章 远期计划\n'
         atomic_write(self.root / name, text)
+        requested = False
         def generate(prompt):
-            if '【阶段 本章计划】' in prompt:
-                return json.dumps({'plan': '依据细纲调查旧约', 'sources': [name]}, ensure_ascii=False)
+            nonlocal requested
+            if '【阶段 生成草稿】' in prompt and not requested:
+                requested = True
+                return json.dumps({'needed_sources': [name], 'reason': '依据细纲调查旧约'}, ensure_ascii=False)
             return self.generate(prompt)
         self.write(generate=generate)
         draft = next(p for p in self.requests if '【阶段 生成草稿】' in p)
@@ -244,6 +250,85 @@ class StoryMemoryTests(unittest.TestCase):
         calls = [request for request in self.requests if '【阶段 批量更新记忆】' in request]
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(len(__import__('re').findall(r'【片段 id=', request)) == 3 for request in calls))
+
+    def test_existing_ledger_seven_chapters_use_fifteen_calls_then_fourteen(self):
+        atomic_write(self.root / '00_设定集/全书剧情账本.md', '截至第001章，主角在码头，旧约尚未兑现。')
+        self.write(7)
+        self.assertEqual(len(self.requests), 15)
+        self.assertEqual(sum(request.startswith('【阶段 一致性审核】') for request in self.requests), 7)
+        self.requests.clear()
+        self.write(7)
+        self.assertEqual(len(self.requests), 14)
+        self.assertTrue(memory.status(self.root)['ready'])
+
+    def test_desktop_batch_reuses_only_writer_and_reviewer_conversations(self):
+        import local_bridge
+        import re
+        atomic_write(self.root / '00_设定集/剧情账本.md', '截至第001章，主角在码头。')
+        created, continued = [], []
+        def save_result(prompt):
+            output = re.search(r'只将本阶段要求的 JSON 或正文写入 `([^`]+)`', prompt).group(1)
+            atomic_write(output, response(prompt))
+        def new(prompt, title, *args):
+            created.append(title)
+            save_result(prompt)
+            return 'session-' + str(len(created))
+        def follow(identifier, prompt, *args):
+            continued.append(identifier)
+            save_result(prompt)
+            return identifier
+        with patch.object(local_bridge, 'BOOKS_ROOT', str(self.root.parent)), \
+                patch.object(local_bridge.desktop_agents, 'new_conversation', side_effect=new), \
+                patch.object(local_bridge.desktop_agents, 'continue_conversation', side_effect=follow), \
+                patch.object(local_bridge.desktop_agents, 'wait_for_receipt', return_value={'summary': '完成', 'files': []}), \
+                patch.object(local_bridge, 'sync_all_books_to_cloud', return_value=(True, 0, 0)):
+            ok, message = local_bridge.execute_serial_chapters('作品', 7, '承接码头约定', 'codex', 'test-model', 'high', lambda m: None)
+        self.assertTrue(ok, message)
+        self.assertEqual(len(created), 2)
+        self.assertEqual(len(continued), 13)
+        self.assertIn('写作', created[0])
+        self.assertIn('审稿', created[1])
+        self.assertEqual(len(novel_manager.chapter_files(str(self.root))), 8)
+
+    def test_batch_session_cannot_be_reused_for_another_book(self):
+        import local_bridge
+        with self.assertRaisesRegex(ValueError, '其他作品'):
+            local_bridge.desktop_stage(self.root, '作品', '资料', 'codex', 'model', 'high', lambda m: None,
+                {'id': 'foreign-session', 'book_root': str(self.root.parent / '其他作品')})
+
+    def test_antigravity_continuation_preserves_workspace_and_model(self):
+        import agent_client
+        catalog = {'available': True, 'project_id': 'novel-project', 'models': [
+            {'id': 'chosen', 'model_enum': 'MODEL_CHOSEN', 'default_effort': 'high', 'efforts': [{'id': 'high'}]}]}
+        replies = [{'metadata': {'projectId': 'novel-project'}},
+            {'trajectorySummaries': {'existing': {'annotations': {'permissionPreset': 'AGENT_PERMISSION_PRESET_TURBO'}}}}, {}]
+        with patch.object(agent_client, 'discover', return_value=catalog), patch.object(agent_client, 'rpc', side_effect=replies) as rpc:
+            self.assertEqual(agent_client.continue_conversation('existing', '下一章阶段', 'chosen', 'high'), 'existing')
+        self.assertEqual(rpc.call_args.args[0], 'SendUserCascadeMessage')
+        self.assertEqual(rpc.call_args.args[1]['cascadeId'], 'existing')
+        self.assertEqual(rpc.call_args.args[1]['cascadeConfig']['plannerConfig']['requestedModel']['model'], 'MODEL_CHOSEN')
+
+    def test_antigravity_continuation_rejects_foreign_project(self):
+        import agent_client
+        catalog = {'available': True, 'project_id': 'novel-project', 'models': [
+            {'id': 'chosen', 'model_enum': 'MODEL_CHOSEN', 'default_effort': 'high', 'efforts': [{'id': 'high'}]}]}
+        replies = [{'metadata': {'projectId': 'foreign-project'}}, {'trajectorySummaries': {}}]
+        with patch.object(agent_client, 'discover', return_value=catalog), patch.object(agent_client, 'rpc', side_effect=replies) as rpc:
+            with self.assertRaisesRegex(RuntimeError, '校验失败'):
+                agent_client.continue_conversation('existing', '资料', 'chosen', 'high')
+        self.assertEqual(rpc.call_count, 2)
+
+    def test_codex_continuation_rejects_foreign_project(self):
+        import codex_client
+        client = codex_client.CodexClient()
+        client.desktop_project = 'novel-project'
+        client.caller_thread = 'caller'
+        catalog = {'available': True, 'models': [{'id': 'chosen', 'default_effort': 'high', 'efforts': [{'id': 'high'}]}]}
+        with patch.object(client, 'discover', return_value=catalog), \
+                patch.object(codex_client.codex_desktop, 'call_desktop', return_value={'threads': [{'id': 'existing', 'projectId': 'foreign-project', 'cwd': 'D:\\小说'}]}) as call:
+            with self.assertRaisesRegex(RuntimeError, '校验失败'):
+                client.continue_conversation('existing', '资料', 'chosen', 'high')
+        self.assertEqual(call.call_count, 1)
 
     def test_settings_validate_mode_and_budget(self):
         for data in ({'writing_context_chars': True}, {'writing_context_chars': 1}, {'writing_context_mode': 'unknown'}):

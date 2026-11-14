@@ -119,6 +119,20 @@ def new_conversation(prompt, title, model="gemini-3.8-flash-high", effort=None):
     return conversation_id
 
 
+def continue_conversation(conversation_id, prompt, model=None, effort=None):
+    catalog = discover()
+    chosen, effort = selected_model(catalog, model, effort)
+    actual_id = chosen.get("effort_models", {}).get(effort, chosen["id"])
+    chosen = next(item for item in catalog["models"] if item["id"] == actual_id)
+    metadata = rpc("GetConversationMetadata", {"conversationId": conversation_id}).get("metadata", {})
+    summary = rpc("GetAllCascadeTrajectories").get("trajectorySummaries", {}).get(conversation_id, {})
+    if metadata.get("projectId") != catalog["project_id"] or summary.get("annotations", {}).get("permissionPreset") != "AGENT_PERMISSION_PRESET_TURBO":
+        raise RuntimeError("续接会话的小说工作区或权限校验失败")
+    rpc("SendUserCascadeMessage", {"cascadeId": conversation_id, "items": [{"text": prompt}],
+        "cascadeConfig": {"plannerConfig": {"requestedModel": {"model": chosen["model_enum"]}}}})
+    return conversation_id
+
+
 def wait_for_receipt(path, conversation_id, progress=None, timeout=1200):
     """A task-specific receipt is written last, after the requested files exist."""
     deadline = time.monotonic() + timeout

@@ -15,7 +15,7 @@ def response(prompt):
     if '【阶段 本章计划】' in prompt:
         return json.dumps({'plan': '承接前章，核对人物位置与认知，继续主线', 'sources': []}, ensure_ascii=False)
     if '【阶段 一致性审核】' in prompt:
-        return json.dumps({'passed': True, 'issues': []})
+        return json.dumps(dict(json.loads(response('【阶段 更新记忆】')), passed=True, issues=[]), ensure_ascii=False)
     number = int(re.search(r'本轮只创作第(\d+)章', prompt).group(1))
     return f'# 第{number:03d}章 延续\n\n' + '正文承接前情，继续追查线索。' * 80
 

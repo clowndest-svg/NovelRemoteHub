@@ -393,7 +393,7 @@ def sync_loop():
 
 # 7. 在所选桌面端执行并校验任务成果回执
 def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode="antigravity_pro",
-                     model_tier=None, progress_cb=None, reasoning_effort=None):
+                     model_tier=None, progress_cb=None, reasoning_effort=None, session=None):
     engine_mode = canonical_engine(engine_mode)
     if engine_mode == "antigravity":
         ready, message = ensure_antigravity_running(progress_cb)
@@ -407,9 +407,16 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
 必须使用 json.dumps、JSON.stringify 或 ConvertTo-Json 正确序列化回执，再读取并解析确认合法，避免文本引号造成无效 JSON。
 """
     try:
-        conversation = desktop_agents.new_conversation(prompt, title, model_tier, engine_mode, reasoning_effort)
+        if session is not None and session.get('id'):
+            conversation = desktop_agents.continue_conversation(session['id'], prompt, model_tier, engine_mode, reasoning_effort)
+            action = '续接'
+        else:
+            conversation = desktop_agents.new_conversation(prompt, title, model_tier, engine_mode, reasoning_effort)
+            if session is not None:
+                session['id'] = conversation
+            action = '建立'
         if progress_cb:
-            progress_cb(f"已在小说工作区建立 {engine_mode} 会话 {conversation}，完全访问权限已校验")
+            progress_cb(f"已在小说工作区{action} {engine_mode} 会话 {conversation}，完全访问权限已校验")
         result = desktop_agents.wait_for_receipt(receipt, conversation, progress_cb, engine_mode)
         if not isinstance(result.get("summary"), str) or not result["summary"].strip() or not isinstance(result.get("files"), list):
             raise ValueError("执行端完成回执缺少有效总结或成果列表")
@@ -422,7 +429,11 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
         return False, str(error)
 
 
-def desktop_stage(root, book_id, prompt, engine, model, effort, progress):
+def desktop_stage(root, book_id, prompt, engine, model, effort, progress, session=None):
+    if session is not None:
+        if session.get('id') and session.get('book_root') != str(Path(root).resolve()):
+            raise ValueError('批次会话属于其他作品，已停止续接')
+        session['book_root'] = str(Path(root).resolve())
     output = Path(root) / '.story-memory' / 'agent-results' / (uuid.uuid4().hex + '.txt')
     output.parent.mkdir(parents=True, exist_ok=True)
     before = story_memory.fingerprint(story_memory.sources(root))
@@ -431,8 +442,8 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress):
         "输出与回执的父目录均已建立。直接使用一次脚本写入结果和本次新回执，再读取这两个文件校验。"
         "文件访问范围限定为本次指定输出和新回执，其他阶段的暂存文件与旧回执均与本任务无关。"
         "作品正式正文、设定与记忆索引由软件管理，保持这些文件原样。")
-    ok, result = execute_agentapi(instruction, title=f"【分阶段创作】《{book_id}》", engine_mode=engine,
-        model_tier=model, reasoning_effort=effort, progress_cb=progress)
+    ok, result = execute_agentapi(instruction, title=f"【{'审稿' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else '写作'}】《{book_id}》", engine_mode=engine,
+        model_tier=model, reasoning_effort=effort, progress_cb=progress, session=session)
     if story_memory.fingerprint(story_memory.sources(root)) != before:
         raise RuntimeError('历史正文发生变化或设定被执行端修改，已停止任务')
     if not ok:
@@ -442,11 +453,13 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress):
     return output.read_text(encoding='utf-8-sig')
 
 
-def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress):
+def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress, sessions=None):
     completed = 0
     root, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
+    sessions = sessions if sessions is not None else {'writer': {}, 'reviewer': {}}
     def generate(prompt):
-        return desktop_stage(root, book_id, prompt, engine, model, effort, progress)
+        role = 'reviewer' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else 'writer'
+        return desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessions[role])
     def saved(filename):
         nonlocal completed
         completed += 1

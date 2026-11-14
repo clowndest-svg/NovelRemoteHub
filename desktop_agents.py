@@ -32,6 +32,12 @@ def new_conversation(prompt, title, model=None, engine='antigravity', effort=Non
     return agent_client.new_conversation(prompt, title, model, effort)
 
 
+def continue_conversation(conversation, prompt, model=None, engine='antigravity', effort=None):
+    if canonical_engine(engine) == 'codex':
+        return codex_client.CLIENT.continue_conversation(conversation, prompt, model, effort)
+    return agent_client.continue_conversation(conversation, prompt, model, effort)
+
+
 def wait_for_receipt(path, conversation, progress=None, engine='antigravity', timeout=1200):
     if canonical_engine(engine) == 'codex':
         codex_client.CLIENT.wait(conversation, progress, timeout)

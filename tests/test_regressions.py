@@ -610,6 +610,15 @@ class RegressionTests(unittest.TestCase):
             self.assertNotEqual(changed.read(), thumb)
         self.assertEqual(self.request('/api/cover?' + self.query + '&size=thumb', auth=False)[0], 401)
 
+    def test_mobile_refresh_restores_current_book_active_task(self):
+        hub.TASKS['other'] = {'id': 'other', 'book_id': '其他作品', 'action': 'creative_instruction', 'status': 'running', 'created_at': 1}
+        hub.TASKS['queued'] = {'id': 'queued', 'book_id': self.book, 'action': 'creative_instruction', 'status': 'pending', 'created_at': 2}
+        hub.TASKS['active'] = {'id': 'active', 'book_id': self.book, 'action': 'creative_instruction', 'status': 'running', 'created_at': 3, 'progress_log': ['更新作品记忆 3/63']}
+        endpoint = '/api/task_status?book=' + urllib.parse.quote(self.book)
+        self.assertEqual(self.request(endpoint, auth=False)[0], 401)
+        self.assertEqual(self.request(endpoint)[1]['id'], 'active')
+        self.assertEqual(self.request('/api/task_status?book=' + urllib.parse.quote('无任务作品'))[1], {'task': None})
+
     def test_memory_status_requires_auth_and_is_book_scoped(self):
         code, denied = self.request('/api/writing_memory?book=' + urllib.parse.quote(self.book), auth=False)
         self.assertEqual(code, 401)

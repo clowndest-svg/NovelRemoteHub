@@ -212,10 +212,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 17,
-    "versionName": "1.11.1",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.1",
-    "changelog": "修复人物状态返回格式，明确阶段提示词，批量构建正文记忆并按段引用长设定。",
+    "versionCode": 18,
+    "versionName": "1.11.2",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.2",
+    "changelog": "固定写作和审稿两条会话，复用现有全书账本，合并审核与记忆更新，手机刷新恢复任务进度。",
     "forceUpdate": False
 }
 
@@ -380,7 +380,7 @@ def sync_book(body):
         with open(filename, encoding="utf-8", errors="ignore") as stream:
             actual_settings.append({"filename": os.path.basename(filename), "content": stream.read()})
     memory_status = body.get("writing_memory")
-    if isinstance(memory_status, dict) and memory_status.get("ready") is True and len(json.dumps(memory_status)) < 100000:
+    if isinstance(memory_status, dict) and memory_status.get("ready") is True and len(json.dumps(memory_status)) < 1000000:
         import story_memory
         if memory_status.get("revision") == story_memory.fingerprint(story_memory.sources(book_path)):
             save_json_file(os.path.join(book_path, ".story-memory", "remote-status.json"), memory_status)
@@ -1146,6 +1146,16 @@ class HubHandler(BaseHTTPRequestHandler):
         # 任务状态查询接口
         if path == "/api/task_status" or path == "/novel/api/task_status":
             tid = qs.get("id", [""])[0]
+            if not tid and qs.get("book"):
+                book = qs["book"][0]
+                candidates = [task for task in TASKS.values() if task.get("book_id") == book
+                    and task.get("status") in ("running", "assigned", "pending")
+                    and task.get("action") in ("creative_instruction", "repair_chapter", "evolve_settings", "create_new_novel")]
+                candidates.sort(key=lambda task: (task["status"] == "pending", task.get("created_at", 0)))
+                if not candidates:
+                    self.send_json({"task": None})
+                    return
+                tid = candidates[0]["id"]
             if tid in TASKS:
                 task = TASKS[tid]
                 ahead = []
