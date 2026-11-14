@@ -43,8 +43,8 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
-    private int myVersionCode = 14;
-    private String myVersionName = "1.10.1";
+    private int myVersionCode = 15;
+    private String myVersionName = "1.10.2";
     private final ArrayList<DownloadManager.Request> pendingDownloads = new ArrayList<>();
     private boolean requestingStoragePermission = false;
 

@@ -197,6 +197,28 @@ class AuditRegressions(unittest.TestCase):
         self.assertIn('第004章', filename)
         self.assertEqual(len(manager.chapter_files(str(self.book_path))), 2)
 
+    def test_every_engine_receives_all_settings_and_all_previous_chapters(self):
+        import local_bridge
+        atomic_write(self.book_path / '01_正文/第一卷/第001章_最早伏笔.md', '最早伏笔开头' + '旧正文' * 4000 + '最早章节末尾')
+        atomic_write(self.book_path / '00_设定集/00_伏笔账本.md', '完整账本末尾')
+        other = self.books / '另一本书'
+        atomic_write(other / '01_正文/第一卷/第001章.md', '另一部作品的秘密')
+        material, _, _, _ = deepseek.writing_material(str(self.book_path), str(self.root))
+        with patch.object(local_bridge, 'BOOKS_ROOT', str(self.books)):
+            prompt, _ = local_bridge.serial_chapter_prompt(self.book, '继续创作')
+        for text in (material, prompt):
+            for marker in ('最早伏笔开头', '最早章节末尾', '文档末尾约束', '完整账本末尾', '# 第003章 旧事'):
+                self.assertIn(marker, text)
+            self.assertNotIn('另一部作品的秘密', text)
+            self.assertNotIn('顾见微', text)
+
+    def test_reading_preferences_cannot_silently_remove_required_sources(self):
+        manager.save_user_settings({'auto_read_previous':False, 'auto_check_ledger':False}, str(self.root))
+        atomic_write(self.book_path / '00_设定集/00_伏笔账本.md', '账本必须读入')
+        material, _, _, _ = deepseek.writing_material(str(self.book_path), str(self.root))
+        self.assertIn('账本必须读入', material)
+        self.assertIn('# 第003章 旧事', material)
+
     def test_changed_context_does_not_overwrite_and_keeps_generation_draft(self):
         def generate(*args, **kwargs):
             atomic_write(self.book_path / '00_设定集/新增.md', '生成期间修改')

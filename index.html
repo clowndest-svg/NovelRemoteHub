@@ -1597,7 +1597,7 @@
                 <span id="status-text">检测中</span>
             </div>
             <!-- 官方域名下载链接 (App 内自动隐藏) -->
-            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.1" class="btn-apk-pill" download>
+            <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.2" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
             <button class="btn-apk-pill" onclick="openSettingsModal()" title="系统全局设置与创作风控偏好" style="background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-main); cursor:pointer;">
@@ -2120,6 +2120,14 @@
                 <textarea id="edit-book-desc" class="prompt-textarea" style="height:80px;" placeholder="简要描述故事主线、主角能力与核心爽点..."></textarea>
             </div>
 
+            <div class="input-group">
+                <label class="input-label">作者</label>
+                <input id="edit-book-author" class="input-text" type="text" maxlength="200">
+            </div>
+            <div class="input-group">
+                <label class="input-label">标签（用逗号分隔）</label>
+                <input id="edit-book-tags" class="input-text" type="text">
+            </div>
             <div style="display:flex; gap:10px; margin-top:14px;">
                 <button id="btn-save-book-meta" class="btn-launch-big" style="flex:1; background:linear-gradient(135deg, #f59e0b, #d97706); color:#000; font-weight:bold; padding:10px;" onclick="submitEditBookMeta()">
                     💾 保存作品信息与封面
@@ -2219,6 +2227,13 @@
                             <option value="1">单章续写 (1 章)</option>
                             <option value="2">双章连更 (2 章)</option>
                             <option value="3">三章连发 (3 章)</option>
+                            <option value="4">4 章</option>
+                            <option value="5">5 章</option>
+                            <option value="6">6 章</option>
+                            <option value="7">7 章</option>
+                            <option value="8">8 章</option>
+                            <option value="9">9 章</option>
+                            <option value="10">10 章</option>
                         </select>
                     </div>
                 </div>
@@ -2228,17 +2243,17 @@
                     <div class="setting-card-title">🛡️ 长篇小说防“吃设定/吃伏笔”终极防护网</div>
                     <div class="setting-item">
                         <div>
-                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">强制注入全书剧情与伏笔线索总账本</div>
-                            <div class="setting-desc">写作前自动检索并通读总账本，确保人物境界、底牌、待收伏笔严丝合缝</div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">每章完整通读全部设定文档</div>
+                            <div class="setting-desc">固定开启，完整读取本书所有设定，包含大纲、人物与伏笔账本</div>
                         </div>
-                        <input type="checkbox" id="setting-check-ledger" checked style="accent-color:var(--accent); width:18px; height:18px;">
+                        <input type="checkbox" id="setting-check-ledger" checked disabled style="accent-color:var(--accent); width:18px; height:18px;">
                     </div>
                     <div class="setting-item">
                         <div>
-                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">强制通读最新上一章正文与断章钩子</div>
-                            <div class="setting-desc">自动提炼上一章末尾未解之谜与危机悬念，杜绝新章节开头生硬脱节</div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">每章完整通读此前全部章节</div>
+                            <div class="setting-desc">固定开启，从第一章读到最新章，每轮重新读取并核对前后因果</div>
                         </div>
-                        <input type="checkbox" id="setting-read-previous" checked style="accent-color:var(--accent); width:18px; height:18px;">
+                        <input type="checkbox" id="setting-read-previous" checked disabled style="accent-color:var(--accent); width:18px; height:18px;">
                     </div>
                     <div class="setting-item">
                         <div>
@@ -2990,6 +3005,8 @@
             document.getElementById("edit-book-title").value = book.title || book.id;
             document.getElementById("edit-book-genre").value = book.genre || "";
             document.getElementById("edit-book-desc").value = book.description || "";
+            document.getElementById("edit-book-author").value = book.author || "作者";
+            document.getElementById("edit-book-tags").value = (book.tags || []).join("，");
             EDIT_COVER_BASE64 = null;
             document.getElementById("edit-book-cover-file").value = "";
             document.getElementById("edit-book-cover-preview").src = `${API}/cover?book=${encodeURIComponent(bookId)}&v=${encodeURIComponent(book.cover_version || '')}`;
@@ -3030,7 +3047,9 @@
                 book_id: bookId,
                 title: newTitle,
                 genre: genre,
-                description: desc
+                description: desc,
+                author: document.getElementById("edit-book-author").value.trim(),
+                tags: document.getElementById("edit-book-tags").value.split(/[,，]/).map(tag => tag.trim()).filter(Boolean)
             };
             if (EDIT_COVER_BASE64) {
                 payload.cover_base64 = EDIT_COVER_BASE64;
@@ -3493,10 +3512,10 @@
                         document.getElementById("setting-batch-count").value = s.batch_count || 1;
                     }
                     if (document.getElementById("setting-check-ledger")) {
-                        document.getElementById("setting-check-ledger").checked = s.auto_check_ledger !== false;
+                        document.getElementById("setting-check-ledger").checked = true;
                     }
                     if (document.getElementById("setting-read-previous")) {
-                        document.getElementById("setting-read-previous").checked = s.auto_read_previous !== false;
+                        document.getElementById("setting-read-previous").checked = true;
                     }
                     if (document.getElementById("setting-strict-tomato")) {
                         document.getElementById("setting-strict-tomato").checked = s.strict_tomato_layout !== false;
@@ -4074,7 +4093,7 @@
                     <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
                     <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
                 `;
-                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与生产力演进铁律，按每轮指定章号检索对应分章细纲，研读全套设定大典与前情伏笔账本，完整阅读最新前章正文并核对人物状态、时间线与伏笔，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
+                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与剧情发展边界，每轮重新完整读取全部设定文档、对应细纲与伏笔账本，从第一章到最新章完整通读全部已有正文并核对人物状态、时间线与伏笔，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
             } else if (wf === "polish") {
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('黄金留存')">🔥 黄金留存率爆改 (前3章优化)</div>
@@ -4087,7 +4106,7 @@
                 chips.innerHTML = `
                     <div class="chip active" onclick="applyPromptTag('主线高潮')">🌌 推演后20章大主线走向</div>
                     <div class="chip" onclick="applyPromptTag('伏笔暗线')">🔍 设计本书伏笔与回收计划</div>
-                    <div class="chip" onclick="applyPromptTag('战力推演')">⚖️ 境界能级与科技生产力推演</div>
+                    <div class="chip" onclick="applyPromptTag('战力推演')">⚖️ 人物关系与剧情因果推演</div>
                 `;
                 pbox.value = `请基于《${CURRENT_BOOK}》的 00_设定集，推演后续 20-30 章的主线走向与剧情大高潮，重点设计符合本书题材与设定的核心反转、人物成长和伏笔回收！`;
             } else if (wf === "freeform") {

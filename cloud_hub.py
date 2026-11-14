@@ -212,10 +212,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 14,
-    "versionName": "1.10.1",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.1",
-    "changelog": "修复书架编辑、创作工作流、分享与提示反馈，完善双向同步和 DeepSeek 云端任务。",
+    "versionCode": 15,
+    "versionName": "1.10.2",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.10.2",
+    "changelog": "每章完整读取全部设定和全部前文，统一多书创作上下文，补齐作者与标签编辑。",
     "forceUpdate": False
 }
 
@@ -1220,6 +1220,10 @@ class HubHandler(BaseHTTPRequestHandler):
                 if not isinstance(body["description"], str):
                     raise ValueError("简介格式无效")
                 meta_update["description"] = str(body["description"]).strip()
+            if "author" in body:
+                if not isinstance(body["author"], str):
+                    raise ValueError("作者格式无效")
+                meta_update["author"] = body["author"].strip()
             if "tags" in body and isinstance(body["tags"], list):
                 meta_update["tags"] = [str(t).strip() for t in body["tags"] if str(t).strip()]
             elif "tags" in body:

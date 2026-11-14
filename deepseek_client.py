@@ -211,13 +211,8 @@ def writing_material(book_root, config_dir=None):
     files = novel_manager.chapter_files(book_root)
     number = max((int(match.group(1)) for filename in files
                   if (match := re.search(r"第(\d+)章", Path(filename).name))), default=0) + 1
-    settings = []
-    for filename in sorted((Path(book_root) / "00_设定集").glob("*.md")):
-        if not preferences["auto_check_ledger"] and "账本" in filename.name:
-            continue
-        settings.append(f"### {filename.name}\n{filename.read_text(encoding='utf-8-sig')}")
-    previous = Path(files[-1]).read_text(encoding="utf-8-sig") if files and preferences["auto_read_previous"] else "（无前章正文）"
-    material = "\n\n".join(settings) + "\n\n【最新上一章全文】\n" + previous
+    material, _ = novel_manager.full_writing_context(book_root)
+    material += "\n动笔前完整通读全部设定及全部历史章节，逐项核对人物状态、时间线、能力限制与未回收伏笔。发现冲突先报告，资料超出上下文时明确失败，禁止省略或截断前文。"
     return material, number, files, preferences
 
 
@@ -234,7 +229,7 @@ def write_serial_chapters(book_root, book_id, count=1, user_prompt="", model="de
         layout = "中文全角标点，短段落，对话单列，段落间空行。" if preferences["strict_tomato_layout"] else "段落清晰，保持本书原有格式。"
         prompt = f"创作《{book_id}》第{number:03d}章，目标{words}字。\n{material}\n【作者要求】\n{user_prompt}\n承接前文人物、地点、时间线、能力限制与伏笔。第一行必须为第{number:03d}章 标题，随后输出完整正文。{layout}"
         if progress_cb:
-            progress_cb(f"续写进度 {index}/{count}，正在创作第{number:03d}章")
+            progress_cb(f"续写进度 {index}/{count}，已载入全部设定和{len(files)}章完整前文，正在创作第{number:03d}章")
         content, _ = generate_content(prompt, model, effort, "你是小说作者。遵循所提供作品的题材、世界观、人物与创作要求。", config_dir, progress_cb)
         with guard:
             first, _, body = content.strip().partition("\n")

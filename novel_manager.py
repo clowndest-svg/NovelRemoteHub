@@ -236,6 +236,7 @@ def list_books(root_dir=None):
                 "title": meta.get("title", entry.name),
                 "genre": meta.get("genre", "科幻修真 / 网文"),
                 "author": meta.get("author", "作者"),
+                "tags": meta.get("tags", []),
                 "description": meta.get("description", ""),
                 "cover": meta.get("cover", ""),
                 "has_cover": meta.get("has_cover", False),
@@ -285,6 +286,32 @@ def read_chapter(book_id, filename, root_dir=None):
         raise FileNotFoundError("章节不存在或文件名重复，请检查分卷章节名称")
     with open(matches[0], encoding="utf-8") as stream:
         return stream.read()
+
+
+def full_writing_context(book_path):
+    """Read every setting and existing chapter in one book without truncation."""
+    from pathlib import Path
+    import hashlib
+    root = Path(book_path).resolve()
+    settings = sorted((root / "00_设定集").glob("*.md"))
+    chapters = [Path(filename) for filename in chapter_files(str(root))]
+    sections = []
+    sources = {}
+    for label, files in (("全部设定文档", settings), ("此前全部章节，按章序排列", chapters)):
+        sections.append(f"【{label}】")
+        if not files:
+            sections.append("（暂无文档）")
+        for path in files:
+            if not path.resolve().is_relative_to(root):
+                raise ValueError("创作资料超出当前作品目录")
+            raw = path.read_bytes()
+            sources[str(path)] = raw
+            text = raw.decode("utf-8-sig")
+            relative = path.relative_to(root)
+            sections.append(f"【文件开始 {relative}，SHA256 {hashlib.sha256(raw).hexdigest()}】\n{text}\n【文件结束 {relative}】")
+    if any(not Path(path).is_file() or Path(path).read_bytes() != raw for path, raw in sources.items()):
+        raise RuntimeError("创作资料在读取期间发生修改，请重新读取")
+    return "\n\n".join(sections), sources
 
 
 # ----------------- 2. 核心敏感词与易错字词库 -----------------
