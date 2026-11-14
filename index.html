@@ -1440,7 +1440,30 @@
         .setting-item:last-child { border-bottom: none; }
         .setting-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
-        
+        /* 创作流程指南 Modal 专属排版 (统一定制黑金科技修仙视觉) */
+        .workflow-step-card {
+            background: rgba(19, 27, 41, 0.75);
+            border: 1px solid rgba(226, 183, 64, 0.22);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s ease;
+        }
+        .workflow-step-card:hover {
+            border-color: rgba(226, 183, 64, 0.5);
+            background: rgba(19, 27, 41, 0.95);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+        }
+        .workflow-step-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
         /* 全局按钮微动效与触觉动效 (触碰即有缩放回馈) */
         button:active, .btn:active, .chip:active, .novel-picker-option:active, .tab:active, .action-btn:active, .icon-btn:active {
             transform: scale(0.96) !important;
@@ -1600,6 +1623,9 @@
             <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.2" class="btn-apk-pill" download>
                 <span>📥 App</span>
             </a>
+            <button class="btn-apk-pill" onclick="openWorkflowGuideModal()" title="查看新书构思与百万字长篇创作全流程SOP指南" style="background:rgba(226, 183, 64, 0.12); border:1px solid rgba(226, 183, 64, 0.4); color:var(--accent); cursor:pointer;">
+                <span>📖 指南</span>
+            </button>
             <button class="btn-apk-pill" onclick="openSettingsModal()" title="系统全局设置与创作风控偏好" style="background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-main); cursor:pointer;">
                 <span>⚙️ 设置</span>
             </button>
@@ -1614,6 +1640,9 @@
             <span style="font-size:10px;">▼</span>
         </div>
         <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+            <button class="btn-new-book-quick" onclick="openWorkflowGuideModal()" title="查看从构思新书到千章创作的完整SOP操作流程指南" style="border-color: rgba(226, 183, 64, 0.45); color: var(--accent); background: rgba(226, 183, 64, 0.1);">
+                <span>📖 创作指南</span>
+            </button>
             <button class="btn-new-book-quick" onclick="openBookDrawer()" title="进入所有小说书架大厅查看封面与作品详情">
                 <span>📚 书架大厅</span>
             </button>
@@ -2191,6 +2220,15 @@
                 <button class="close-btn" onclick="closeSettingsModal()">&times;</button>
             </div>
             <div style="max-height:65vh; overflow-y:auto; padding-right:4px;">
+                <!-- 0. 创作全流程指南快捷入口 -->
+                <div onclick="closeSettingsModal(); openWorkflowGuideModal();" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; background:linear-gradient(135deg, rgba(226, 183, 64, 0.16), rgba(56, 189, 248, 0.1)); border:1px solid rgba(226, 183, 64, 0.4); border-radius:10px; padding:12px 16px; margin-bottom:14px; transition:all 0.2s;">
+                    <span style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:16px;">📖</span>
+                        <span style="font-size:13px; font-weight:800; color:var(--accent);">点击查阅【新书构思与百万字创作全流程 SOP 指南】</span>
+                    </span>
+                    <span style="font-size:12px; color:var(--accent); font-weight:bold;">查看详情 ➔</span>
+                </div>
+
                 <!-- 1. AI 创作偏好 -->
                 <div class="setting-card">
                     <div class="setting-card-title">🤖 AI 创作执行端与模型偏好</div>
@@ -2353,6 +2391,12 @@
                 输入新书构想，所选执行端将自动在公司电脑建立工程、构思分卷大纲、生成全套世界观与设定集文档！
             </div>
 
+            <!-- 全流程指南快捷条 -->
+            <div onclick="closeNewBookModal(); openWorkflowGuideModal();" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; background:linear-gradient(135deg, rgba(226, 183, 64, 0.16), rgba(56, 189, 248, 0.1)); border:1px solid rgba(226, 183, 64, 0.4); border-radius:10px; padding:10px 14px; margin-bottom:14px; font-size:12px; color:var(--accent); font-weight:700;">
+                <span style="display:flex; align-items:center; gap:6px;"><span>💡</span><span>不知如何构思？点击查阅【新书创作全流程 SOP】</span></span>
+                <span>➔</span>
+            </div>
+
             <div class="input-group">
                 <label class="input-label">📖 新小说书名</label>
                 <input type="text" id="new-book-title" class="input-text" placeholder="例如：《大明火器修仙：我给永乐造歼星舰》">
@@ -2371,6 +2415,170 @@
             <button class="btn-launch-big" style="background:linear-gradient(135deg, #a855f7, #7e22ce); color:#fff;" onclick="submitNewNovelArchitecture()">
                 🔥 执行当前类型，生成架构与设定集
             </button>
+        </div>
+    </div>
+
+    <!-- 新书构思与创作全流程 SOP 指南 Modal -->
+    <div id="workflow-guide-modal" class="modal-overlay" onclick="closeWorkflowGuideModal(event)" style="z-index: 12500;">
+        <div class="modal-box modal-box-large" onclick="event.stopPropagation()" style="border: 1px solid rgba(226, 183, 64, 0.45); box-shadow: 0 25px 70px rgba(0,0,0,0.95), 0 0 35px rgba(226, 183, 64, 0.2); background: linear-gradient(180deg, #131b29 0%, #0d121c 100%); padding: 22px;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; margin-bottom: 16px;">
+                <div class="modal-title" style="display:flex; align-items:center; gap:8px; font-size: 16px; font-weight: 800; color: var(--accent);">
+                    <span>📖</span>
+                    <span>智笔云枢 · 百万字新书构思与创作全流程 SOP</span>
+                </div>
+                <button class="close-btn" onclick="closeWorkflowGuideModal()">&times;</button>
+            </div>
+
+            <div style="overflow-y: auto; max-height: calc(85vh - 120px); padding-right: 4px;">
+                <!-- 顶层核心保障横幅 -->
+                <div style="background: linear-gradient(135deg, rgba(226, 183, 64, 0.15), rgba(56, 189, 248, 0.1)); border: 1px solid rgba(226, 183, 64, 0.35); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px;">
+                    <div style="font-size: 13px; font-weight: 800; color: var(--accent); display:flex; align-items:center; gap:6px; margin-bottom: 6px;">
+                        <span>🛡️</span>
+                        <span>千章自洽不崩盘四大基石（为什么写到 1000 章都不会吃书？）</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-sub); line-height: 1.65;">
+                        • <b>多书架物理沙盒隔离</b>：每本新书专属目录（<code>D:\小说\&lt;书名&gt;\</code>），设定集、人物库、伏笔账本、正文分卷完全独立，多书切换绝不串味。<br>
+                        • <b>金字塔四级叙事记忆</b>：恒星级法则大典 ➔ 动态人物伏笔总账 ➔ 滚动卷宗切片 ➔ 上一章即时悬念，彻底解决大模型长篇上下文遗忘。<br>
+                        • <b>双 Agent 写作与严苛审稿闭环</b>：写一章审一章，自动核验战力、人物言行、伏笔闭环与番茄爆款排版，审核通过后自动回填总账本。<br>
+                        • <b>毫秒级差量增量秒传</b>：两端哈希指纹对账，写新章只传新章（10KB），写到 1000 章也绝不卡顿超时。
+                    </div>
+                </div>
+
+                <!-- 标准实操 5 大阶段 -->
+                <div style="font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 10px; display:flex; align-items:center; gap:6px;">
+                    <span>🚀</span>
+                    <span>新书标准创作全流程（实操五步法）</span>
+                </div>
+
+                <!-- Step 1 -->
+                <div class="workflow-step-card">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                        <div style="font-size: 13px; font-weight: 800; color: var(--accent); display:flex; align-items:center; gap:6px;">
+                            <span class="workflow-step-badge" style="background: rgba(226, 183, 64, 0.2); color: var(--accent);">阶段 1</span>
+                            <span>灵感启动与一键构思（0 到 1 架构诞生）</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--cyan); background: rgba(56, 189, 248, 0.12); padding: 2px 8px; border-radius: 4px;">新建作品</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-main); line-height: 1.65;">
+                        <b>【手机端操作】</b>：点击页面顶部右上角 <b>【➕ 构思新书】</b> 按钮，填写新书书名、题材分类（如：历史科幻/赛博修仙）、以及核心脑洞与金手指爽点（两三百字即可），点击 <b>【🔥 执行当前类型，生成架构与设定集】</b>。<br>
+                        <b>【系统自动化成果】</b>：电脑端 Antigravity 将自动在本地初始化专属工程，并直接生成全套白金架构：<br>
+                        &nbsp;&nbsp;📄 <code>01_世界观与题材规则.md</code>（境界等级、底层物理/修真法则、战力天花板）<br>
+                        &nbsp;&nbsp;📄 <code>02_核心人物与关系阵营.md</code>（主角身世、核心金手指、主次矛盾与阵营）<br>
+                        &nbsp;&nbsp;📄 <code>03_全书主线与首卷分章细纲.md</code>（全书主线脉络、前 30 章每章推演与章末反转钩子）<br>
+                        &nbsp;&nbsp;📄 <code>00_全书前情剧情与伏笔线索总账本.md</code>（人物初始状态矩阵、开篇伏笔池）<br>
+                        &nbsp;&nbsp;🎨 自动生成专属题材封面图。完成后新书自动进入书架大厅！
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="workflow-step-card">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                        <div style="font-size: 13px; font-weight: 800; color: var(--accent); display:flex; align-items:center; gap:6px;">
+                            <span class="workflow-step-badge" style="background: rgba(56, 189, 248, 0.2); color: var(--cyan);">阶段 2</span>
+                            <span>黄金首章精磨与开篇定调（奠定全书基准）</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--green); background: rgba(34, 197, 94, 0.12); padding: 2px 8px; border-radius: 4px;">开篇立骨</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-main); line-height: 1.65;">
+                        <b>【手机端操作】</b>：在顶部下拉框切换至刚构思的新书，进入底栏 <b>【🎮 操控AI】</b> 工作台：<br>
+                        &nbsp;&nbsp;① 工作流模式：保持默认 <b>【自动续写】</b>；<br>
+                        &nbsp;&nbsp;② 续写章节数：选择 <b>1 章</b>（首章建议单章精磨定调）；<br>
+                        &nbsp;&nbsp;③ 策略胶囊推荐勾选：<b>【标准篇幅 4000-5000字】</b>、<b>【强化角色反差笑点】</b>、<b>【深化本书核心设定】</b>；<br>
+                        &nbsp;&nbsp;④ 点击底部的 <b>【开始续写 1 章 (从第001章起)】</b>。<br>
+                        <b>【系统自动化成果】</b>：执笔智能体依据第 1 章细纲与总账本完成开篇创作，审稿智能体核查无误后自动保存到 <code>01_正文/第一卷/第001章_xxx.md</code>，建立首章剧情记忆并同步云端。可在 <b>【阅读正文】</b> 立即审阅！
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="workflow-step-card">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                        <div style="font-size: 13px; font-weight: 800; color: var(--accent); display:flex; align-items:center; gap:6px;">
+                            <span class="workflow-step-badge" style="background: rgba(34, 197, 94, 0.2); color: var(--green);">阶段 3</span>
+                            <span>批量续写快车道（5~10章规模化爆发）</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--accent); background: rgba(226, 183, 64, 0.12); padding: 2px 8px; border-radius: 4px;">全自动批量</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-main); line-height: 1.65;">
+                        <b>【手机端操作】</b>：开篇前几章基调确立后，进入规模化连载节奏。在【续写章节数】选择 <b>5 章</b> 或 <b>10 章</b>，直接点击 <b>【开始续写】</b>。<br>
+                        <b>【全自动流水线闭环】</b>：系统开始全自动执行：<br>
+                        &nbsp;&nbsp;① <b>写一章</b>：依据上一章末尾悬念 + 细纲 + 账本写出 4000~5000 字全新正文；<br>
+                        &nbsp;&nbsp;② <b>审一章</b>：审稿智能体核对一致性，审查战力、人物状态与伏笔；<br>
+                        &nbsp;&nbsp;③ <b>存一章并更新总账</b>：合规排版入库，自动提取人物与伏笔变化写入账本；<br>
+                        &nbsp;&nbsp;④ <b>紧咬断章悬念，进入下一章</b>：循环推进直至 10 章全部完成，手机端实时呈现逐章进度！
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="workflow-step-card">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                        <div style="font-size: 13px; font-weight: 800; color: var(--accent); display:flex; align-items:center; gap:6px;">
+                            <span class="workflow-step-badge" style="background: rgba(168, 85, 247, 0.2); color: var(--purple);">阶段 4</span>
+                            <span>分卷滚动推演与设定演化（冲刺百万字不烂尾）</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--purple); background: rgba(168, 85, 247, 0.12); padding: 2px 8px; border-radius: 4px;">大纲演进</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-main); line-height: 1.65;">
+                        <b>【百万字长篇秘诀】</b>：网文切忌开篇把 1000 章全定死，而应采用<b>“分卷滚动推演”</b>：<br>
+                        &nbsp;&nbsp;① <b>大纲滚动推演</b>：当当前卷（如第 1 卷写到第 80 章）接近尾声时，在【操控AI】切换至 <b>【🗺️ 大纲推演】</b> 模式，输入你对下一卷的宏观构想（如：“主角打穿人界，飞升星阙地月轨道，开始推演下卷 50 章细纲”），AI 自动推演出下卷细纲并自动追加至设定集中！<br>
+                        &nbsp;&nbsp;② <b>随时丰富设定</b>：进入底栏 <b>【🏛️ 设定大典】</b>，点击【演进设定】，可随时让 AI 增补新势力版图、新法宝体系、或新登场重要人物。
+                    </div>
+                </div>
+
+                <!-- Step 5 -->
+                <div class="workflow-step-card">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 8px;">
+                        <div style="font-size: 13px; font-weight: 800; color: var(--accent); display:flex; align-items:center; gap:6px;">
+                            <span class="workflow-step-badge" style="background: rgba(239, 68, 68, 0.2); color: var(--tomato);">阶段 5</span>
+                            <span>番茄发布智审、场景插图与一键出海</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--tomato); background: rgba(239, 68, 68, 0.12); padding: 2px 8px; border-radius: 4px;">发布准备</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-main); line-height: 1.65;">
+                        <b>【手机端操作】</b>：章节创作完成后，进入底栏 <b>【🍅 番茄发布】</b> 工作台：<br>
+                        &nbsp;&nbsp;① <b>平台机审预检</b>：系统自动排查正文涉敏高危词、错别字、标点规范、对话占比，确保 100% 契合番茄平台审核标准；<br>
+                        &nbsp;&nbsp;② <b>插画与互动文案</b>：点击 <b>【🎨 一键生成本章场景插图与互动文案】</b>，系统自动绘制匹配的高清场景插画与吸睛“作者有话说”；<br>
+                        &nbsp;&nbsp;③ <b>一键导出全本 ZIP</b>：点击 <b>【📦 导出全本ZIP】</b>，一键打包下载全部纯净 TXT/Markdown 章节，直接上传番茄小说创作者后台即可连载！
+                    </div>
+                </div>
+
+                <!-- 五查铁律速查表 -->
+                <div style="background: rgba(226, 183, 64, 0.08); border: 1px solid rgba(226, 183, 64, 0.3); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
+                    <div style="font-size: 13px; font-weight: 800; color: var(--accent); margin-bottom: 8px; display:flex; align-items:center; gap:6px;">
+                        <span>⚡</span>
+                        <span>AI 写新章节“五查铁律”速查表（1000 章防吃书防崩坏底线）</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-sub); line-height: 1.65;">
+                        1. <b>一查承接钩子</b>：前三句话必须紧密承接上一章末尾留下的断章悬念与冲突，严禁脱节。<br>
+                        2. <b>二查人物状态</b>：出场人物坐标、修为境界、持有法宝、心理动机必须与总账本一致（绝不瞬移、绝生死不悖）。<br>
+                        3. <b>三查伏笔闭环</b>：凡新埋悬念必登账（分配 UID），涉及历史伏笔必推进或回收，严禁留死坑。<br>
+                        4. <b>四查民生演进</b>：科技与修真发展必须带来真实人间烟火气与思想冲突，润物细无声，严禁突兀跳跃。<br>
+                        5. <b>五查番茄排版</b>：正文对话严格使用中文全角双引号 <code>“ ”</code>，1~3 句短段落呼吸感，章末必留强力抓人断章钩子。
+                    </div>
+                </div>
+
+                <!-- 常见问题 -->
+                <div style="background: rgba(19, 27, 41, 0.6); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;">
+                    <div style="font-size: 13px; font-weight: 800; color: var(--cyan); margin-bottom: 6px; display:flex; align-items:center; gap:6px;">
+                        <span>💡</span>
+                        <span>高频问题答疑 (FAQ)</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-sub); line-height: 1.65;">
+                        • <b>Q：写完了这本书，怎么切回老书或开更多书？</b><br>
+                        &nbsp;&nbsp;A：点击页面顶部的书名或 <b>【📚 书架大厅】</b>，所有书籍一览无余，一秒无缝切换！<br>
+                        • <b>Q：如果某章写得不满意怎么修改？</b><br>
+                        &nbsp;&nbsp;A：在【阅读正文】或【番茄发布】可直接点击 <b>【定点重构】</b>，原稿会自动备份，AI 可针对作者意见重新重构本章高潮！
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions" style="display: flex; gap: 10px; justify-content: flex-end; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 12px;">
+                <button class="btn btn-primary" onclick="closeWorkflowGuideModal(); openNewBookModal();" style="background: linear-gradient(135deg, #a855f7, #7e22ce); color: #fff; font-weight: 700; padding: 9px 20px; border-radius: 10px; border: none; font-size: 13px; cursor: pointer; display:flex; align-items:center; gap:6px;">
+                    <span>➕</span><span>立即构思一本新书</span>
+                </button>
+                <button class="btn" onclick="closeWorkflowGuideModal()" style="background: rgba(226, 183, 64, 0.15); border: 1px solid var(--accent); color: var(--accent); padding: 9px 20px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer;">
+                    已掌握，关闭
+                </button>
+            </div>
         </div>
     </div>
 
@@ -3670,6 +3878,22 @@
             document.getElementById("new-book-modal").classList.remove("show");
         }
 
+        function openWorkflowGuideModal() {
+            const modal = document.getElementById("workflow-guide-modal");
+            if (modal) {
+                modal.classList.add("show");
+                showToast("已打开创作全流程指南", "info", 1500);
+            }
+        }
+
+        function closeWorkflowGuideModal(e) {
+            if (e && e.target !== e.currentTarget && !e.target.classList.contains("close-btn")) return;
+            const modal = document.getElementById("workflow-guide-modal");
+            if (modal) {
+                modal.classList.remove("show");
+            }
+        }
+
         async function submitNewNovelArchitecture() {
             const title = document.getElementById("new-book-title").value.trim();
             const genre = document.getElementById("new-book-genre").value.trim();
@@ -4161,6 +4385,7 @@
                     <div class="chip" onclick="applyPromptTag('长篇爆发')">🔥 爆发长章 (6000-8000字)</div>
                     <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
                     <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
+                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
                 `;
                 pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与剧情发展边界，每轮更新剧情记忆、人物状态及伏笔，核对本章细纲、上一章全文及相关历史原文，草稿审核通过后保存，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
             } else if (wf === "polish") {
@@ -4169,6 +4394,7 @@
                     <div class="chip" onclick="applyPromptTag('笑点加量')">😂 强化喜剧冲突</div>
                     <div class="chip" onclick="applyPromptTag('重塑钩子')">🎣 重塑章末王炸悬念钩子</div>
                     <div class="chip" onclick="applyPromptTag('标点纠偏')">🔍 全角标点与错别字排查</div>
+                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
                 `;
                 pbox.value = `请对最新章节进行全篇精修润色：强化当前作品人物的情绪与冲突，深化本书核心设定在剧情中的呈现，确保中文全角双引号“”规范与移动端短段落排版。`;
             } else if (wf === "outline") {
@@ -4176,11 +4402,13 @@
                     <div class="chip active" onclick="applyPromptTag('主线高潮')">🌌 推演后20章大主线走向</div>
                     <div class="chip" onclick="applyPromptTag('伏笔暗线')">🔍 设计本书伏笔与回收计划</div>
                     <div class="chip" onclick="applyPromptTag('战力推演')">⚖️ 人物关系与剧情因果推演</div>
+                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
                 `;
                 pbox.value = `请基于《${CURRENT_BOOK}》的 00_设定集，推演后续 20-30 章的主线走向与剧情大高潮，重点设计符合本书题材与设定的核心反转、人物成长和伏笔回收！`;
             } else if (wf === "freeform") {
                 chips.innerHTML = `
                     <div class="chip" onclick="applyPromptTag('清空')">🧹 清空输入框</div>
+                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
                 `;
                 pbox.value = "";
                 pbox.placeholder = "请输入你的自定义自由指令，所选执行端将理解并执行...";
