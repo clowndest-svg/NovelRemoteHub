@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.1.0
+// @version      2.2.0
 // @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、错别字拦截自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
@@ -53,10 +53,10 @@
     }
 
     function getPlatformBadgeVersion(p = PLATFORM) {
-        if (p === 'fanqie') return '番茄专版 v2.1';
-        if (p === 'qimao') return '七猫专版 v2.1';
-        if (p === 'shuqi') return '书旗专版 v2.1';
-        return '三平台专版 v2.1';
+        if (p === 'fanqie') return '番茄专版 v2.2';
+        if (p === 'qimao') return '七猫专版 v2.2';
+        if (p === 'shuqi') return '书旗专版 v2.2';
+        return '三平台专版 v2.2';
     }
 
     function isBookCreationPage() {
@@ -111,7 +111,8 @@
             }
             return GM_getValue('nrh_last_book_id', '7706774841793186841');
         } else if (PLATFORM === 'qimao') {
-            const m = location.href.match(/[?&]bookId=(\d+)/) || location.href.match(/book\/(\d+)/);
+            // 七猫支持 ?id=14206182 或 ?bookId=14206182 或 /book/14206182
+            const m = location.href.match(/[?&]id=(\d+)/) || location.href.match(/[?&]bookId=(\d+)/) || location.href.match(/book\/(\d+)/);
             if (m) {
                 GM_setValue('nrh_qimao_book_id', m[1]);
                 return m[1];
@@ -497,11 +498,16 @@
         return maxPub + 1;
     }
 
-    // ================= 三平台 DOM 高精度探测器 (番茄 + 七猫 + 书旗) =================
+    // ================= 三平台 DOM 高精度探测器 (七猫 textarea/Quill + 番茄 + 书旗) =================
 
     function getTitleInput() {
-        // 通用标题探测：placeholder 包含 "标题"、"章节名"、"章节名称" 等
-        const selectors = [
+        // 1. 七猫/通用特定类名与 textarea/input 探测 (七猫使用 .chapter-name textarea 或 .name-input textarea)
+        const specificSelectors = [
+            '.chapter-name textarea',
+            '.name-input textarea',
+            'textarea[placeholder*="章节名称"]',
+            'textarea[placeholder*="章节名"]',
+            'textarea[placeholder*="章节标题"]',
             'input[placeholder*="章节名称"]',
             'input[placeholder*="章节标题"]',
             'input[placeholder*="章节名"]',
@@ -514,16 +520,19 @@
             '.chapter-name-input input',
             '.chapter-title input'
         ];
-        for (const sel of selectors) {
+        for (const sel of specificSelectors) {
             const el = document.querySelector(sel);
             if (el && !el.closest('#nrh-floating-widget')) return el;
         }
 
-        const inputs = Array.from(document.querySelectorAll('input:not(#nrh-floating-widget input)'));
-        for (const input of inputs) {
+        // 2. 遍历所有 input 与 textarea (兼容各类 Vue/Element-UI 衍生组件)
+        const allCandidates = Array.from(document.querySelectorAll('input, textarea')).filter(el => !el.closest('#nrh-floating-widget'));
+        for (const input of allCandidates) {
             const ph = input.getAttribute('placeholder') || '';
-            if (ph.includes('标题') || ph.includes('章节名') || ph.includes('章节名称')) return input;
-            if (input.className && (input.className.toLowerCase().includes('title') || input.className.toLowerCase().includes('chapter-name')) && !input.className.toLowerCase().includes('number')) {
+            if (ph.includes('章节名称') || ph.includes('章节名') || ph.includes('章节标题') || (ph.includes('标题') && !ph.includes('搜索') && !ph.includes('随记'))) {
+                return input;
+            }
+            if (input.closest('.chapter-name') || input.closest('.name-input')) {
                 return input;
             }
         }
@@ -579,19 +588,24 @@
     }
 
     function getBodyEditor() {
-        // 1. 富文本编辑器 (ProseMirror / Quill / WangEditor / contenteditable)
-        const editables = Array.from(document.querySelectorAll('.ProseMirror, .ql-editor, .w-e-text-container [contenteditable="true"], .chapter-content [contenteditable="true"], div[contenteditable="true"]:not(#nrh-floating-widget div)'));
+        // 1. 七猫/通用 Quill & contenteditable 编辑器 (.ql-editor, .q-contenteditable)
+        const ql = document.querySelector('.ql-editor:not(#nrh-floating-widget *), .q-contenteditable:not(#nrh-floating-widget *)');
+        if (ql) return ql;
+
+        // 2. 富文本候选元素 (ProseMirror / WangEditor / 标准 contenteditable)
+        const editables = Array.from(document.querySelectorAll('.ProseMirror, .ql-editor, .w-e-text-container [contenteditable="true"], .chapter-content [contenteditable="true"], div[contenteditable="true"]')).filter(el => !el.closest('#nrh-floating-widget'));
         for (const el of editables) {
             const ph = el.getAttribute('placeholder') || el.getAttribute('data-placeholder') || '';
-            if (ph.includes('作者有话说') || ph.includes('作家的话') || ph.includes('互动')) continue;
-            if (ph.includes('正文') || el.clientHeight > 100) return el;
+            if (ph.includes('作者有话说') || ph.includes('作家的话') || ph.includes('互动') || ph.includes('随记') || el.closest('.note-wrap') || el.closest('.notes-content')) continue;
+            if (ph.includes('正文') || el.clientHeight > 80 || el.classList.contains('ql-editor') || el.classList.contains('q-contenteditable')) return el;
         }
 
-        // 2. 原生 textarea 编辑器 (七猫 / 书旗常见)
-        const textareas = Array.from(document.querySelectorAll('textarea:not(#nrh-floating-widget textarea)'));
+        // 3. 原生 textarea 编辑器
+        const textareas = Array.from(document.querySelectorAll('textarea')).filter(el => !el.closest('#nrh-floating-widget'));
         for (const ta of textareas) {
             const ph = ta.getAttribute('placeholder') || '';
-            if (ph.includes('作者有话说') || ph.includes('作家的话') || ph.includes('互动')) continue;
+            if (ph.includes('章节名称') || ph.includes('章节名') || ph.includes('作者有话说') || ph.includes('随记')) continue;
+            if (ta.closest('.chapter-name') || ta.closest('.name-input')) continue;
             if (ph.includes('正文') || ta.clientHeight > 100) return ta;
         }
 
@@ -604,9 +618,9 @@
         const elements = Array.from(document.querySelectorAll('button, span, div, a'));
         for (const el of elements) {
             const text = (el.innerText || '').trim();
-            if (text === '+ 添加' || text === '+添加' || text === '添加' || text.includes('作家的话') || text.includes('作者有话说')) {
+            if (text === '+ 添加' || text === '+添加' || text === '添加' || text.includes('作家的话') || text.includes('作者有话说') || text.includes('有话')) {
                 const parentText = el.parentElement?.parentElement?.innerText || el.parentElement?.innerText || '';
-                if (parentText.includes('作者有话说') || parentText.includes('作家的话')) {
+                if (parentText.includes('作者有话说') || parentText.includes('作家的话') || text.includes('有话')) {
                     el.click();
                     return true;
                 }
@@ -616,14 +630,14 @@
     }
 
     function getAuthorNoteInput() {
-        const textareas = Array.from(document.querySelectorAll('textarea:not(#nrh-floating-widget textarea)'));
+        const textareas = Array.from(document.querySelectorAll('textarea')).filter(el => !el.closest('#nrh-floating-widget'));
         for (const ta of textareas) {
             const ph = ta.getAttribute('placeholder') || '';
             if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话') || ph.includes('作者的话') || ph.includes('增强更多互动')) {
                 return ta;
             }
         }
-        const editables = Array.from(document.querySelectorAll('div[contenteditable="true"]:not(#nrh-floating-widget div)'));
+        const editables = Array.from(document.querySelectorAll('div[contenteditable="true"]')).filter(el => !el.closest('#nrh-floating-widget'));
         for (const el of editables) {
             const ph = el.getAttribute('placeholder') || el.getAttribute('data-placeholder') || '';
             if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话') || ph.includes('作者的话') || ph.includes('增强更多互动')) {
@@ -634,14 +648,15 @@
     }
 
     function getSaveDraftButton() {
-        const buttons = Array.from(document.querySelectorAll('button, a, span.btn, div.btn'));
+        const buttons = Array.from(document.querySelectorAll('button, a, span.btn, div.btn, .el-button')).filter(el => !el.closest('#nrh-floating-widget'));
         for (const btn of buttons) {
-            if (btn.closest('#nrh-floating-widget')) continue;
             const t = (btn.innerText || '').trim();
-            if (t === '存草稿' || t === '保存草稿' || t === '存为草稿' || t.includes('存草稿') || t.includes('保存草稿')) return btn;
+            if (t === '存草稿' || t === '保存草稿' || t === '存为草稿' || t === '更新草稿' ||
+                t.includes('存草稿') || t.includes('保存草稿') || t.includes('更新草稿') || t.includes('存为草稿')) {
+                return btn;
+            }
         }
         for (const btn of buttons) {
-            if (btn.closest('#nrh-floating-widget')) continue;
             const t = (btn.innerText || '').trim();
             if (t === '保存' || t === '暂存' || t === '存入草稿') return btn;
         }
@@ -649,9 +664,8 @@
     }
 
     function getNewChapterButton() {
-        const buttons = Array.from(document.querySelectorAll('button, a, span, div'));
+        const buttons = Array.from(document.querySelectorAll('button, a, span, div, .el-button')).filter(el => !el.closest('#nrh-floating-widget'));
         for (const btn of buttons) {
-            if (btn.closest('#nrh-floating-widget')) continue;
             const t = (btn.innerText || '').trim();
             if (t === '新建章节' || t === '新增章节' || t === '+ 新建章节' || t === '+新增章节' || t === '新建草稿' || t === '上传章节') {
                 return btn;
@@ -733,11 +747,11 @@
     // 自动拦截与关闭机审弹窗
     function autoDismissSpellcheckModal() {
         if (!CONFIG.autoDismissTypo) return false;
-        const modals = Array.from(document.querySelectorAll('.arco-modal, .byte-modal, [role="dialog"], .dialog, .modal, .el-dialog, .ant-modal'));
+        const modals = Array.from(document.querySelectorAll('.arco-modal, .byte-modal, [role="dialog"], .dialog, .modal, .el-dialog, .el-message-box, .ant-modal'));
         for (const m of modals) {
             if (m.offsetParent === null) continue;
             const text = m.innerText || '';
-            if (text.includes('错别字') || text.includes('敏感词') || text.includes('疑似') || text.includes('审核建议') || text.includes('提示')) {
+            if (text.includes('错别字') || text.includes('敏感词') || text.includes('疑似') || text.includes('审核建议') || text.includes('提示') || text.includes('保存成功')) {
                 const btns = Array.from(m.querySelectorAll('button, a, .el-button, .ant-btn'));
                 for (const b of btns) {
                     const bt = b.innerText.trim();
@@ -811,15 +825,17 @@
             numSuccess = (numInput.value === String(packageData.chapter_number));
         }
 
-        // 2. 填入章节标题 (七猫/书旗使用完整标题，番茄根据序号框是否独立智能决定)
+        // 2. 填入章节标题 (七猫输入框有20字上限且页面前置已有“第X章”，因此注入纯标题；书旗与番茄智能适配)
         const titleInput = getTitleInput();
         if (titleInput) {
             let titleVal = '';
-            if (PLATFORM === 'qimao' || PLATFORM === 'shuqi') {
-                // 七猫与书旗统一使用完整格式：第001章 标题
+            if (PLATFORM === 'qimao') {
+                const pureTitle = (packageData.chapter_title || packageData.full_title || '')
+                    .replace(/^第\s*\d+\s*章[\s_：:]*/, '').trim();
+                titleVal = pureTitle.slice(0, 20);
+            } else if (PLATFORM === 'shuqi') {
                 titleVal = packageData.full_title || `第${String(packageData.chapter_number).padStart(3, '0')}章 ${packageData.chapter_title || ''}`;
             } else {
-                // 番茄平台：若独立序号框成功注入，标题框只填纯标题；否则兜底追加“第X章”
                 const pureTitle = packageData.chapter_title || '';
                 const fullTitle = packageData.full_title || (`第${packageData.chapter_number}章 ` + pureTitle);
                 titleVal = numSuccess ? (pureTitle || fullTitle) : fullTitle;
@@ -851,8 +867,15 @@
     }
 
     async function fillCurrentSelected() {
-        // 如果在七猫作品管理页，提示并自动点击上传章节
+        // 如果在七猫作品管理页，提示并自动进入上传页
         if (PLATFORM === 'qimao' && location.href.includes('book-manage')) {
+            const bookId = getBookIdFromUrl();
+            const currentBook = detectPageBookName();
+            if (bookId) {
+                showToast('正在为您打开七猫章节上传界面...');
+                window.location.href = `https://zuozhe.qimao.com/front/book-upload?id=${bookId}&title=${encodeURIComponent(currentBook)}`;
+                return;
+            }
             const btns = Array.from(document.querySelectorAll('button, a')).filter(el => (el.innerText || '').includes('上传章节'));
             if (btns.length > 0) {
                 showToast('正在为您打开七猫章节上传界面...');
@@ -1062,7 +1085,7 @@
         btn.click();
         showToast('正在保存草稿并监视风控弹窗...');
 
-        for (let i = 0; i < 18; i++) {
+        for (let i = 0; i < 20; i++) {
             await new Promise(r => setTimeout(r, 200));
             if (autoDismissSpellcheckModal()) break;
         }
@@ -1146,6 +1169,11 @@
             }
         } else if (PLATFORM === 'qimao') {
             if (location.href.includes('book-manage')) {
+                if (bookId) {
+                    showToast('正在打开全新章节上传页...');
+                    window.location.replace(`https://zuozhe.qimao.com/front/book-upload?id=${bookId}&title=${encodeURIComponent(currentBook)}&_batch_t=${Date.now()}`);
+                    return;
+                }
                 const uploadBtn = Array.from(document.querySelectorAll('button, a')).find(el => (el.innerText || '').includes('上传章节'));
                 if (uploadBtn) {
                     uploadBtn.click();
@@ -1168,23 +1196,25 @@
         isBatchRunning = true;
         showBatchBanner(state.currentNum, state.endNum, state.total);
 
-        showToast(`[${state.currentNum - state.startNum + 1}/${state.total}] 正在等待第 ${state.currentNum} 章编辑页就绪...`);
+        showToast(`[${state.currentNum - state.startNum + 1}/${state.total}] 正在等待第 ${state.currentNum} 章编辑器就绪...`);
         let ready = false;
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 40; i++) {
             if (getBodyEditor() && getTitleInput()) {
                 ready = true;
                 break;
             }
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 400));
         }
 
         if (!ready) {
-            alert(`等待编辑器就绪超时，请确认当前处于章节编辑页面！流水线已暂停。`);
+            const hasTitle = !!getTitleInput();
+            const hasBody = !!getBodyEditor();
+            alert(`等待编辑器就绪超时 (标题区: ${hasTitle ? '就绪' : '未找到'}, 正文区: ${hasBody ? '就绪' : '未找到'})，请确认当前处于章节编辑页面！流水线已暂停。`);
             stopBatchPipeline();
             return;
         }
 
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 800));
 
         try {
             showToast(`正在从智笔云枢获取第 ${state.currentNum} 章发布数据...`);
@@ -1220,7 +1250,11 @@
 
                 if (state.platform === 'fanqie') {
                     window.location.replace(`https://fanqienovel.com/main/writer/${state.bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
-                } else if (state.platform === 'qimao' || state.platform === 'shuqi') {
+                } else if (state.platform === 'qimao') {
+                    // 七猫：直接跳转至全新的未带 cid 的空白上传章节页面，自动开辟新草稿
+                    const nextUrl = `https://zuozhe.qimao.com/front/book-upload?id=${state.bookId}&title=${encodeURIComponent(state.bookName)}&_batch_t=${Date.now()}`;
+                    window.location.replace(nextUrl);
+                } else if (state.platform === 'shuqi') {
                     const newBtn = getNewChapterButton();
                     if (newBtn) {
                         newBtn.click();
@@ -1244,6 +1278,8 @@
                 alert(`🎉 恭喜！全部 ${totalSaved} 个章节 (第 ${state.startNum} 章 ~ 第 ${state.endNum} 章) 已全部成功录入【${getPlatformDisplayName(plat)}】草稿箱！`);
                 if (plat === 'fanqie') {
                     window.location.replace(`https://fanqienovel.com/main/writer/${bookId}/publish`);
+                } else if (plat === 'qimao') {
+                    window.location.replace(`https://zuozhe.qimao.com/front/book-manage`);
                 }
             }
         } catch (e) {
@@ -1462,7 +1498,7 @@
         const isDocked = GM_getValue('nrh_widget_docked', true);
 
         const onEditorPage = (PLATFORM === 'fanqie' && (location.href.includes('/publish') || location.href.includes('enter_from=newchapter')))
-            || (PLATFORM === 'qimao' && (location.href.includes('chapter') || location.href.includes('edit')))
+            || (PLATFORM === 'qimao' && (location.href.includes('chapter') || location.href.includes('edit') || location.href.includes('book-upload')))
             || (PLATFORM === 'shuqi' && (location.href.includes('chapter') || location.href.includes('edit') || location.href.includes('bookinfocreate')));
 
         if (savedTop !== null) {
@@ -1548,6 +1584,8 @@
             const batchState = getBatchState();
             if (batchState && batchState.active) {
                 if (PLATFORM === 'fanqie' && location.href.includes('enter_from=newchapter') && !location.href.match(/\/publish\/\d+/)) {
+                    await executeBatchStep();
+                } else if (PLATFORM === 'qimao' && location.href.includes('book-upload')) {
                     await executeBatchStep();
                 } else if (!isBatchRunning) {
                     showBatchBanner(batchState.currentNum, batchState.endNum, batchState.total);

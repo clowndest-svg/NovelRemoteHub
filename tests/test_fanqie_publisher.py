@@ -93,7 +93,7 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("@match        *://zuozhe.qimao.com/*", text)
         self.assertIn("@match        *://write.shuqi.com/*", text)
         self.assertIn("@grant        GM_deleteValue", text)
-        self.assertIn("2.1.0", text)
+        self.assertIn("2.2.0", text)
         self.assertIn("nrh_multi_platform_batch", text)
         self.assertIn("expandAuthorNoteIfCollapsed", text)
         self.assertIn("nrh-dock-tab", text)
@@ -103,6 +103,9 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("getCleanPageText", text)
         self.assertIn("fillBookCreationInfo", text)
         self.assertIn("detectPagePublishedMaxChapter", text)
+        self.assertIn(".chapter-name textarea", text)
+        self.assertIn("更新草稿", text)
+        self.assertIn(".ql-editor", text)
 
 if __name__ == "__main__":
     unittest.main()
