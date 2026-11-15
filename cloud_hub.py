@@ -700,7 +700,8 @@ class HubHandler(BaseHTTPRequestHandler):
             return
 
         if path.startswith(("/api/read/", "/novel/api/read/")):
-            if not valid_reading_token(self.headers.get("X-Reading-Token")):
+            read_token = self.headers.get("X-Reading-Token") or qs.get("token", [""])[0]
+            if not valid_reading_token(read_token):
                 self.send_json({"error": "阅读链接已失效，请向作者索取新链接"}, 403)
                 return
             resource = path.rsplit("/", 1)[-1]
@@ -709,8 +710,52 @@ class HubHandler(BaseHTTPRequestHandler):
                 if cached is None:
                     cached = {"books": novel_manager.list_books(BOOKS_DIR)}
                     set_cached("novel:cache:books", cached, ttl=180)
-                self.send_json({"books": [{key: book[key] for key in ("id", "title", "chapter_count")}
-                                           for book in cached["books"] if book["chapter_count"]]})
+                if qs.get("details") == ["1"] or qs.get("full") == ["1"]:
+                    self.send_json({"books": [{
+                        "id": book["id"],
+                        "title": book["title"],
+                        "genre": book.get("genre", "科幻修真 / 网文"),
+                        "novel_type": book.get("novel_type", "million_long"),
+                        "author": book.get("author", "作者"),
+                        "description": book.get("description", ""),
+                        "tags": book.get("tags", []),
+                        "has_cover": book.get("has_cover", False),
+                        "cover_url": f"/novel/api/read/cover?book={urllib.parse.quote(book['id'])}&token={urllib.parse.quote(read_token)}",
+                        "chapter_count": book.get("chapter_count", 0),
+                        "word_count": book.get("word_count", 0),
+                        "updated_at": book.get("updated_at", 0)
+                    } for book in cached["books"] if book["chapter_count"]]})
+                else:
+                    self.send_json({"books": [{key: book[key] for key in ("id", "title", "chapter_count")}
+                                               for book in cached["books"] if book["chapter_count"]]})
+            elif resource == "cover":
+                book_id = qs.get("book", [""])[0]
+                bpath, title = novel_manager.get_book_path(book_id, BOOKS_DIR)
+                candidates = [Path(bpath) / directory / ("cover" + ext)
+                    for ext in (".png", ".jpg", ".jpeg", ".webp") for directory in ("00_设定集", "")]
+                cover = next((item for item in candidates if item.is_file()), None)
+                thumbnail = qs.get("size") == ["thumb"]
+                if cover:
+                    if not cover.resolve().is_relative_to(Path(bpath).resolve()):
+                        raise ValueError("封面路径超出作品目录")
+                    info = cover.stat()
+                    signature = f"{cover}:{info.st_mtime_ns}:{info.st_ctime_ns}:{info.st_size}:{thumbnail}"
+                    etag = '"' + hashlib.sha256(signature.encode()).hexdigest() + '"'
+                    mime_type = "image/jpeg" if thumbnail or cover.suffix in (".jpg", ".jpeg") else ("image/webp" if cover.suffix == ".webp" else "image/png")
+                    cover_data = novel_manager.cover_thumbnail(str(cover), signature) if thumbnail else cover.read_bytes()
+                else:
+                    meta = novel_manager.read_book_meta(bpath)
+                    cover_data = generate_svg_cover(title, meta.get("genre", "")).encode("utf-8")
+                    etag = '"' + hashlib.sha256(cover_data).hexdigest() + '"'
+                    mime_type = "image/svg+xml; charset=utf-8"
+                self.send_response(200)
+                self.send_header("Content-Type", mime_type)
+                self.send_header("Content-Length", str(len(cover_data)))
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(cover_data)
+                return
             elif resource == "chapters":
                 book = qs.get("book", [""])[0]
                 cache_key = f"novel:cache:chapters:{book}"
@@ -718,7 +763,25 @@ class HubHandler(BaseHTTPRequestHandler):
                 if catalog is None:
                     catalog = chapter_catalog(book)
                     set_cached(cache_key, catalog)
-                self.send_json(catalog)
+                bpath, title = novel_manager.get_book_path(book, BOOKS_DIR)
+                meta = novel_manager.read_book_meta(bpath, book)
+                chapters_list = catalog.get("chapters", [])
+                total_words = sum(c.get("char_count", 0) for c in chapters_list)
+                catalog_data = dict(catalog)
+                catalog_data["book_info"] = {
+                    "id": book,
+                    "title": title,
+                    "genre": meta.get("genre", "科幻修真 / 网文"),
+                    "novel_type": meta.get("novel_type", "million_long"),
+                    "author": meta.get("author", "作者"),
+                    "description": meta.get("description", ""),
+                    "tags": meta.get("tags", []),
+                    "has_cover": meta.get("has_cover", False),
+                    "cover_url": f"/novel/api/read/cover?book={urllib.parse.quote(book)}&token={urllib.parse.quote(read_token)}",
+                    "total_words": total_words,
+                    "chapter_count": len(chapters_list)
+                }
+                self.send_json(catalog_data)
             elif resource == "chapter":
                 book, filename = qs.get("book", [""])[0], qs.get("file", [""])[0]
                 key = f"novel:cache:reading:{book}:{filename}"
@@ -792,7 +855,8 @@ class HubHandler(BaseHTTPRequestHandler):
 
         # Authenticated versioned display thumbnails and original downloads.
         if path in ("/api/cover", "/novel/api/cover"):
-            if not self.check_auth():
+            read_token = self.headers.get("X-Reading-Token") or qs.get("token", [""])[0]
+            if not self.check_auth() and not valid_reading_token(read_token):
                 self.send_json({"error": "Unauthorized"}, 401)
                 return
             book_id = qs.get("book", [""])[0]

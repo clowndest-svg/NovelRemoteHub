@@ -143,6 +143,21 @@ class CloudHubMetaApiTest(unittest.TestCase):
         self.assertEqual(meta["title"], self.book_id)
         self.assertTrue(100 <= len(meta["synopsis_condensed"]) <= 500)
 
+    def test_reading_page_details_and_cover(self):
+        # 验证分享阅读页面所需的小说信息与封面支持
+        books = novel_manager.list_books(self.books_dir)
+        target = next((b for b in books if b["id"] == self.book_id), None)
+        self.assertIsNotNone(target)
+        self.assertIn("cover_url", target)
+        self.assertIn("genre", target)
+        self.assertIn("description", target)
+
+        # 验证阅读 token 签名与校验保持有效
+        link_data = cloud_hub.issue_reading_link()
+        token = link_data["url"].split("#")[1]
+        self.assertTrue(cloud_hub.valid_reading_token(token))
+        self.assertFalse(cloud_hub.valid_reading_token("invalid.token.here"))
+
 
 if __name__ == "__main__":
     unittest.main()
