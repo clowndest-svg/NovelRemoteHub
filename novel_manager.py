@@ -990,3 +990,61 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
         "line_count": cleaned["line_count"],
         "replaced_count": cleaned.get("replaced_count", 0)
     }
+
+
+def get_novel_creation_metadata(book_id, root_dir):
+    """
+    获取用于书旗/七猫/番茄新书建档一键填写的元数据配置：
+    书名、短书名(适配15字限制)、分类、目标读者、核心标签、主角名、作品状态、全量简介与精简版简介(100~500字)。
+    """
+    bpath, btitle = get_book_path(book_id, root_dir)
+    synopsis_file = os.path.join(bpath, "00_设定集", "作品简介与宣推文案.md")
+    full_text = ""
+    if os.path.exists(synopsis_file):
+        with open(synopsis_file, "r", encoding="utf-8") as fp:
+            full_text = fp.read()
+
+    # 提取官方推荐版主简介文本
+    synopsis_main = ""
+    m = re.search(r"## 一、[^\n]*\n\n([\s\S]*?)(?:\n\n\*{3}\n\n## 二、|$)", full_text)
+    if m:
+        synopsis_main = m.group(1).replace("**", "").replace("* ", "• ").strip()
+    else:
+        synopsis_main = full_text.strip()
+
+    # 精简版简介（严格控制在100~500字以内，完美匹配书旗、七猫字数校验上限）
+    condensed = (
+        "【纯爽无虐 + 爆笑发癫 + 硬核脑洞 + 科技修仙 + 宇宙争霸】\n"
+        "咸阳宫大殿，老神棍徐福逼着刚穿越的顾见微试药。身为物理与文献双料博士的顾见微，反手一个动量守恒大逼兜打飞毒丹：“陛下！再嗑这玩意儿大秦要全剧终了！”\n"
+        "生死一线，《太上量子混元造化经》轰然觉醒！\n"
+        "“陛下！修仙的本质是微观粒子的负熵重组！”\n"
+        "“引气入体？那是经络微波导管对暗能量的谐振富集！”\n"
+        "“天劫玄雷？来人，架避雷针！给咸阳宫点个灯泡先！”\n"
+        "从此大秦科技树被彻底掰弯，一路狂飙到银河系——\n"
+        "政哥想长生？基因端粒酶靶向重组！\n"
+        "政哥想御剑？加装微型霍尔推进矢量喷管，请出示大秦飞剑驾照！\n"
+        "李斯完成微积分进修：“蒙恬将军开蒸汽动能装甲超速，按秦律当罚抄十遍薛定谔方程！”\n"
+        "若干年后，外星神级文明带着【二向箔】企图对大秦降维打击。\n"
+        "始皇踏出虚空，掌托黑洞，以高维肉身硬抗二向箔：“车同轨书同文，寡人的疆域，谁准你少算一维！”\n"
+        "顾见微狂喊：“政哥慢点推图！超星系团高铁还没通车呢！！”"
+    )
+
+    short_title = btitle
+    if len(short_title) > 15:
+        short_title = "给政哥讲量子，他咋肉身硬抗向箔"
+
+    return {
+        "ok": True,
+        "book": btitle,
+        "title": btitle,
+        "short_title": short_title,
+        "category": "玄幻脑洞",
+        "target_reader": "男生",
+        "tags": ["玄幻脑洞", "穿越", "系统", "大秦", "无敌"],
+        "roles": ["顾见微", "嬴政"],
+        "status": "连载中",
+        "contest": "不参加",
+        "synopsis": synopsis_main or condensed,
+        "synopsis_condensed": condensed
+    }
+

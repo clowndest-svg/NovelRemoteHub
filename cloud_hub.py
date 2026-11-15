@@ -883,6 +883,46 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Script file not found"}, 404)
             return
 
+        # 网文发布包接口：一键获取章节序号、纯标题、纯净正文与作者有话说 (供跨平台油猴脚本免拦截调阅)
+        if path in ["/api/fanqie_publish_package", "/novel/api/fanqie_publish_package"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            fname = qs.get("file", [""])[0]
+            if not fname:
+                self.send_json({"error": "Missing file param"}, 400)
+                return
+            payload = novel_manager.get_fanqie_publish_payload(book_id, fname, BOOKS_DIR)
+            self.send_json(payload)
+            return
+
+        # 网文待发章节清单
+        if path in ["/api/fanqie_publish_list", "/novel/api/fanqie_publish_list"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            catalog = chapter_catalog(book_id)
+            chapters = catalog.get("chapters", [])
+            list_data = []
+            for ch in chapters:
+                fn = ch.get("filename", "")
+                m = re.search(r"第(\d+)章", fn)
+                c_num = int(m.group(1)) if m else 0
+                list_data.append({
+                    "filename": fn,
+                    "chapter_number": c_num,
+                    "title": ch.get("title", fn),
+                    "char_count": ch.get("char_count", 0)
+                })
+            self.send_json({"ok": True, "book": book_id, "chapters": list_data})
+            return
+
+        # 网文建档简介与宣推元数据 (书旗/七猫/番茄新书创建一键填入)
+        if path in ["/api/novel_synopsis", "/novel/api/novel_synopsis"]:
+            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            try:
+                meta = novel_manager.get_novel_creation_metadata(book_id, BOOKS_DIR)
+                self.send_json(meta)
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
+            return
+
         # 以下需认证
         if not self.check_auth() and not path.endswith("/api/login"):
             self.send_json({"error": "Unauthorized", "need_login": True}, 401)
@@ -1063,35 +1103,6 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(extras)
             return
 
-        # 番茄小说自动发布包：一键获取章节序号、纯标题、纯净正文与作者有话说
-        if path in ["/api/fanqie_publish_package", "/novel/api/fanqie_publish_package"]:
-            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
-            fname = qs.get("file", [""])[0]
-            if not fname:
-                self.send_json({"error": "Missing file param"}, 400)
-                return
-            payload = novel_manager.get_fanqie_publish_payload(book_id, fname, BOOKS_DIR)
-            self.send_json(payload)
-            return
-
-        # 番茄小说待发章节清单
-        if path in ["/api/fanqie_publish_list", "/novel/api/fanqie_publish_list"]:
-            book_id = qs.get("book", [None])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
-            catalog = chapter_catalog(book_id)
-            chapters = catalog.get("chapters", [])
-            list_data = []
-            for ch in chapters:
-                fn = ch.get("filename", "")
-                m = re.search(r"第(\d+)章", fn)
-                c_num = int(m.group(1)) if m else 0
-                list_data.append({
-                    "filename": fn,
-                    "chapter_number": c_num,
-                    "title": ch.get("title", fn),
-                    "char_count": ch.get("char_count", 0)
-                })
-            self.send_json({"ok": True, "book": book_id, "chapters": list_data})
-            return
 
         # 调阅单张概念插图 (流式输出 PNG)
         if path in ["/api/illustration", "/novel/api/illustration"]:

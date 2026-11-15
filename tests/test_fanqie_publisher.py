@@ -73,6 +73,17 @@ class TestFanqiePublisher(unittest.TestCase):
         path, title = novel_manager.get_book_path("测试", str(self.test_dir))
         self.assertEqual(title, "测试作品")
 
+    def test_novel_creation_metadata(self):
+        # 验证新书建档元数据提取（书名、短书名、分类、男女频、标签、主角、100~500字简介）
+        meta = novel_manager.get_novel_creation_metadata("测试作品", str(self.test_dir))
+        self.assertTrue(meta["ok"])
+        self.assertEqual(meta["title"], "测试作品")
+        self.assertTrue(len(meta["short_title"]) <= 15)
+        self.assertEqual(meta["target_reader"], "男生")
+        self.assertIn("玄幻脑洞", meta["tags"])
+        self.assertIn("顾见微", meta["roles"])
+        self.assertTrue(100 <= len(meta["synopsis_condensed"]) <= 500)
+
     def test_userscript_file_exists_and_valid(self):
         js_path = Path("fanqie_publisher.user.js")
         self.assertTrue(js_path.exists())
@@ -80,13 +91,18 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("// ==UserScript==", text)
         self.assertIn("@match        *://fanqienovel.com/*", text)
         self.assertIn("@match        *://zuozhe.qimao.com/*", text)
+        self.assertIn("@match        *://write.shuqi.com/*", text)
         self.assertIn("@grant        GM_deleteValue", text)
-        self.assertIn("2.0.0", text)
+        self.assertIn("2.1.0", text)
         self.assertIn("nrh_multi_platform_batch", text)
         self.assertIn("expandAuthorNoteIfCollapsed", text)
         self.assertIn("nrh-dock-tab", text)
         self.assertIn("智笔云枢", text)
         self.assertIn("qimao", text)
+        self.assertIn("shuqi", text)
+        self.assertIn("getCleanPageText", text)
+        self.assertIn("fillBookCreationInfo", text)
+        self.assertIn("detectPagePublishedMaxChapter", text)
 
 if __name__ == "__main__":
     unittest.main()

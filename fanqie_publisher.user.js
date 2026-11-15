@@ -1,13 +1,15 @@
 // ==UserScript==
-// @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫双平台)
+// @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.0.0
-// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说作家后台与七猫作家中心，支持双平台智能适配、贴边吸附、单章一键秒填、作者有话说自动对齐、错别字拦截自愈与多章节全自动批量存草稿流水线！
+// @version      2.1.0
+// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、错别字拦截自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
 // @match        *://*.fanqienovel.com/*
 // @match        *://zuozhe.qimao.com/*
 // @match        *://*.qimao.com/*
+// @match        *://write.shuqi.com/*
+// @match        *://*.shuqi.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -25,15 +27,45 @@
 (function() {
     'use strict';
 
-    // 平台探测
+    // 平台探测 (番茄 / 七猫 / 书旗)
     function detectPlatform() {
         const host = window.location.hostname;
         if (host.includes('qimao.com')) return 'qimao';
+        if (host.includes('shuqi.com')) return 'shuqi';
         if (host.includes('fanqienovel.com')) return 'fanqie';
         return 'generic';
     }
 
     const PLATFORM = detectPlatform();
+
+    function getPlatformDisplayName(p = PLATFORM) {
+        if (p === 'fanqie') return '番茄小说';
+        if (p === 'qimao') return '七猫作家中心';
+        if (p === 'shuqi') return '书旗作家平台';
+        return '网文作家平台';
+    }
+
+    function getPlatformAssistantTitle(p = PLATFORM) {
+        if (p === 'fanqie') return '番茄助手';
+        if (p === 'qimao') return '七猫助手';
+        if (p === 'shuqi') return '书旗助手';
+        return '网文助手';
+    }
+
+    function getPlatformBadgeVersion(p = PLATFORM) {
+        if (p === 'fanqie') return '番茄专版 v2.1';
+        if (p === 'qimao') return '七猫专版 v2.1';
+        if (p === 'shuqi') return '书旗专版 v2.1';
+        return '三平台专版 v2.1';
+    }
+
+    function isBookCreationPage() {
+        const href = window.location.href.toLowerCase();
+        return href.includes('bookinfocreate') ||
+               href.includes('book-create') ||
+               href.includes('createbook') ||
+               href.includes('newbook');
+    }
 
     // 默认配置
     const CONFIG = {
@@ -85,11 +117,18 @@
                 return m[1];
             }
             return GM_getValue('nrh_qimao_book_id', '');
+        } else if (PLATFORM === 'shuqi') {
+            const m = location.href.match(/[?&]bookId=(\d+)/) || location.href.match(/[?&]book_id=(\d+)/) || location.href.match(/book\/(\d+)/);
+            if (m) {
+                GM_setValue('nrh_shuqi_book_id', m[1]);
+                return m[1];
+            }
+            return GM_getValue('nrh_shuqi_book_id', '');
         }
         return '';
     }
 
-    // 智能识别页面上的书名
+    // 智能识别页面上的书名 (无论完整书名还是平台截断书名均能归一化)
     function detectPageBookName() {
         const text = document.body ? document.body.innerText : '';
         if (text.includes('给政哥讲量子')) {
@@ -148,105 +187,123 @@
         border-radius: 8px 0 0 8px;
         padding: 10px 0;
         box-sizing: border-box;
-        cursor: pointer;
+        text-align: center;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 6px;
-        box-shadow: inset 1px 0 2px rgba(255, 255, 255, 0.5);
+        cursor: pointer;
+        box-shadow: -2px 0 10px rgba(0,0,0,0.5);
     }
     #nrh-floating-widget.docked .nrh-dock-tab {
-        display: flex;
+        display: flex !important;
     }
     .nrh-dock-icon {
         font-size: 14px;
-        filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+        line-height: 1;
     }
     .nrh-dock-text {
-        writing-mode: vertical-lr;
-        text-orientation: upright;
-        font-weight: 900;
-        font-size: 11px;
+        writing-mode: vertical-rl;
         letter-spacing: 2px;
+        font-weight: 800;
+        font-size: 11px;
     }
 
-    #nrh-floating-widget .nrh-header {
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
-        border-bottom: 1px solid rgba(234, 179, 8, 0.3);
-        padding: 10px 14px;
+    .nrh-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        cursor: move;
-        user-select: none;
+        padding: 8px 12px;
+        background: linear-gradient(90deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+        border-bottom: 1px solid rgba(234, 179, 8, 0.3);
+        cursor: grab;
     }
-    #nrh-floating-widget .nrh-title {
+    .nrh-header:active {
+        cursor: grabbing;
+    }
+    .nrh-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         font-weight: 800;
         color: #fef08a;
-        font-size: 13px;
+        font-size: 12px;
+        letter-spacing: 0.5px;
+    }
+    .nrh-controls {
         display: flex;
         align-items: center;
         gap: 6px;
     }
-    #nrh-floating-widget .nrh-controls {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-    #nrh-floating-widget .nrh-controls button {
+    .nrh-controls button {
         background: transparent;
         border: none;
         color: #94a3b8;
         cursor: pointer;
-        padding: 3px 6px;
-        font-size: 12px;
+        padding: 2px 4px;
         border-radius: 4px;
-        transition: all 0.15s;
+        font-size: 11px;
+        transition: color 0.15s, background 0.15s;
     }
-    #nrh-floating-widget .nrh-controls button:hover {
+    .nrh-controls button:hover {
         color: #fef08a;
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.1);
     }
-    #nrh-floating-widget .nrh-body {
-        padding: 14px;
+
+    .nrh-body {
+        padding: 12px;
         display: flex;
         flex-direction: column;
         gap: 10px;
     }
     .nrh-info-banner {
-        background: rgba(30, 41, 59, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(30, 41, 59, 0.75);
+        border: 1px solid rgba(148, 163, 184, 0.2);
         border-radius: 6px;
-        padding: 8px 10px;
+        padding: 6px 8px;
         font-size: 11px;
         color: #cbd5e1;
-        line-height: 1.5;
+        line-height: 1.45;
     }
-    .nrh-info-banner b { color: #fef08a; }
+    .nrh-info-banner b {
+        color: #fef08a;
+    }
+
     .nrh-btn {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 6px;
-        padding: 8px 12px;
+        padding: 7px 12px;
         border-radius: 6px;
-        font-weight: 700;
         font-size: 12px;
+        font-weight: 700;
         cursor: pointer;
         border: none;
-        transition: transform 0.15s, opacity 0.15s, box-shadow 0.15s;
+        outline: none;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         text-decoration: none;
     }
-    .nrh-btn:active { transform: scale(0.98); }
+    .nrh-btn:active {
+        transform: scale(0.97);
+    }
     .nrh-btn-gold {
         background: linear-gradient(135deg, #eab308, #ca8a04);
-        color: #000;
-        box-shadow: 0 2px 8px rgba(234, 179, 8, 0.3);
+        color: #0b1120;
+        box-shadow: 0 4px 12px rgba(234, 179, 8, 0.35);
     }
-    .nrh-btn-gold:hover { opacity: 0.92; }
+    .nrh-btn-gold:hover {
+        background: linear-gradient(135deg, #facc15, #d97706);
+        box-shadow: 0 4px 16px rgba(234, 179, 8, 0.5);
+    }
     .nrh-btn-blue {
-        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
         color: #fff;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+    }
+    .nrh-btn-blue:hover {
+        background: linear-gradient(135deg, #3b82f6, #1e40af);
+        box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5);
     }
     .nrh-btn-danger {
         background: linear-gradient(135deg, #ef4444, #b91c1c);
@@ -376,7 +433,71 @@
         }, duration);
     }
 
-    // ================= 双平台 DOM 高精度探测器 (番茄 + 七猫) =================
+    // ================= 网页文本纯净扫描器 (完全排除插件自身节点，彻底根治第61章推算污染) =================
+    function getCleanPageText() {
+        const widget = document.getElementById('nrh-floating-widget');
+        if (!document.body) return '';
+        if (!widget) return document.body.innerText || '';
+
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                if (node.parentElement && (
+                    node.parentElement.closest('#nrh-floating-widget') ||
+                    node.parentElement.closest('#nrh-batch-banner') ||
+                    node.parentElement.closest('#nrh-reopen-dot')
+                )) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        const parts = [];
+        let n;
+        while ((n = walker.nextNode())) {
+            const v = n.nodeValue.trim();
+            if (v) parts.push(v);
+        }
+        return parts.join(' ');
+    }
+
+    // 探测页面上真实已发布的最高章节数 (若新书为0则返回0)
+    function detectPagePublishedMaxChapter() {
+        const text = getCleanPageText();
+
+        // 明确为 0 章节的特征词（七猫/番茄/书旗全新建档特征）
+        if (text.includes('最新章节: 无') || text.includes('最新章节：无') ||
+            text.includes('快点击【创建章节】发布第一章') || text.includes('发布第一章') ||
+            text.includes('共0篇草稿') || text.includes('共 0 篇草稿') ||
+            text.includes('暂无章节') || text.includes('暂无草稿') ||
+            text.includes('未创建章节') || text.includes('作品已审: 0字') ||
+            text.includes('本月更新: 0字')) {
+            return 0;
+        }
+
+        // 从非插件文本中提取真实章节标记
+        const matches = text.match(/第\s*(\d{1,4})\s*章/g);
+        if (matches && matches.length > 0) {
+            let maxNum = 0;
+            for (const m of matches) {
+                const numMatch = m.match(/\d+/);
+                if (numMatch) {
+                    const n = parseInt(numMatch[0], 10);
+                    if (n > maxNum && n <= 1000) {
+                        maxNum = n;
+                    }
+                }
+            }
+            return maxNum;
+        }
+        return 0;
+    }
+
+    function detectPageNextChapter() {
+        const maxPub = detectPagePublishedMaxChapter();
+        return maxPub + 1;
+    }
+
+    // ================= 三平台 DOM 高精度探测器 (番茄 + 七猫 + 书旗) =================
 
     function getTitleInput() {
         // 通用标题探测：placeholder 包含 "标题"、"章节名"、"章节名称" 等
@@ -385,10 +506,13 @@
             'input[placeholder*="章节标题"]',
             'input[placeholder*="章节名"]',
             'input[placeholder*="标题"]',
+            'input[placeholder*="请输入章节名称"]',
+            'input[name*="chapterTitle"]',
             'input[name*="chapterName"]',
             'input[name*="title"]',
             '.chapter-title-input input',
-            '.chapter-name-input input'
+            '.chapter-name-input input',
+            '.chapter-title input'
         ];
         for (const sel of selectors) {
             const el = document.querySelector(sel);
@@ -456,14 +580,14 @@
 
     function getBodyEditor() {
         // 1. 富文本编辑器 (ProseMirror / Quill / WangEditor / contenteditable)
-        const editables = Array.from(document.querySelectorAll('.ProseMirror, .ql-editor, .w-e-text-container [contenteditable="true"], div[contenteditable="true"]:not(#nrh-floating-widget div)'));
+        const editables = Array.from(document.querySelectorAll('.ProseMirror, .ql-editor, .w-e-text-container [contenteditable="true"], .chapter-content [contenteditable="true"], div[contenteditable="true"]:not(#nrh-floating-widget div)'));
         for (const el of editables) {
             const ph = el.getAttribute('placeholder') || el.getAttribute('data-placeholder') || '';
             if (ph.includes('作者有话说') || ph.includes('作家的话') || ph.includes('互动')) continue;
             if (ph.includes('正文') || el.clientHeight > 100) return el;
         }
 
-        // 2. 原生 textarea 编辑器 (七猫常见)
+        // 2. 原生 textarea 编辑器 (七猫 / 书旗常见)
         const textareas = Array.from(document.querySelectorAll('textarea:not(#nrh-floating-widget textarea)'));
         for (const ta of textareas) {
             const ph = ta.getAttribute('placeholder') || '';
@@ -495,14 +619,14 @@
         const textareas = Array.from(document.querySelectorAll('textarea:not(#nrh-floating-widget textarea)'));
         for (const ta of textareas) {
             const ph = ta.getAttribute('placeholder') || '';
-            if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话') || ph.includes('增强更多互动')) {
+            if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话') || ph.includes('作者的话') || ph.includes('增强更多互动')) {
                 return ta;
             }
         }
         const editables = Array.from(document.querySelectorAll('div[contenteditable="true"]:not(#nrh-floating-widget div)'));
         for (const el of editables) {
             const ph = el.getAttribute('placeholder') || el.getAttribute('data-placeholder') || '';
-            if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话') || ph.includes('增强更多互动')) {
+            if (ph.includes('作者有话说') || ph.includes('互动') || ph.includes('作家的话') || ph.includes('作者的话') || ph.includes('增强更多互动')) {
                 return el;
             }
         }
@@ -519,7 +643,7 @@
         for (const btn of buttons) {
             if (btn.closest('#nrh-floating-widget')) continue;
             const t = (btn.innerText || '').trim();
-            if (t === '保存' || t === '暂存') return btn;
+            if (t === '保存' || t === '暂存' || t === '存入草稿') return btn;
         }
         return null;
     }
@@ -670,24 +794,8 @@
             }
         } catch (e) {
             console.warn('[NRH Publisher] 获取章节列表失败:', e);
-            detectPageLastChapter();
+            updateChapterSelect();
         }
-    }
-
-    function detectPageLastChapter() {
-        const text = document.body.innerText || '';
-        const m = text.match(/第\s*(\d+)\s*章/g);
-        if (m && m.length > 0) {
-            const lastMatch = m[m.length - 1].match(/\d+/);
-            const lastNum = lastMatch ? parseInt(lastMatch[0], 10) : 0;
-            const nextNum = lastNum + 1;
-            const selectEl = document.getElementById('nrh-chapter-select');
-            if (selectEl) {
-                selectEl.innerHTML = `<option value="auto_next">第 ${nextNum} 章 (系统自动推算)</option>`;
-            }
-            return nextNum;
-        }
-        return 1;
     }
 
     // ================= 核心业务：单章一键自动填充 =================
@@ -703,15 +811,15 @@
             numSuccess = (numInput.value === String(packageData.chapter_number));
         }
 
-        // 2. 填入章节标题 (七猫填入完整“第001章 标题”，番茄根据序号是否独立决定)
+        // 2. 填入章节标题 (七猫/书旗使用完整标题，番茄根据序号框是否独立智能决定)
         const titleInput = getTitleInput();
         if (titleInput) {
             let titleVal = '';
-            if (PLATFORM === 'qimao') {
-                // 七猫标题统一使用完整格式：第001章 标题
+            if (PLATFORM === 'qimao' || PLATFORM === 'shuqi') {
+                // 七猫与书旗统一使用完整格式：第001章 标题
                 titleVal = packageData.full_title || `第${String(packageData.chapter_number).padStart(3, '0')}章 ${packageData.chapter_title || ''}`;
             } else {
-                // 番茄平台：若序号框成功注入，标题框只填纯标题；否则兜底追加“第X章”
+                // 番茄平台：若独立序号框成功注入，标题框只填纯标题；否则兜底追加“第X章”
                 const pureTitle = packageData.chapter_title || '';
                 const fullTitle = packageData.full_title || (`第${packageData.chapter_number}章 ` + pureTitle);
                 titleVal = numSuccess ? (pureTitle || fullTitle) : fullTitle;
@@ -743,9 +851,8 @@
     }
 
     async function fillCurrentSelected() {
-        // 如果在七猫作品管理页，提示或自动点击上传章节
+        // 如果在七猫作品管理页，提示并自动点击上传章节
         if (PLATFORM === 'qimao' && location.href.includes('book-manage')) {
-            const uploadBtn = document.querySelector('button, a');
             const btns = Array.from(document.querySelectorAll('button, a')).filter(el => (el.innerText || '').includes('上传章节'));
             if (btns.length > 0) {
                 showToast('正在为您打开七猫章节上传界面...');
@@ -825,6 +932,125 @@
         }
     }
 
+    // ================= 核心业务：新书建档一键秒填 (书旗/七猫/番茄) =================
+    async function fillBookCreationInfo() {
+        showToast('正在从智笔云枢调阅建档元数据...');
+        const currentBook = detectPageBookName();
+        let meta = null;
+        try {
+            const res = await apiGet(`novel_synopsis?book=${encodeURIComponent(currentBook)}`);
+            if (res && res.ok) meta = res;
+        } catch (e) {
+            console.warn('[NRH] 从云枢获取建档信息失败，启用本地应急元数据', e);
+        }
+
+        if (!meta) {
+            meta = {
+                title: '给政哥讲量子力学，他竟肉身硬抗二向箔',
+                short_title: '给政哥讲量子，他咋肉身硬抗向箔',
+                category: '玄幻脑洞',
+                target_reader: '男生',
+                tags: ['玄幻脑洞', '穿越', '系统', '大秦', '无敌'],
+                roles: ['顾见微', '嬴政'],
+                status: '连载中',
+                contest: '不参加',
+                synopsis_condensed: `【纯爽无虐 + 爆笑发癫 + 硬核脑洞 + 科技修仙 + 宇宙争霸】
+咸阳宫大殿，老神棍徐福逼着刚穿越的顾见微试药。身为物理与文献双料博士的顾见微，反手一个动量守恒大逼兜打飞毒丹：“陛下！再嗑这玩意儿大秦要全剧终了！”
+生死一线，《太上量子混元造化经》轰然觉醒！
+“陛下！修仙的本质是微观粒子的负熵重组！”
+“引气入体？那是经络微波导管对暗能量的谐振富集！”
+“天劫玄雷？来人，架避雷针！给咸阳宫点个灯泡先！”
+从此大秦科技树被彻底掰弯，一路狂飙到银河系——
+政哥想长生？基因端粒酶靶向重组！
+政哥想御剑？加装微型霍尔推进矢量喷管，请出示大秦飞剑驾照！
+李斯完成微积分进修：“蒙恬将军开蒸汽动能装甲超速，按秦律当罚抄十遍薛定谔方程！”
+若干年后，外星神级文明带着【二向箔】企图对大秦降维打击。
+始皇踏出虚空，掌托黑洞，以高维肉身硬抗二向箔：“车同轨书同文，寡人的疆域，谁准你少算一维！”
+顾见微狂喊：“政哥慢点推图！超星系团高铁还没通车呢！！”`
+            };
+        }
+
+        let filledCount = 0;
+
+        // 1. 填入作品名称
+        const allInputs = Array.from(document.querySelectorAll('input:not(#nrh-floating-widget input)'));
+        for (const inp of allInputs) {
+            const ph = (inp.getAttribute('placeholder') || '').toLowerCase();
+            const name = (inp.getAttribute('name') || '').toLowerCase();
+            if (ph.includes('作品名称') || ph.includes('书籍名称') || ph.includes('书名') || ph.includes('作品名') || name.includes('bookname') || name.includes('title')) {
+                const titleToUse = (PLATFORM === 'qimao') ? (meta.short_title || meta.title) : meta.title;
+                fillInputValue(inp, titleToUse);
+                filledCount++;
+                break;
+            }
+        }
+
+        // 2. 勾选目标读者：男生
+        const radios = Array.from(document.querySelectorAll('input[type="radio"], label, .el-radio, span.radio'));
+        for (const r of radios) {
+            const txt = (r.innerText || r.textContent || '').trim();
+            if (txt.includes('男生') && !txt.includes('女生')) {
+                if (r.tagName === 'INPUT') {
+                    r.checked = true;
+                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                } else {
+                    r.click();
+                }
+                filledCount++;
+                break;
+            }
+        }
+
+        // 3. 勾选作品状态：连载中
+        for (const r of radios) {
+            const txt = (r.innerText || r.textContent || '').trim();
+            if (txt === '连载中' || txt === '连载' || txt.includes('连载中')) {
+                if (r.tagName === 'INPUT') {
+                    r.checked = true;
+                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                } else {
+                    r.click();
+                }
+                filledCount++;
+                break;
+            }
+        }
+
+        // 4. 勾选征文活动：不参加
+        for (const r of radios) {
+            const txt = (r.innerText || r.textContent || '').trim();
+            if (txt === '不参加' || txt.includes('不参加')) {
+                if (r.tagName === 'INPUT') {
+                    r.checked = true;
+                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                } else {
+                    r.click();
+                }
+                filledCount++;
+                break;
+            }
+        }
+
+        // 5. 填入作品简介 (自动使用422字精炼版，确保严格位于100~500字区间内)
+        const textareas = Array.from(document.querySelectorAll('textarea:not(#nrh-floating-widget textarea)'));
+        for (const ta of textareas) {
+            const ph = (ta.getAttribute('placeholder') || '').toLowerCase();
+            if (ph.includes('作品简介') || ph.includes('最少100字') || ph.includes('简介')) {
+                fillInputValue(ta, meta.synopsis_condensed || meta.synopsis);
+                filledCount++;
+                break;
+            }
+        }
+
+        // 6. 将主角名与标签复制到剪贴板，方便点选
+        const copyInfo = `【主角名】：${(meta.roles || []).join('、')}\n【核心标签】：${(meta.tags || []).join('、')}\n【分类推荐】：${meta.category || '玄幻脑洞'}`;
+        try {
+            await navigator.clipboard.writeText(copyInfo);
+        } catch (e) {}
+
+        showToast(`🎉 建档信息填入完毕！主角名【顾见微、嬴政】与标签【玄幻脑洞】已备好在剪贴板。`, 5000);
+    }
+
     // ================= 自动存草稿 =================
 
     async function saveDraftNow() {
@@ -855,7 +1081,7 @@
         }
         const progress = Math.round(((currentNum - (endNum - total + 1)) / total) * 100);
         banner.innerHTML = `
-            <span>🚀 智笔云枢 · 批量录入中 [${PLATFORM === 'qimao' ? '七猫' : '番茄'}]：正在处理第 <b>${currentNum}</b> 章 / 目标第 <b>${endNum}</b> 章 (${progress}%)</span>
+            <span>🚀 智笔云枢 · 批量录入中 [${getPlatformDisplayName()}]：正在处理第 <b>${currentNum}</b> 章 / 目标第 <b>${endNum}</b> 章 (${progress}%)</span>
             <button id="nrh-stop-batch-btn" class="nrh-btn nrh-btn-danger" style="padding:4px 10px; font-size:11px;">🛑 终止批量</button>
         `;
         document.getElementById('nrh-stop-batch-btn').onclick = stopBatchPipeline;
@@ -876,10 +1102,10 @@
     async function startBatchPipeline() {
         if (isBatchRunning) return;
 
-        const defaultStart = detectPageLastChapter() || 1;
-        const startInput = prompt(`[${PLATFORM === 'qimao' ? '七猫作家中心' : '番茄小说'}] 请输入批量起始章节号：`, String(defaultStart));
+        const defaultStart = detectPageNextChapter() || 1;
+        const startInput = prompt(`[${getPlatformDisplayName()}] 请输入批量起始章节号：`, String(defaultStart));
         if (!startInput) return;
-        const endInput = prompt('请输入批量结束章节号 (例如 10 或 50)：', String(parseInt(startInput, 10) + 9));
+        const endInput = prompt('请输入批量结束章节号 (例如 10 或 60)：', String(parseInt(startInput, 10) + 9));
         if (!endInput) return;
 
         const startNum = parseInt(startInput, 10);
@@ -893,7 +1119,7 @@
         const bookId = getBookIdFromUrl();
         const currentBook = detectPageBookName();
 
-        if (!confirm(`即将启动【${PLATFORM === 'qimao' ? '七猫作家中心' : '番茄小说'}】全自动多章节存草稿流水线：\n\n• 作品：${currentBook}\n• 目标范围：第 ${startNum} 章 ~ 第 ${endNum} 章 (共 ${count} 篇草稿)\n• 流程：自动开辟新草稿 ➔ 注入正文/标题 ➔ 存草稿 ➔ 消解提示 ➔ 自动切入下一章\n• 终点：全部存入草稿箱后自动停靠\n\n确认立即启动？`)) {
+        if (!confirm(`即将启动【${getPlatformDisplayName()}】全自动多章节存草稿流水线：\n\n• 作品：${currentBook}\n• 目标范围：第 ${startNum} 章 ~ 第 ${endNum} 章 (共 ${count} 篇草稿)\n• 流程：自动开辟新草稿 ➔ 注入正文/标题 ➔ 存草稿 ➔ 消解提示 ➔ 自动切入下一章\n• 终点：全部存入草稿箱后自动停靠\n\n确认立即启动？`)) {
             return;
         }
 
@@ -919,7 +1145,6 @@
                 window.location.replace(`https://fanqienovel.com/main/writer/${bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
             }
         } else if (PLATFORM === 'qimao') {
-            // 七猫：若在作品管理页，点击“上传章节”进入编辑
             if (location.href.includes('book-manage')) {
                 const uploadBtn = Array.from(document.querySelectorAll('button, a')).find(el => (el.innerText || '').includes('上传章节'));
                 if (uploadBtn) {
@@ -995,15 +1220,13 @@
 
                 if (state.platform === 'fanqie') {
                     window.location.replace(`https://fanqienovel.com/main/writer/${state.bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
-                } else if (state.platform === 'qimao') {
-                    // 七猫：尝试点击“新建章节” / “新增章节”按钮
+                } else if (state.platform === 'qimao' || state.platform === 'shuqi') {
                     const newBtn = getNewChapterButton();
                     if (newBtn) {
                         newBtn.click();
                         await new Promise(r => setTimeout(r, 1500));
                         await executeBatchStep();
                     } else {
-                        // 若为单页编辑，刷新或触发下一步
                         await new Promise(r => setTimeout(r, 1200));
                         await executeBatchStep();
                     }
@@ -1018,7 +1241,7 @@
                 removeBatchBanner();
                 isBatchRunning = false;
 
-                alert(`🎉 恭喜！全部 ${totalSaved} 个章节 (第 ${state.startNum} 章 ~ 第 ${state.endNum} 章) 已全部成功录入【${plat === 'qimao' ? '七猫作家中心' : '番茄小说'}】草稿箱！`);
+                alert(`🎉 恭喜！全部 ${totalSaved} 个章节 (第 ${state.startNum} 章 ~ 第 ${state.endNum} 章) 已全部成功录入【${getPlatformDisplayName(plat)}】草稿箱！`);
                 if (plat === 'fanqie') {
                     window.location.replace(`https://fanqienovel.com/main/writer/${bookId}/publish`);
                 }
@@ -1041,6 +1264,7 @@
             return;
         }
 
+        // 完整填充全部章节选项，杜绝任何清空覆盖
         chaptersCatalog.forEach(c => {
             const opt = document.createElement('option');
             opt.value = c.filename;
@@ -1048,17 +1272,25 @@
             selectEl.appendChild(opt);
         });
 
-        const nextNum = detectPageLastChapter();
+        // 智能定位默认选中的章节号：
+        // 若平台尚未发布任何章节（最新章节为0），则默认选中第1章！
+        // 若已发布到第40章，则默认选中第41章！
+        const nextNum = detectPageNextChapter();
         const found = chaptersCatalog.find(c => c.chapter_number === nextNum);
-        if (found) selectEl.value = found.filename;
+        if (found) {
+            selectEl.value = found.filename;
+        } else if (chaptersCatalog.length > 0) {
+            selectEl.value = chaptersCatalog[0].filename;
+        }
     }
 
     function createFloatingWidget() {
         if (document.getElementById('nrh-floating-widget')) return;
 
-        const platformTitle = PLATFORM === 'qimao' ? '七猫助手' : (PLATFORM === 'fanqie' ? '番茄助手' : '网文助手');
-        const badgeVersion = PLATFORM === 'qimao' ? '七猫专版 v2.0' : '番茄专版 v2.0';
+        const platformTitle = getPlatformAssistantTitle();
+        const badgeVersion = getPlatformBadgeVersion();
         const displayBook = detectPageBookName();
+        const onCreation = isBookCreationPage();
 
         const widget = document.createElement('div');
         widget.id = 'nrh-floating-widget';
@@ -1074,7 +1306,7 @@
                 <div class="nrh-title">
                     <span>🚀 智笔云枢</span>
                     <span class="nrh-badge">${badgeVersion}</span>
-                    <span class="nrh-platform-badge">${PLATFORM === 'qimao' ? '七猫' : '番茄'}</span>
+                    <span class="nrh-platform-badge">${PLATFORM === 'qimao' ? '七猫' : (PLATFORM === 'shuqi' ? '书旗' : '番茄')}</span>
                 </div>
                 <div class="nrh-controls">
                     <button id="nrh-btn-dock" title="贴边收起 (完全不遮挡网页内容与点击)">⇥ 贴边</button>
@@ -1086,9 +1318,18 @@
             <div class="nrh-body" id="nrh-widget-body">
                 <div class="nrh-info-banner">
                     作品：<b>${displayBook}</b><br>
-                    平台：<span style="color:#60a5fa;">${PLATFORM === 'qimao' ? '七猫作家中心 (zuozhe.qimao.com)' : '番茄小说作家专区 (fanqienovel.com)'}</span><br>
-                    状态：<span style="color:#4ade80;">✓ 双平台智能对齐与排版自愈已就绪</span>
+                    平台：<span style="color:#60a5fa;">${getPlatformDisplayName()}</span><br>
+                    状态：<span style="color:#4ade80;">✓ 三平台智能对齐与排版自愈已就绪</span>
                 </div>
+
+                ${onCreation ? `
+                <button id="nrh-btn-bookinfo" class="nrh-btn nrh-btn-gold" style="width:100%; font-size:13px; padding:9px 12px; box-shadow:0 0 15px rgba(234, 179, 8, 0.45);">
+                    ✨ 一键填入新书建档信息
+                </button>
+                <div style="font-size:11px; color:#94a3b8; line-height:1.4;">
+                    提示：已自动加载全书简介、男生受众、连载状态与标签主角配置，点击上方按钮一键填入。
+                </div>
+                ` : ''}
 
                 <div>
                     <label style="font-size:11px; color:#94a3b8; display:block; margin-bottom:4px;">选择待发章节：</label>
@@ -1140,6 +1381,11 @@
         document.getElementById('nrh-btn-sync').addEventListener('click', loadChapters);
         document.getElementById('nrh-btn-clip').addEventListener('click', fillFromClipboard);
 
+        const bookInfoBtn = document.getElementById('nrh-btn-bookinfo');
+        if (bookInfoBtn) {
+            bookInfoBtn.addEventListener('click', fillBookCreationInfo);
+        }
+
         // 点击小挂签展开面板
         document.getElementById('nrh-dock-tab').addEventListener('click', (e) => {
             if (isWidgetDragging) return;
@@ -1182,6 +1428,9 @@
         // 注册油猴专属菜单
         try {
             GM_registerMenuCommand(`🚀 展开/收起 智笔云枢 · ${platformTitle} (Alt+N)`, toggleWidget);
+            if (onCreation) {
+                GM_registerMenuCommand(`✨ 一键填入新书建档信息`, fillBookCreationInfo);
+            }
         } catch (e) {}
 
         // 恢复上次拖拽高度与吸附状态
@@ -1213,7 +1462,8 @@
         const isDocked = GM_getValue('nrh_widget_docked', true);
 
         const onEditorPage = (PLATFORM === 'fanqie' && (location.href.includes('/publish') || location.href.includes('enter_from=newchapter')))
-            || (PLATFORM === 'qimao' && (location.href.includes('chapter') || location.href.includes('edit')));
+            || (PLATFORM === 'qimao' && (location.href.includes('chapter') || location.href.includes('edit')))
+            || (PLATFORM === 'shuqi' && (location.href.includes('chapter') || location.href.includes('edit') || location.href.includes('bookinfocreate')));
 
         if (savedTop !== null) {
             const topNum = Math.max(20, Math.min(window.innerHeight - 140, parseInt(savedTop, 10)));
