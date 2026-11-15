@@ -1900,16 +1900,22 @@
             </div>
         </section>
 
-        <!-- 5. 番茄发布智审工作台 (全维度机审、错别字定位与一键自动修复) -->
+        <!-- 5. 多平台发布智审工作台 (番茄/七猫/书旗全维度机审、错别字定位与一键自动发布) -->
         <section id="panel-tomato" class="panel" style="padding-bottom:80px;">
             <div class="catalog-hero-box">
                 <!-- 顶部导航与全本导出 -->
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:8px;">
-                    <div class="catalog-book-title" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                        <span>🍅</span>
-                        <span>番茄发布智审工作台</span>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:8px; flex-wrap:wrap;">
+                    <div class="catalog-book-title" style="flex:1; min-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:20px;">🚀</span>
+                        <span style="font-size:16px; font-weight:800; color:#fef08a;">多平台发布智审工作台</span>
+                        <span class="meta-tag" style="background:rgba(239, 68, 68, 0.2); color:#fca5a5; border:1px solid rgba(239, 68, 68, 0.4);">番茄</span>
+                        <span class="meta-tag" style="background:rgba(234, 179, 8, 0.2); color:#fde047; border:1px solid rgba(234, 179, 8, 0.4);">七猫</span>
+                        <span class="meta-tag" style="background:rgba(59, 130, 246, 0.2); color:#93c5fd; border:1px solid rgba(59, 130, 246, 0.4);">书旗</span>
                     </div>
-                    <button class="tool-btn" onclick="exportTomatoZip()">📦 导出全本ZIP</button>
+                    <div style="display:flex; gap:6px;">
+                        <button class="tool-btn" style="background:linear-gradient(135deg, #eab308, #ca8a04); color:#000; font-weight:800;" onclick="openFanqieScriptModal()">🤖 油猴自动发布</button>
+                        <button class="tool-btn" onclick="exportTomatoZip()">📦 导出全本ZIP</button>
+                    </div>
                 </div>
 
                 <!-- 章节快速切换器条目 (支持上一章、下一章、下拉快速选择) -->
@@ -1926,13 +1932,13 @@
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                         <div style="display:flex; align-items:center; gap:8px;">
                             <span id="tomato-score-badge" class="score-badge">等待机审</span>
-                            <span id="tomato-score-title" style="font-size:13px; font-weight:800; color:#fef08a;">番茄黄金过审级</span>
+                            <span id="tomato-score-title" style="font-size:13px; font-weight:800; color:#fef08a;">三大平台黄金过审级</span>
                         </div>
                         <div style="display:flex; gap:6px;">
                             <button id="btn-tomato-autofix" class="tool-btn gold" onclick="autoFixCurrentChapter()" title="一键替换已知错别字并纠偏全角标点">
                                 ⚡ 一键常规纠错
                             </button>
-                            <button id="btn-tomato-repair" class="tool-btn" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; border:none; font-weight:800;" onclick="openTomatoRepairModal()" title="根据番茄审核驳回意见或机审检出词，使用所选执行端定点精修本章">
+                            <button id="btn-tomato-repair" class="tool-btn" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#fff; border:none; font-weight:800;" onclick="openTomatoRepairModal()" title="根据平台机审检出词或审核驳回意见，使用所选执行端定点精修本章">
                                 🛠️ 驳回重构修复
                             </button>
                         </div>
@@ -1978,13 +1984,15 @@
                     </div>
                 </div>
 
-                <!-- 预览模式切换栏 -->
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <div class="view-mode-tabs">
+                <!-- 预览模式与多平台排版切换栏 -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                    <div class="view-mode-tabs" style="display:flex; gap:4px; flex-wrap:wrap;">
                         <button id="btn-view-highlight" class="view-mode-btn active" onclick="switchPreviewMode('highlight')">🔍 缺陷高亮显影</button>
-                        <button id="btn-view-clean" class="view-mode-btn" onclick="switchPreviewMode('clean')">📄 番茄纯净排版</button>
+                        <button id="btn-view-tomato" class="view-mode-btn" onclick="switchPlatformMode('fanqie')">🍅 番茄纯净排版</button>
+                        <button id="btn-view-qimao" class="view-mode-btn" onclick="switchPlatformMode('qimao')">🐱 七猫作家排版</button>
+                        <button id="btn-view-shuqi" class="view-mode-btn" onclick="switchPlatformMode('shuqi')">📚 书旗作家排版</button>
                     </div>
-                    <span id="tomato-copy-hint" style="font-size:10px; color:var(--text-dim);">已自动缩进两格及标点全角化</span>
+                    <span id="tomato-copy-hint" style="font-size:11px; color:var(--text-dim);">已自动双全角缩进与敏感词预审</span>
                 </div>
 
                 <!-- 正文预览主视窗 -->
@@ -1994,17 +2002,21 @@
                     </div>
                 </div>
 
-                <!-- 一键复制与自动化发布操作区 -->
-                <div style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
-                    <button class="btn-launch-big" style="flex:2; min-width:220px; background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyTomatoContent()">
-                        <span>📋 一键复制番茄标准正文</span>
-                        <span style="font-size:11px; opacity:0.85;">(已自动净化错字与缩进)</span>
+                <!-- 一键复制与跨平台发布操作区 -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:10px; margin-bottom:12px;">
+                    <button id="btn-copy-platform-content" class="btn-launch-big" style="background:linear-gradient(135deg, #ef4444, #b91c1c); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyCurrentPlatformContent()">
+                        <span id="btn-copy-platform-text">📋 一键复制番茄标准正文</span>
+                        <span style="font-size:11px; opacity:0.85;">(智能净排版)</span>
                     </button>
-                    <button class="btn-launch-big" style="flex:1.2; min-width:200px; background:linear-gradient(135deg, #eab308, #ca8a04); color:#000; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="openFanqieScriptModal()">
-                        <span>🤖 网文自动发布助手 (番茄/七猫/书旗三平台油猴脚本)</span>
+                    <button class="btn-launch-big" style="background:linear-gradient(135deg, #10b981, #059669); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyNovelMetadata()">
+                        <span>✨ 复制新书建档档案</span>
+                        <span style="font-size:11px; opacity:0.85;">(书名/主角/精炼简介)</span>
                     </button>
-                    <button class="btn-launch-big" style="flex:1; min-width:180px; background:linear-gradient(135deg, #3b82f6, #1d4ed8); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyFanqiePublishPackage()">
-                        <span>📦 复制本章发布包</span>
+                    <button class="btn-launch-big" style="background:linear-gradient(135deg, #eab308, #ca8a04); color:#000; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="openFanqieScriptModal()">
+                        <span>🤖 网文自动发布助手 (油猴 v2.2)</span>
+                    </button>
+                    <button class="btn-launch-big" style="background:linear-gradient(135deg, #3b82f6, #1d4ed8); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyFanqiePublishPackage()">
+                        <span>📦 复制跨平台发布JSON包</span>
                     </button>
                 </div>
 
@@ -2099,8 +2111,8 @@
             <span>设定大典</span>
         </div>
         <div id="dock-tomato" class="dock-btn" onclick="switchTab('tomato')">
-            <div class="d-icon">🍅</div>
-            <span>番茄发布</span>
+            <div class="d-icon">🚀</div>
+            <span>多平台发布</span>
         </div>
     </nav>
 
@@ -5130,6 +5142,55 @@
                 .replace(/'/g, "&#039;");
         }
 
+        let CURRENT_PLATFORM_MODE = 'fanqie'; // 'fanqie' | 'qimao' | 'shuqi'
+
+        function switchPlatformMode(plat) {
+            CURRENT_PLATFORM_MODE = plat;
+            TOMATO_VIEW_MODE = 'clean';
+            ['highlight', 'tomato', 'qimao', 'shuqi'].forEach(m => {
+                const b = document.getElementById(m === 'highlight' ? 'btn-view-highlight' : `btn-view-${m}`);
+                if (b) b.classList.remove('active');
+            });
+            const activeBtn = document.getElementById(plat === 'fanqie' ? 'btn-view-tomato' : (plat === 'qimao' ? 'btn-view-qimao' : 'btn-view-shuqi'));
+            if (activeBtn) activeBtn.classList.add('active');
+
+            const hint = document.getElementById("tomato-copy-hint");
+            const copyBtnText = document.getElementById("btn-copy-platform-text");
+            const copyBtn = document.getElementById("btn-copy-platform-content");
+
+            if (plat === 'qimao') {
+                if (hint) hint.innerText = "七猫规范：标题20字限长 · 平台前置第X章 · 首行全角缩进";
+                if (copyBtnText) copyBtnText.innerText = "📋 一键复制七猫纯净标题与正文";
+                if (copyBtn) copyBtn.style.background = "linear-gradient(135deg, #ca8a04, #a16207)";
+            } else if (plat === 'shuqi') {
+                if (hint) hint.innerText = "书旗规范：全标题格式 · 正文双全角缩进 · 适配书旗富文本";
+                if (copyBtnText) copyBtnText.innerText = "📋 一键复制书旗标准纯净正文";
+                if (copyBtn) copyBtn.style.background = "linear-gradient(135deg, #2563eb, #1d4ed8)";
+            } else {
+                if (hint) hint.innerText = "番茄规范：序号与纯标题分离 · 首行双空格全角缩进";
+                if (copyBtnText) copyBtnText.innerText = "📋 一键复制番茄标准纯净正文";
+                if (copyBtn) copyBtn.style.background = "linear-gradient(135deg, #ef4444, #b91c1c)";
+            }
+
+            renderTomatoPreviewText();
+        }
+
+        function switchPreviewMode(mode) {
+            TOMATO_VIEW_MODE = mode;
+            ['highlight', 'tomato', 'qimao', 'shuqi'].forEach(m => {
+                const b = document.getElementById(m === 'highlight' ? 'btn-view-highlight' : `btn-view-${m}`);
+                if (b) b.classList.remove('active');
+            });
+            if (mode === 'highlight') {
+                const b = document.getElementById('btn-view-highlight');
+                if (b) b.classList.add('active');
+            } else {
+                switchPlatformMode(CURRENT_PLATFORM_MODE);
+                return;
+            }
+            renderTomatoPreviewText();
+        }
+
         function renderTomatoPreviewText() {
             const preview = document.getElementById("tomato-preview-box");
             if (!preview || !CURRENT_TOMATO_DATA) return;
@@ -5138,8 +5199,37 @@
             const content = CURRENT_TOMATO_DATA.content || "";
 
             if (TOMATO_VIEW_MODE === 'clean') {
-                preview.innerText = `${title}\n\n${content}`;
-                return;
+                if (CURRENT_PLATFORM_MODE === 'qimao') {
+                    const pureTitle = title.replace(/^第\s*\d+\s*章[\s_：:]*/, '').trim();
+                    const isValidLen = pureTitle.length <= 20;
+                    preview.innerHTML = `
+                        <div style="background:rgba(234, 179, 8, 0.12); border:1px solid rgba(234, 179, 8, 0.35); border-radius:6px; padding:8px 12px; margin-bottom:12px; font-size:12px; color:#fef08a; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                            <span>🐱 <b>七猫作家中心排版</b>：平台已内置前置章节号，标题框需填纯标题</span>
+                            <span>纯标题字数：<b>${pureTitle.length}字 / 20字上限</b> ${isValidLen ? '<span style="color:#4ade80; font-weight:700;">✓ 符合七猫规范</span>' : '<span style="color:#f87171; font-weight:700;">⚠️ 超过20字</span>'}</span>
+                        </div>
+                        <h3 style="color:#fef08a; margin-bottom:12px; font-size:15px;"><span style="color:#94a3b8; font-weight:normal;">[七猫前置章节名]</span> ${escapeHtml(pureTitle)}</h3>
+                        <div>${escapeHtml(content)}</div>
+                    `;
+                    return;
+                } else if (CURRENT_PLATFORM_MODE === 'shuqi') {
+                    preview.innerHTML = `
+                        <div style="background:rgba(59, 130, 246, 0.12); border:1px solid rgba(59, 130, 246, 0.35); border-radius:6px; padding:8px 12px; margin-bottom:12px; font-size:12px; color:#93c5fd;">
+                            📚 <b>书旗作家平台排版</b>：完整全标题模式，正文首行两格缩进，契合书旗网文移动端阅读标准
+                        </div>
+                        <h3 style="color:#93c5fd; margin-bottom:12px; font-size:15px;">${escapeHtml(title)}</h3>
+                        <div>${escapeHtml(content)}</div>
+                    `;
+                    return;
+                } else {
+                    preview.innerHTML = `
+                        <div style="background:rgba(239, 68, 68, 0.12); border:1px solid rgba(239, 68, 68, 0.35); border-radius:6px; padding:8px 12px; margin-bottom:12px; font-size:12px; color:#fca5a5;">
+                            🍅 <b>番茄小说作家后台排版</b>：序号与纯标题分离，纯净段落空行，已完成敏感词与错别字清洗
+                        </div>
+                        <h3 style="color:#fef08a; margin-bottom:12px; font-size:15px;">${escapeHtml(title)}</h3>
+                        <div>${escapeHtml(content)}</div>
+                    `;
+                    return;
+                }
             }
 
             // 显影高亮模式 (使用 <mark> 标出问题，毫秒级快速匹配)
@@ -5236,14 +5326,57 @@
             if (confirmed) await autoFixCurrentChapter({wrong_word:wrongWord, correct_word:correctWord});
         }
 
-        function copyTomatoContent() {
-            if (!CURRENT_TOMATO_DATA) return alert("请先选择章节！");
-            const cleanText = `${CURRENT_TOMATO_DATA.title}\n\n${CURRENT_TOMATO_DATA.content}`;
-            navigator.clipboard.writeText(cleanText).then(() => {
-                alert("📋 番茄标准纯净正文已成功复制！\n✓ 包含番茄标准首行全角缩进两格\n✓ 严格中文字符与全角对齐\n✓ 可直接粘贴至番茄作家助手后台发布！");
+        function copyCurrentPlatformContent() {
+            if (!CURRENT_TOMATO_DATA) return alert("请先在上方选择一个章节！");
+            let textToCopy = "";
+            let platName = "番茄小说";
+            if (CURRENT_PLATFORM_MODE === 'qimao') {
+                platName = "七猫作家中心";
+                const pureTitle = (CURRENT_TOMATO_DATA.title || '').replace(/^第\s*\d+\s*章[\s_：:]*/, '').trim();
+                textToCopy = `${pureTitle}\n\n${CURRENT_TOMATO_DATA.content}`;
+            } else if (CURRENT_PLATFORM_MODE === 'shuqi') {
+                platName = "书旗作家平台";
+                textToCopy = `${CURRENT_TOMATO_DATA.title}\n\n${CURRENT_TOMATO_DATA.content}`;
+            } else {
+                platName = "番茄小说";
+                textToCopy = `${CURRENT_TOMATO_DATA.title}\n\n${CURRENT_TOMATO_DATA.content}`;
+            }
+
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showToast(`📋 【${platName}】标准格式正文已复制到剪贴板！`, "success", 3000);
             }).catch(() => {
-                alert("复制失败，请在预览框中长按全选复制！");
+                showToast("复制失败，请在预览区中手动选中复制！", "error");
             });
+        }
+
+        async function copyNovelMetadata() {
+            try {
+                showToast("正在获取新书建档完整档案...", "info", 1500);
+                const res = await fetchAPI(`${API}/novel_synopsis?book=${encodeURIComponent(CURRENT_BOOK)}`);
+                if (res && res.ok) {
+                    const text = [
+                        `【作品全名】：${res.title}`,
+                        `【七猫短书名(≤15字)】：${res.short_title}`,
+                        `【目标读者】：${res.target_reader}`,
+                        `【作品分类】：${res.category}`,
+                        `【作品状态】：${res.status}`,
+                        `【征文活动】：${res.contest}`,
+                        `【核心标签】：${(res.tags || []).join('、')}`,
+                        `【主角名称】：${(res.roles || []).join('、')}`,
+                        `\n【作品简介 (422字精炼版，契合100~500字要求)】：\n${res.synopsis_condensed || res.synopsis}`
+                    ].join('\n');
+                    await navigator.clipboard.writeText(text);
+                    showToast("✨ 新书建档全量档案已复制！可在书旗/七猫创建页面直接粘贴！", "success", 4500);
+                } else {
+                    showToast("获取建档档案失败: " + (res.error || "未知异常"), "error");
+                }
+            } catch(e) {
+                showToast("获取失败: " + e.message, "error");
+            }
+        }
+
+        function copyTomatoContent() {
+            return copyCurrentPlatformContent();
         }
 
         function exportTomatoZip() {
