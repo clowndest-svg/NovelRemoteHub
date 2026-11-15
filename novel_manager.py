@@ -191,7 +191,12 @@ def get_user_settings(config_dir=None):
         "deepseek_enabled": False,
         "deepseek_api_key": "",
         "deepseek_base_url": "https://api.deepseek.com",
-        "deepseek_default_model": "deepseek-flash"
+        "deepseek_default_model": "deepseek-flash",
+        "auto_write_enabled": False,
+        "auto_write_chapters": 10,
+        "auto_write_time": "06:00",
+        "auto_write_engine_order": ["antigravity", "codex", "deepseek"],
+        "auto_write_fallback": True
     }
     if os.path.exists(cfg_path):
         try:
@@ -205,9 +210,17 @@ def get_user_settings(config_dir=None):
 def save_user_settings(settings, config_dir=None):
     if not isinstance(settings, dict):
         raise ValueError("设置必须为对象")
-    for key in ("auto_read_previous", "auto_check_ledger", "strict_tomato_layout", "deepseek_enabled"):
+    for key in ("auto_read_previous", "auto_check_ledger", "strict_tomato_layout", "deepseek_enabled", "auto_write_enabled", "auto_write_fallback"):
         if key in settings and not isinstance(settings[key], bool):
             raise ValueError("开关设置必须为布尔值")
+    if "auto_write_chapters" in settings:
+        validate_chapter_count(settings["auto_write_chapters"])
+    if "auto_write_time" in settings and (not isinstance(settings["auto_write_time"], str) or not re.fullmatch(r"\d{2}:\d{2}", settings["auto_write_time"])):
+        raise ValueError("定时时间格式无效，须为 HH:MM")
+    if "auto_write_engine_order" in settings:
+        order = settings["auto_write_engine_order"]
+        if not isinstance(order, list) or not order or any(e not in ("antigravity", "codex", "deepseek") for e in order):
+            raise ValueError("AI 引擎优先级列表格式无效")
     if "batch_count" in settings:
         validate_chapter_count(settings["batch_count"])
     if settings.get("default_engine", "antigravity") not in ("antigravity", "codex", "deepseek"):

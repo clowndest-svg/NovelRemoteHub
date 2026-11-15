@@ -36,6 +36,7 @@ from urllib.parse import urlparse, parse_qs
 # 引入小说管理工作流
 sys.path.append(os.path.dirname(__file__))
 import novel_manager
+import auto_writer
 
 
 def generate_svg_cover(book_title, genre="宇宙科技修仙"):
@@ -543,6 +544,145 @@ def execute_deepseek_task_async(tid):
         start_ready_cloud_tasks()
 
 
+def get_auto_writer_manager(data_dir=None, books_dir=None):
+    start_auto_writer_scheduler()
+    return auto_writer.AutoWriterManager(data_dir or DATA_DIR, books_dir or BOOKS_DIR)
+
+
+def dispatch_auto_task(book_id, action_or_workflow="creative_instruction", prompt="", engine_mode="antigravity", chapter_count=1, extra=None, **kw):
+    with WRITE_LOCK:
+        action = kw.get("action")
+        workflow = kw.get("workflow")
+        if not action:
+            if action_or_workflow in ("outline", "repair_chapter", "evolve_settings", "create_new_novel"):
+                action = "creative_instruction" if action_or_workflow == "outline" else action_or_workflow
+                workflow = action_or_workflow
+            else:
+                action = "creative_instruction"
+                workflow = workflow or "serial"
+
+        chapter_count = kw.get("chapter_count", chapter_count)
+        prompt = kw.get("prompt", prompt)
+        engine_mode = canonical_engine(kw.get("engine_mode", engine_mode))
+        extra_data = {
+            "workflow": workflow,
+            "chapter_count": chapter_count,
+            "permission_mode": "full-access",
+            **(extra or {}),
+            **(kw.get("extra") or {})
+        }
+        catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": []})
+        agent = next((entry for entry in catalog.get("engines", []) if entry.get("id") == engine_mode), {})
+        if engine_mode == "deepseek":
+            import deepseek_client
+            agent = deepseek_client.discover(DATA_DIR)
+        try:
+            model, effort = selected_model(agent, extra_data.get("model_tier"), extra_data.get("reasoning_effort"))
+            extra_data["model_tier"] = model.get("effort_models", {}).get(effort, model.get("id"))
+            extra_data["reasoning_effort"] = effort
+        except Exception:
+            extra_data.setdefault("model_tier", "default")
+            extra_data.setdefault("reasoning_effort", "高")
+
+        for existing in TASKS.values():
+            if existing.get("book_id") == book_id and existing.get("status") in ("pending", "assigned", "running"):
+                return True, {"task_id": existing["id"], "reused": True}
+
+        tid = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        task = {
+            "id": tid,
+            "request_id": f"auto_{int(time.time())}_{book_id}",
+            "action": action,
+            "sub_action": "",
+            "prompt": prompt,
+            "book_id": book_id,
+            "requested_book_id": book_id,
+            "engine_mode": engine_mode,
+            "workspace": "D:\\小说",
+            "project_id": agent.get("project_id"),
+            "permission_mode": "full-access",
+            "extra_data": extra_data,
+            "status": "pending",
+            "progress_log": [f"[{time.strftime('%H:%M:%S')}] 每日全自动连更任务已创建，等待调度..."],
+            "created_at": time.time(),
+            "completed_at": None,
+            "result": None
+        }
+        TASKS[tid] = task
+        save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
+        if engine_mode == "deepseek":
+            task["progress_log"] = [f"[{time.strftime('%H:%M:%S')}] 任务已建立，DeepSeek 官方 API 直连创作引擎正在启动..."]
+            start_ready_cloud_tasks()
+        return True, {"task_id": tid, "created": True}
+
+
+def direct_generate_outline(prompt):
+    try:
+        import deepseek_client
+        ds_cfg = deepseek_client.get_deepseek_config(DATA_DIR)
+        if ds_cfg.get("api_key"):
+            ok, msg = deepseek_client.test_api_key(ds_cfg.get("api_key"), ds_cfg.get("base_url"))
+            if ok:
+                success, output = deepseek_client.execute_instruction(
+                    book_path=BOOKS_DIR,
+                    book_id="大纲推演",
+                    prompt=prompt,
+                    model_tier="deepseek-flash",
+                    reasoning_effort="high",
+                    data_dir=DATA_DIR
+                )
+                if success and output:
+                    return output
+    except Exception:
+        pass
+    return None
+
+
+SCHEDULER_THREAD_STARTED = False
+
+def auto_writer_scheduler_loop():
+    """
+    后台定时守护巡检线程：
+    每 30 秒轮询一次，当 auto_write_enabled 为 True 时：
+    比对系统时间 HH:MM 与设置中的 auto_write_time，并且确保当天只执行一次；
+    自动触发 run_pipeline。
+    """
+    while True:
+        try:
+            time.sleep(30)
+            settings = novel_manager.get_user_settings(DATA_DIR)
+            if not settings.get("auto_write_enabled", False):
+                continue
+
+            target_time = settings.get("auto_write_time", "06:00")
+            now_time = time.strftime("%H:%M")
+            today_date = time.strftime("%Y-%m-%d")
+
+            status = auto_writer.load_auto_write_status(DATA_DIR)
+            if status.get("last_run_date") == today_date and status.get("status") == "completed":
+                continue
+
+            if now_time >= target_time:
+                mgr = get_auto_writer_manager(DATA_DIR, BOOKS_DIR)
+                mgr.run_pipeline(
+                    trigger_type="scheduled",
+                    force=False,
+                    local_status=LOCAL_STATUS,
+                    dispatch_task_func=dispatch_auto_task,
+                    direct_generate_func=direct_generate_outline
+                )
+        except Exception:
+            pass
+
+
+def start_auto_writer_scheduler():
+    global SCHEDULER_THREAD_STARTED
+    if not SCHEDULER_THREAD_STARTED:
+        SCHEDULER_THREAD_STARTED = True
+        t = threading.Thread(target=auto_writer_scheduler_loop, daemon=True)
+        t.start()
+
+
 class BoundedHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 32
@@ -656,7 +796,7 @@ class HubHandler(BaseHTTPRequestHandler):
             if self.path.split("?")[0].rstrip("/").endswith((
                     "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
                     "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/app_settings", "/sync_manifest", "/sync_document",
-                    "/fanqie_publish_package", "/fanqie_publish_list", "/fanqie_publisher.user.js")):
+                    "/fanqie_publish_package", "/fanqie_publish_list", "/fanqie_publisher.user.js", "/auto_write_status")):
                 with WRITE_LOCK:
                     self.handle_get()
             else:
@@ -1050,6 +1190,15 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "settings": settings})
             return
 
+        # 获取每日全自动续写与智能巡检状态
+        if path in ("/api/auto_write_status", "/novel/api/auto_write_status"):
+            mgr = get_auto_writer_manager(DATA_DIR, BOOKS_DIR)
+            status = mgr.get_status()
+            status["local_online"] = bool(LOCAL_STATUS.get("online", False))
+            status["local_last_seen"] = LOCAL_STATUS.get("last_seen", 0)
+            self.send_json(status)
+            return
+
         if path in ("/api/library", "/novel/api/library"):
             books = get_cached("novel:cache:books")
             if books is None:
@@ -1419,6 +1568,20 @@ class HubHandler(BaseHTTPRequestHandler):
         if path in ("/api/app_settings", "/novel/api/app_settings"):
             new_settings = novel_manager.save_user_settings(body, DATA_DIR)
             self.send_json({"ok": True, "settings": new_settings})
+            return
+
+        # 手动立即触发每日全自动巡检与连更流水线
+        if path in ("/api/trigger_auto_write", "/novel/api/trigger_auto_write"):
+            force = bool(body.get("force", True))
+            mgr = get_auto_writer_manager(DATA_DIR, BOOKS_DIR)
+            ok, msg, status = mgr.run_pipeline(
+                trigger_type="manual",
+                force=force,
+                local_status=LOCAL_STATUS,
+                dispatch_task_func=dispatch_auto_task,
+                direct_generate_func=direct_generate_outline
+            )
+            self.send_json({"ok": ok, "message": msg, "status": status})
             return
 
         # 修改小说基本信息与封面
@@ -1902,4 +2065,5 @@ if __name__ == "__main__":
     server = BoundedHTTPServer((os.environ.get("NOVEL_HUB_BIND", "127.0.0.1"), int(os.environ.get("NOVEL_HUB_PORT", port))), HubHandler)
     print(f"Novel Hub 3.5 Server (Redis Cache & Fast Tomato Engine) running on 0.0.0.0:{port}...")
     start_ready_cloud_tasks()
+    start_auto_writer_scheduler()
     server.serve_forever()

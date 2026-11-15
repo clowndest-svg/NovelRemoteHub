@@ -188,6 +188,75 @@
             animation: none;
         }
 
+        .auto-write-pill {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+        .auto-write-pill:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.15);
+        }
+        .auto-write-pill.disabled {
+            background: rgba(148, 163, 184, 0.12);
+            border-color: rgba(148, 163, 184, 0.3);
+            color: #94a3b8;
+        }
+        .auto-write-pill.disabled .auto-write-dot {
+            background: #64748b;
+            box-shadow: none;
+        }
+        .auto-write-pill.running {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.45);
+            color: #f59e0b;
+        }
+        .auto-write-pill.running .auto-write-dot {
+            background: #f59e0b;
+            box-shadow: 0 0 8px #f59e0b;
+            animation: pulse-ring 1.5s infinite;
+        }
+        .auto-write-pill.completed {
+            background: rgba(16, 185, 129, 0.15);
+            border-color: rgba(16, 185, 129, 0.45);
+            color: #10b981;
+        }
+        .auto-write-pill.completed .auto-write-dot {
+            background: #10b981;
+            box-shadow: 0 0 6px #10b981;
+        }
+        .auto-write-pill.blocked {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.45);
+            color: #ef4444;
+        }
+        .auto-write-pill.blocked .auto-write-dot {
+            background: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+            animation: pulse-ring 1.5s infinite;
+        }
+        .auto-write-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .chip-btn {
+            font-size: 10px;
+            padding: 2px 7px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: var(--text-sub);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .chip-btn:hover {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: #10b981;
+            color: #10b981;
+        }
+
         @keyframes pulse-ring {
             0% { transform: scale(0.95); opacity: 0.8; }
             50% { transform: scale(1.2); opacity: 1; }
@@ -1727,6 +1796,10 @@
                 <span class="pulse-dot"></span>
                 <span id="status-text">检测中</span>
             </div>
+            <div id="auto-write-badge" class="status-pill auto-write-pill disabled" onclick="openAutoWriteModal()" title="每日全自动连更巡检看板与多引擎探针（点击查看）">
+                <span class="auto-write-dot"></span>
+                <span id="auto-write-text">自动续写: 关</span>
+            </div>
             <!-- 官方域名下载链接 (App 内自动隐藏) -->
             <a id="btn-apk-header" href="https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.2" class="btn-apk-pill" download>
                 <span>📥 App</span>
@@ -1751,6 +1824,9 @@
             <button class="btn-new-book-quick" onclick="openTasksDashboardModal()" title="查看所有小说当前并发创作进度看板" style="border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; background: rgba(56, 189, 248, 0.1);">
                 <span>📊 任务看板</span>
                 <span id="active-tasks-badge" style="display:none; background:#10b981; color:#000; font-size:10px; font-weight:bold; padding:1px 5px; border-radius:10px; margin-left:3px;">0</span>
+            </button>
+            <button class="btn-new-book-quick" onclick="openAutoWriteModal()" title="查看名下全部小说每日自动续写状态与大纲完备度看板" style="border-color: rgba(16, 185, 129, 0.45); color: #10b981; background: rgba(16, 185, 129, 0.1);">
+                <span>🤖 自动连更</span>
             </button>
             <button class="btn-new-book-quick" onclick="openWorkflowGuideModal()" title="查看从构思新书到千章创作的完整SOP操作流程指南" style="border-color: rgba(226, 183, 64, 0.45); color: var(--accent); background: rgba(226, 183, 64, 0.1);">
                 <span>📖 创作指南</span>
@@ -2397,6 +2473,75 @@
         </div>
     </div>
 
+    <!-- 每日全自动化运维与巡检看板 Modal -->
+    <div id="auto-write-modal" class="modal-overlay" onclick="closeAutoWriteModal(event)">
+        <div class="modal-box modal-box-large" onclick="event.stopPropagation()" style="max-width:700px; max-height:85vh; display:flex; flex-direction:column;">
+            <div class="modal-header" style="flex-shrink:0;">
+                <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:18px;">🤖</span>
+                    <span>每日全自动续写与智能巡检中枢看板</span>
+                    <span id="auto-write-status-tag" style="font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(148, 163, 184, 0.2); color:#94a3b8; font-weight:normal;">检测中</span>
+                </div>
+                <button class="close-btn" onclick="closeAutoWriteModal()">&times;</button>
+            </div>
+
+            <div style="flex:1; overflow-y:auto; padding-right:4px;">
+                <!-- 核心状态与熔断概览横幅 -->
+                <div id="auto-write-banner" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:12px 14px; margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="font-size:13px; font-weight:bold; color:var(--text-main);" id="auto-write-banner-title">巡检状态诊断</span>
+                        <span style="font-size:11px; color:var(--text-sub);" id="auto-write-last-time">上次巡检：从未</span>
+                    </div>
+                    <div style="font-size:12px; color:var(--text-sub); line-height:1.5;" id="auto-write-banner-msg">
+                        正在加载自动续写巡检日志与探针状态...
+                    </div>
+                </div>
+
+                <!-- 多 AI 引擎健康探测实时诊断梯队 (Probe Matrix) -->
+                <div style="margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-size:12px; font-weight:bold; color:#38bdf8;">⚡ 多引擎前置健康探针 (Pre-flight Probe Matrix)</span>
+                        <span style="font-size:11px; color:var(--text-sub);">优先级：Antigravity ➔ Codex ➔ DeepSeek</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px;" id="auto-write-probe-cards">
+                        <!-- 由 JS 动态填充三大引擎探针状态卡片 -->
+                    </div>
+                </div>
+
+                <!-- 小说设定集细纲完备度与连更任务下发详情 -->
+                <div style="margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-size:12px; font-weight:bold; color:#10b981;">📚 小说工程大纲完备性与今日连更巡检</span>
+                        <span style="font-size:11px; color:var(--text-sub);" id="auto-write-target-chap-desc">每日目标：10 章</span>
+                    </div>
+                    <div id="auto-write-books-container" style="display:flex; flex-direction:column; gap:8px;">
+                        <!-- 由 JS 动态渲染名下各小说大纲自愈检测与任务派发状态 -->
+                    </div>
+                </div>
+
+                <!-- SOP 与自愈推演机制说明卡片 -->
+                <div style="background:linear-gradient(135deg, rgba(226, 183, 64, 0.08), rgba(56, 189, 248, 0.05)); border:1px dashed rgba(226, 183, 64, 0.3); border-radius:8px; padding:10px 12px; font-size:11px; color:var(--text-sub); line-height:1.5;">
+                    <div style="font-weight:bold; color:var(--accent); margin-bottom:4px;">🛡️ 全自动化闭环风控机制：</div>
+                    <div>1. <b>大纲闭环自愈</b>：连更前通读 <code>00_设定集/</code>，若缺少后续章节标题与细纲文案，自动调用 AI 先推演补全新细纲并追加写回设定集，严防脱缰瞎编。</div>
+                    <div>2. <b>全梯队安全熔断</b>：若检测到电脑关机且 DeepSeek 欠费或未填 Key，全梯队熔断挂起，绝不下发脏任务或堆积死任务。</div>
+                    <div>3. <b>云端独立自愈</b>：若电脑关机但配置了 DeepSeek API，服务器可独立全自动在云端完成正文生成与落盘，开机后自动双向同步。</div>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:14px; padding-top:10px; border-top:1px solid var(--border); flex-shrink:0;">
+                <button class="btn-launch-big" style="flex:1; background:linear-gradient(135deg, #10b981, #059669); color:#fff; font-weight:bold; padding:10px;" onclick="triggerAutoWriteNow()">
+                    ⚡ 立即执行今日全流程巡检连更
+                </button>
+                <button class="btn-new-book-quick" style="padding:10px 14px;" onclick="loadAutoWriteStatus(true)">
+                    🔍 刷新状态
+                </button>
+                <button class="btn-new-book-quick" style="padding:10px 14px;" onclick="closeAutoWriteModal(); openSettingsModal();">
+                    ⚙️ 调整设置
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 全局系统设置与创作风控偏好 Modal -->
     <div id="settings-modal" class="modal-overlay" onclick="closeSettingsModal(event)">
         <div class="modal-box modal-box-large" onclick="event.stopPropagation()">
@@ -2552,6 +2697,91 @@
                                 🔍 一键测试 API 连通性
                             </button>
                             <span id="deepseek-test-status" style="font-size:11px;"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 每日每本全自动续写与多引擎智能梯队调度 -->
+                <div class="setting-card" style="border-color: rgba(16, 185, 129, 0.45); background: linear-gradient(180deg, rgba(16, 185, 129, 0.05) 0%, transparent 100%);">
+                    <div class="setting-card-title" style="color: #10b981; display:flex; justify-content:space-between; align-items:center;">
+                        <span>🤖 每日每本全自动续写与智能多引擎调度</span>
+                        <span style="font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(16, 185, 129, 0.15); color:#10b981;">巡检保障</span>
+                    </div>
+                    <div style="font-size:11px; color:var(--text-sub); line-height:1.5; margin-bottom:12px;">
+                        开启后每日定时巡检名下所有小说工程。续写前<b>自动通读全套设定集</b>检测分章细纲，若发现大纲缺失将<b>先推演补全新细纲写回文档</b>后再写正文；执行前通过轻量探针检测电脑心跳与 API 余额，全不可用时安全熔断绝不下发脏任务。
+                    </div>
+                    <div class="setting-item">
+                        <div>
+                            <div style="font-size:12px; font-weight:bold; color:var(--text-main);">每日自动续写总开关</div>
+                            <div class="setting-desc">出厂默认关闭，开启后进入每日全自动无人值守巡检连更</div>
+                        </div>
+                        <input type="checkbox" id="setting-auto-write-enabled" style="accent-color:#10b981; width:20px; height:20px;" onchange="toggleAutoWriteFields()">
+                    </div>
+
+                    <div id="auto-write-fields-group" style="margin-top:10px; display:none;">
+                        <div class="setting-item">
+                            <div>
+                                <div style="font-size:12px; font-weight:bold; color:var(--text-main);">每本每日自动续写章节数 (1~100章)</div>
+                                <div class="setting-desc">输入每日自动续写章数，或点击下方快捷芯片选择</div>
+                            </div>
+                            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                                <input type="number" id="setting-auto-write-chapters" min="1" max="100" value="10" class="input-text" style="width:110px; text-align:center; font-weight:bold;">
+                                <div style="display:flex; gap:4px;">
+                                    <span class="chip-btn" onclick="selectAutoWriteChapters(5)">5章</span>
+                                    <span class="chip-btn" onclick="selectAutoWriteChapters(10)">10章</span>
+                                    <span class="chip-btn" onclick="selectAutoWriteChapters(20)">20章</span>
+                                    <span class="chip-btn" onclick="selectAutoWriteChapters(30)">30章</span>
+                                    <span class="chip-btn" onclick="selectAutoWriteChapters(50)">50章</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <div>
+                                <div style="font-size:12px; font-weight:bold; color:var(--text-main);">每日定时触发时间 (HH:MM)</div>
+                                <div class="setting-desc">每日到达该时间且检测到可用引擎时自动下发任务</div>
+                            </div>
+                            <input type="time" id="setting-auto-write-time" value="06:00" class="input-text" style="width:110px; text-align:center;">
+                        </div>
+
+                        <div style="margin-top:12px; padding:10px; border-radius:8px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06);">
+                            <div style="font-size:11px; font-weight:bold; color:#38bdf8; margin-bottom:8px; display:flex; justify-content:space-between;">
+                                <span>⚡ 多 AI 引擎健康探测与派发优先级梯队</span>
+                                <span style="font-size:10px; color:var(--text-sub);">按从上至下优先级探测</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <div style="display:flex; align-items:center; justify-content:space-between;">
+                                    <span style="font-size:11px; color:var(--text-main);">🥇 首选执行引擎：</span>
+                                    <select id="setting-engine-order-1" class="select-box" style="width:180px;">
+                                        <option value="antigravity">Antigravity 本地端 (首选)</option>
+                                        <option value="codex">Codex 工作区端</option>
+                                        <option value="deepseek">DeepSeek 官方直连 API</option>
+                                    </select>
+                                </div>
+                                <div style="display:flex; align-items:center; justify-content:space-between;">
+                                    <span style="font-size:11px; color:var(--text-main);">🥈 次选执行引擎：</span>
+                                    <select id="setting-engine-order-2" class="select-box" style="width:180px;">
+                                        <option value="codex">Codex 工作区端 (次选)</option>
+                                        <option value="antigravity">Antigravity 本地端</option>
+                                        <option value="deepseek">DeepSeek 官方直连 API</option>
+                                    </select>
+                                </div>
+                                <div style="display:flex; align-items:center; justify-content:space-between;">
+                                    <span style="font-size:11px; color:var(--text-main);">🥉 底选托底引擎：</span>
+                                    <select id="setting-engine-order-3" class="select-box" style="width:180px;">
+                                        <option value="deepseek">DeepSeek 官方直连 API (底选)</option>
+                                        <option value="codex">Codex 工作区端</option>
+                                        <option value="antigravity">Antigravity 本地端</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="setting-item" style="margin-top:10px; padding-top:8px; border-top:1px dashed rgba(255,255,255,0.08);">
+                                <div>
+                                    <div style="font-size:11px; font-weight:bold; color:var(--text-main);">故障自动降级与熔断保护</div>
+                                    <div class="setting-desc">首选不可用自动顺延次选/底选；全不可用时安全熔断</div>
+                                </div>
+                                <input type="checkbox" id="setting-auto-write-fallback" checked style="accent-color:#10b981; width:16px; height:16px;">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3287,6 +3517,8 @@
             initAllCustomPickers();
             checkStatus();
             setInterval(checkStatus, 10000);
+            loadAutoWriteStatus();
+            setInterval(loadAutoWriteStatus, 20000);
             if (!TOKEN) await requestAccessLogin();
             loadAppPreferences().then(loadAgentCatalog);
             setInterval(loadAgentCatalog, 60000);
@@ -4357,6 +4589,31 @@
                         document.getElementById("setting-deepseek-model").value = s.deepseek_default_model || "deepseek-flash";
                     }
                     toggleDeepSeekFields();
+
+                    // 每日全自动续写设置加载
+                    if (document.getElementById("setting-auto-write-enabled")) {
+                        document.getElementById("setting-auto-write-enabled").checked = Boolean(s.auto_write_enabled);
+                    }
+                    if (document.getElementById("setting-auto-write-chapters")) {
+                        document.getElementById("setting-auto-write-chapters").value = s.auto_write_chapters || 10;
+                    }
+                    if (document.getElementById("setting-auto-write-time")) {
+                        document.getElementById("setting-auto-write-time").value = s.auto_write_time || "06:00";
+                    }
+                    const order = s.auto_write_engine_order || ["antigravity", "codex", "deepseek"];
+                    if (document.getElementById("setting-engine-order-1")) {
+                        document.getElementById("setting-engine-order-1").value = order[0] || "antigravity";
+                    }
+                    if (document.getElementById("setting-engine-order-2")) {
+                        document.getElementById("setting-engine-order-2").value = order[1] || "codex";
+                    }
+                    if (document.getElementById("setting-engine-order-3")) {
+                        document.getElementById("setting-engine-order-3").value = order[2] || "deepseek";
+                    }
+                    if (document.getElementById("setting-auto-write-fallback")) {
+                        document.getElementById("setting-auto-write-fallback").checked = s.auto_write_fallback !== false;
+                    }
+                    toggleAutoWriteFields();
                 }
             } catch (err) {
                 console.error("加载设置失败", err);
@@ -4381,7 +4638,16 @@
                 deepseek_enabled: document.getElementById("setting-deepseek-enabled").checked,
                 deepseek_api_key: (document.getElementById("setting-deepseek-key").value || "").trim(),
                 deepseek_base_url: (document.getElementById("setting-deepseek-url").value || "").trim(),
-                deepseek_default_model: document.getElementById("setting-deepseek-model").value
+                deepseek_default_model: document.getElementById("setting-deepseek-model").value,
+                auto_write_enabled: document.getElementById("setting-auto-write-enabled") ? document.getElementById("setting-auto-write-enabled").checked : false,
+                auto_write_chapters: document.getElementById("setting-auto-write-chapters") ? parseInt(document.getElementById("setting-auto-write-chapters").value) || 10 : 10,
+                auto_write_time: document.getElementById("setting-auto-write-time") ? document.getElementById("setting-auto-write-time").value || "06:00" : "06:00",
+                auto_write_engine_order: [
+                    document.getElementById("setting-engine-order-1") ? document.getElementById("setting-engine-order-1").value : "antigravity",
+                    document.getElementById("setting-engine-order-2") ? document.getElementById("setting-engine-order-2").value : "codex",
+                    document.getElementById("setting-engine-order-3") ? document.getElementById("setting-engine-order-3").value : "deepseek"
+                ],
+                auto_write_fallback: document.getElementById("setting-auto-write-fallback") ? document.getElementById("setting-auto-write-fallback").checked : true
             };
             
             const btn = document.getElementById("btn-save-settings");
@@ -4394,17 +4660,18 @@
                 });
                 if (res && res.ok) {
                     closeSettingsModal();
-                    showToast("⚙️ 全局设置与 DeepSeek API 规则已成功保存生效！", "success", 3500);
+                    showToast("⚙️ 全局设置与自动连更规则已成功保存生效！", "success", 3500);
                     showNovelDialog({
                         type: "success",
                         title: "⚙️ 全局偏好保存成功",
-                        message: "系统全局偏好设置与 DeepSeek 官方 API 规则已成功保存生效！\n\n默认创作引擎、字数基准、思考等级、自动阅读前文规则与风控偏好已同步生效。"
+                        message: "系统全局偏好设置、DeepSeek 官方 API 与每日全自动续写规则已成功保存生效！\n\n默认创作引擎、每日续写计划、多引擎探测梯队与风控偏好已同步生效。"
                     });
                     APP_PREFERENCES = res.settings || payload;
                     await loadAgentCatalog();
                     if (AGENT_CATALOG.engines.some(agent => agent.id === payload.default_engine)) selectAgent(payload.default_engine);
                     document.getElementById('serial-chapter-count').value = String(payload.batch_count);
                     updateNextLabel();
+                    loadAutoWriteStatus();
                 } else {
                     const errMsg = (res && res.error) || "未知错误";
                     showToast("保存失败：" + errMsg, "error", 4500);
@@ -4418,6 +4685,240 @@
                 showToast("保存异常：" + err.message, "error", 4500);
             } finally {
                 if (btn) { btn.disabled = false; btn.innerText = "💾 保存全局偏好设置"; }
+            }
+        }
+
+        // --- 每日全自动化续写与智能巡检看板 ---
+        let AUTO_WRITE_STATUS = null;
+
+        function toggleAutoWriteFields() {
+            const chk = document.getElementById("setting-auto-write-enabled");
+            const grp = document.getElementById("auto-write-fields-group");
+            if (chk && grp) {
+                grp.style.display = chk.checked ? "block" : "none";
+            }
+        }
+
+        function selectAutoWriteChapters(n) {
+            const input = document.getElementById("setting-auto-write-chapters");
+            if (input) {
+                input.value = n;
+            }
+        }
+
+        function openAutoWriteModal() {
+            const modal = document.getElementById("auto-write-modal");
+            if (modal) modal.classList.add("show");
+            loadAutoWriteStatus(true);
+        }
+
+        function closeAutoWriteModal(e) {
+            if (e && e.target !== e.currentTarget && !e.target.classList.contains("close-btn")) return;
+            const modal = document.getElementById("auto-write-modal");
+            if (modal) modal.classList.remove("show");
+        }
+
+        async function loadAutoWriteStatus(showToastOnRefresh = false) {
+            try {
+                const res = await fetchAPI(`${API}/auto_write_status`);
+                if (res) {
+                    AUTO_WRITE_STATUS = res;
+                    renderAutoWriteBadge(res);
+                    renderAutoWriteModal(res);
+                    if (showToastOnRefresh) showToast("已获取最新自动续写与探针状态", "info", 1500);
+                }
+            } catch (err) {
+                console.warn("加载自动续写状态失败", err);
+            }
+        }
+
+        function renderAutoWriteBadge(status) {
+            const badge = document.getElementById("auto-write-badge");
+            const text = document.getElementById("auto-write-text");
+            if (!badge || !text) return;
+
+            const enabled = Boolean(status.enabled);
+            const st = status.status || "disabled";
+            const engine = status.active_engine || "";
+            const chapCount = (status.settings && status.settings.auto_write_chapters) || 10;
+
+            if (!enabled) {
+                badge.className = "status-pill auto-write-pill disabled";
+                text.innerText = "自动续写: 关";
+                badge.title = "每日全自动续写未开启（点击打开看板或前往设置开启）";
+            } else if (st === "completed") {
+                badge.className = "status-pill auto-write-pill completed";
+                text.innerText = `🤖 今日连更完成 (${chapCount}章)`;
+                badge.title = `今日全自动连更已就绪 (主力引擎: ${engine})`;
+            } else if (st === "running") {
+                badge.className = "status-pill auto-write-pill running";
+                text.innerText = `🤖 自动连更中 (${engine})`;
+                badge.title = status.message || "正在自动巡检与连更创作中...";
+            } else if (st === "blocked") {
+                badge.className = "status-pill auto-write-pill blocked";
+                text.innerText = `⚠️ 续写受阻 (探针告警)`;
+                badge.title = status.message || "AI 引擎探针未就绪，安全熔断保护中";
+            } else {
+                badge.className = "status-pill auto-write-pill";
+                text.innerText = `🤖 自动续写: 就绪`;
+                badge.title = `每日 ${status.settings ? status.settings.auto_write_time : "06:00"} 自动巡检连更`;
+            }
+        }
+
+        function renderAutoWriteModal(status) {
+            const tag = document.getElementById("auto-write-status-tag");
+            const banner = document.getElementById("auto-write-banner");
+            const bannerTitle = document.getElementById("auto-write-banner-title");
+            const lastTime = document.getElementById("auto-write-last-time");
+            const bannerMsg = document.getElementById("auto-write-banner-msg");
+            const cardsContainer = document.getElementById("auto-write-probe-cards");
+            const booksContainer = document.getElementById("auto-write-books-container");
+            const chapDesc = document.getElementById("auto-write-target-chap-desc");
+
+            const enabled = Boolean(status.enabled);
+            const st = status.status || "disabled";
+            const s = status.settings || {};
+
+            if (chapDesc) {
+                chapDesc.innerText = `每日目标：${s.auto_write_chapters || 10} 章 | 定时：${s.auto_write_time || "06:00"}`;
+            }
+
+            if (tag) {
+                if (!enabled) {
+                    tag.innerText = "未开启 (默认关闭)";
+                    tag.style.background = "rgba(148, 163, 184, 0.2)";
+                    tag.style.color = "#94a3b8";
+                } else if (st === "completed") {
+                    tag.innerText = "今日已就绪";
+                    tag.style.background = "rgba(16, 185, 129, 0.2)";
+                    tag.style.color = "#10b981";
+                } else if (st === "running") {
+                    tag.innerText = "创作运行中";
+                    tag.style.background = "rgba(245, 158, 11, 0.2)";
+                    tag.style.color = "#f59e0b";
+                } else if (st === "blocked") {
+                    tag.innerText = "安全熔断挂起";
+                    tag.style.background = "rgba(239, 68, 68, 0.2)";
+                    tag.style.color = "#ef4444";
+                } else {
+                    tag.innerText = "守护待命";
+                    tag.style.background = "rgba(56, 189, 248, 0.2)";
+                    tag.style.color = "#38bdf8";
+                }
+            }
+
+            if (bannerTitle) {
+                bannerTitle.innerText = enabled ? (st === "blocked" ? "⚠️ 全梯队健康探测熔断受阻" : (st === "completed" ? "✅ 今日全自动连更完成" : "🤖 自动连更守护中")) : "💤 每日自动续写未开启";
+            }
+            if (lastTime) {
+                if (status.last_run_time > 0) {
+                    const d = new Date(status.last_run_time * 1000);
+                    lastTime.innerText = `上次巡检：${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+                } else {
+                    lastTime.innerText = "上次巡检：从未执行";
+                }
+            }
+            if (bannerMsg) {
+                bannerMsg.innerText = status.message || (enabled ? "等待下一次定时巡检连更..." : "可在系统设置中一键开启每日全自动续写与大纲自愈推演。");
+            }
+
+            // 渲染探针卡片
+            if (cardsContainer) {
+                const probes = status.probe_reports || {};
+                const engineDefs = [
+                    { id: "antigravity", name: "Antigravity 本地端", icon: "🛸", desc: "本地 IDE 工作区 · 全权操控" },
+                    { id: "codex", name: "Codex 工作区端", icon: "⚡", desc: "本地 Codex 桥接器" },
+                    { id: "deepseek", name: "DeepSeek 官方 API", icon: "🔮", desc: "云端 7x24h 直连 · 余额保障" }
+                ];
+                cardsContainer.innerHTML = engineDefs.map(def => {
+                    const p = probes[def.id] || {};
+                    const isHealthy = Boolean(p.ok);
+                    const msg = p.message || (def.id === "deepseek" ? "未进行测试或未配置 API Key" : "未收到心跳");
+                    const borderCol = isHealthy ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.35)";
+                    const bgCol = isHealthy ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.05)";
+                    const statusText = isHealthy ? "在线可用" : "暂不可用";
+                    const statusColor = isHealthy ? "#10b981" : "#ef4444";
+                    return `
+                        <div style="background:${bgCol}; border:1px solid ${borderCol}; border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; justify-content:space-between;">
+                            <div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                    <span style="font-size:12px; font-weight:bold; color:var(--text-main); display:flex; align-items:center; gap:4px;">
+                                        <span>${def.icon}</span>
+                                        <span>${def.name}</span>
+                                    </span>
+                                    <span style="font-size:10px; font-weight:bold; color:${statusColor}; background:${isHealthy ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)'}; padding:1px 6px; border-radius:6px;">${statusText}</span>
+                                </div>
+                                <div style="font-size:10px; color:var(--text-sub); margin-bottom:6px;">${def.desc}</div>
+                            </div>
+                            <div style="font-size:11px; color:${isHealthy ? 'var(--text-main)' : '#f87171'}; line-height:1.4; word-break:break-all; background:rgba(0,0,0,0.2); border-radius:6px; padding:6px 8px;">
+                                ${msg}
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+            }
+
+            // 渲染各小说大纲与连更状态
+            if (booksContainer) {
+                const novelReports = status.novel_reports || {};
+                const booksList = BOOKS || [];
+                if (!booksList.length) {
+                    booksContainer.innerHTML = `<div style="font-size:12px; color:var(--text-dim); text-align:center; padding:12px;">暂无名下小说工程</div>`;
+                } else {
+                    booksContainer.innerHTML = booksList.map(b => {
+                        const nr = novelReports[b.id] || {};
+                        const stepDesc = nr.step === "writing_dispatched" ? "✅ 今日连更创作任务已下发" : (nr.step === "outline_dispatched" ? "📝 正在推演补充新细纲..." : (nr.step === "ready" ? "👌 细纲已齐备，待写正文" : "等待今日连更巡检"));
+                        const chapRange = nr.chapter_range || `当前最新: 第${b.chapter_count || 0}章`;
+                        const isErr = nr.ok === false;
+                        return `
+                            <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:8px 12px;">
+                                <div>
+                                    <div style="font-size:12px; font-weight:bold; color:var(--text-main);">《${b.title || b.id}》</div>
+                                    <div style="font-size:10px; color:var(--text-sub); margin-top:2px;">
+                                        <span>已创作: ${b.chapter_count || 0} 章</span> · 
+                                        <span>${chapRange}</span>
+                                    </div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-size:11px; font-weight:bold; color:${isErr ? '#ef4444' : (nr.step ? '#10b981' : 'var(--text-sub)')};">
+                                        ${isErr ? ('❌ ' + (nr.error || '失败')) : stepDesc}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join("");
+                }
+            }
+        }
+
+        async function triggerAutoWriteNow() {
+            if (!confirm("确定要立即触发今日名下全部小说的全流程巡检与连更吗？\n（将执行大纲通读自愈推演并按设置章节数连更）")) return;
+            showToast("正在启动全流程连更巡检...", "info", 3000);
+            try {
+                const res = await fetchAPI(`${API}/trigger_auto_write`, {
+                    method: "POST",
+                    body: JSON.stringify({ force: true })
+                });
+                if (res && res.ok) {
+                    showToast("⚡ 每日全自动连更巡检已成功触发！", "success", 4000);
+                    showNovelDialog({
+                        type: "success",
+                        title: "🤖 全自动连更已就绪",
+                        message: res.message || "今日全自动连更流水线已启动！各小说大纲已完成闭环校验，正文任务已安全派发。"
+                    });
+                    loadAutoWriteStatus();
+                } else {
+                    const msg = (res && res.message) || (res && res.error) || "执行受阻";
+                    showToast("巡检受阻：" + msg, "warning", 5000);
+                    showNovelDialog({
+                        type: "warning",
+                        title: "⚠️ 自动续写安全熔断挂起",
+                        message: msg + "\n\n请核查电脑是否开机或 DeepSeek API 余额是否充足后重试。"
+                    });
+                    loadAutoWriteStatus();
+                }
+            } catch (err) {
+                showToast("触发异常：" + err.message, "error", 4500);
             }
         }
 
