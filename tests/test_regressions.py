@@ -148,7 +148,7 @@ class RegressionTests(unittest.TestCase):
         status, result = self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': 3})
         self.assertEqual(status, 200)
         self.assertEqual(hub.TASKS[result['task_id']]['extra_data']['chapter_count'], 3)
-        for count in [0, 11, True, 1.5, '2']:
+        for count in [0, 101, True, 1.5, '2']:
             self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'serial', 'chapter_count': count})[0], 400)
         self.assertEqual(self.dispatch(action='creative_instruction', extra_data={'workflow': 'polish', 'chapter_count': 2})[0], 400)
 

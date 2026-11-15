@@ -954,8 +954,8 @@ def export_tomato_zip(book_id=None, root_dir=None):
 
 
 def validate_chapter_count(value=1):
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 10:
-        raise ValueError("续写章节数必须为 1 到 10 的整数")
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 100:
+        raise ValueError("续写章节数必须为 1 到 100 的整数")
     return value
 
 

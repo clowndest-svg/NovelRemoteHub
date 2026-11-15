@@ -609,7 +609,10 @@ def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, 
                 message = re.sub(r'续写进度 (\d+)/\d+', lambda m: f'续写进度 {recovered + int(m.group(1))}/{count}', message)
             progress(message)
         if remaining:
-            story_memory.write_chapters(root, remaining, user_prompt, BRIDGE_PREFERENCES, generate, batch_progress,
+            prefs = dict(BRIDGE_PREFERENCES)
+            if 'writing_context_chars' not in prefs:
+                prefs['writing_context_chars'] = 128000
+            story_memory.write_chapters(root, remaining, user_prompt, prefs, generate, batch_progress,
                                         on_chapter=saved, batch_id=batch_id, batch_count=count)
         return True, f'已完成 {completed} 章续写'
     except Exception as error:

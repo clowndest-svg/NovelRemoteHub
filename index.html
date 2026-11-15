@@ -1076,6 +1076,32 @@
             transform: scale(1.03);
         }
 
+        .serial-chip-btn {
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: rgba(255,255,255,0.02);
+            color: var(--text-sub);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .serial-chip-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .serial-chip-btn.active {
+            background: rgba(226, 183, 64, 0.15);
+            border-color: var(--accent);
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .btn-step:hover {
+            background: rgba(255,255,255,0.08) !important;
+            color: var(--accent) !important;
+        }
+
         .illustration-info {
             font-size: 12px;
             line-height: 1.6;
@@ -1907,10 +1933,36 @@
                     <div id="wf-tab-freeform" class="wf-tab-btn" onclick="switchWorkflowTab('freeform')">🛠️ 自由指令</div>
                 </div>
 
-                <label id="serial-count-row" style="display:flex;align-items:center;gap:12px;margin:12px 0;color:var(--text-sub);font-size:13px">
-                    续写章节数
-                    <select id="serial-chapter-count" class="select-box" style="min-width:100px" onchange="updateNextLabel()"><option value="1">1 章</option><option value="2">2 章</option><option value="3">3 章</option><option value="4">4 章</option><option value="5">5 章</option><option value="6">6 章</option><option value="7">7 章</option><option value="8">8 章</option><option value="9">9 章</option><option value="10">10 章</option></select>
-                </label>
+                <div id="serial-count-row" style="margin:12px 0; padding:10px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:8px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-size:13px; font-weight:700; color:var(--text-main);">✍️ 连续续写章节数：</span>
+                            <div style="display:inline-flex; align-items:center; background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; overflow:hidden;">
+                                <button type="button" class="btn-step" onclick="stepSerialCount(-1)" style="border:none; background:transparent; color:var(--text-main); width:28px; height:32px; cursor:pointer; font-size:16px; font-weight:700;">−</button>
+                                <input type="number" id="serial-chapter-count" min="1" max="100" value="1" 
+                                    oninput="onSerialCountInput(this)" onchange="onSerialCountChange(this)"
+                                    style="width:58px; height:32px; border:none; background:transparent; text-align:center; font-size:15px; font-weight:800; color:var(--accent); outline:none;">
+                                <button type="button" class="btn-step" onclick="stepSerialCount(1)" style="border:none; background:transparent; color:var(--text-main); width:28px; height:32px; cursor:pointer; font-size:16px; font-weight:700;">＋</button>
+                            </div>
+                            <span style="font-size:12px; color:var(--text-sub);">章（可自由输入 1~100）</span>
+                        </div>
+                        <div style="font-size:11px; color:var(--text-sub); display:flex; align-items:center; gap:4px;">
+                            <span>💡 建议单批 5~20 章更连贯，批量最高支持 100 章断点自动守护</span>
+                        </div>
+                    </div>
+                    <!-- 快捷筹码预设点选 -->
+                    <div class="serial-chips-wrap" style="display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                        <span style="font-size:11px; color:var(--text-sub);">推荐快选：</span>
+                        <button type="button" class="serial-chip-btn active" onclick="setSerialCountPreset(1)">1章 (精磨定调)</button>
+                        <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(3)">3章</button>
+                        <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(5)">5章</button>
+                        <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(10)">10章 (中批爆发)</button>
+                        <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(20)">20章</button>
+                        <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(30)">30章 (大批连更)</button>
+                        <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(50)">50章</button>
+                        <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(100)">100章 (长篇冲刺)</button>
+                    </div>
+                </div>
                 <!-- 模式快捷辅助芯片 -->
                 <div id="workflow-chips-container" class="quick-chips-row">
                     <!-- 动态注入 -->
@@ -3146,7 +3198,16 @@
         if (TOKEN && (!Number.isFinite(TOKEN_EXPIRES_AT) || Date.now() >= TOKEN_EXPIRES_AT)) clearAccessSession();
         syncAccessCookie();
         let BOOKS = [];
-        let CURRENT_BOOK = "给政哥讲量子力学，他竟肉身硬抗二向箔";
+        let CURRENT_BOOK = (function() {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const fromUrl = urlParams.get('book');
+                if (fromUrl && fromUrl.trim()) return decodeURIComponent(fromUrl.trim());
+                const saved = localStorage.getItem("nrh_active_book");
+                if (saved && saved.trim()) return saved.trim();
+            } catch (e) {}
+            return "给政哥讲量子力学，他竟肉身硬抗二向箔";
+        })();
         let CHAPTERS = [];
         let FILTERED_CHAPTERS = [];
         let CURRENT_INDEX = 0;
@@ -3159,6 +3220,50 @@
         let CURRENT_SETTING_DOC = "";
         let CURRENT_WORKFLOW = "serial";
         let LAST_CHAPTER_HOOK = "";
+
+        // 连续续写章节数自由输入与快捷筹码控制器
+        function stepSerialCount(delta) {
+            const el = document.getElementById("serial-chapter-count");
+            if (!el) return;
+            let val = parseInt(el.value, 10) || 1;
+            val = Math.max(1, Math.min(100, val + delta));
+            el.value = val;
+            syncSerialCountUI(val);
+            updateNextLabel();
+        }
+        function onSerialCountInput(input) {
+            let val = parseInt(input.value, 10);
+            if (isNaN(val)) val = 1;
+            if (val > 100) val = 100;
+            syncSerialCountUI(val);
+            updateNextLabel();
+        }
+        function onSerialCountChange(input) {
+            let val = parseInt(input.value, 10);
+            if (isNaN(val) || val < 1) val = 1;
+            if (val > 100) val = 100;
+            input.value = val;
+            syncSerialCountUI(val);
+            updateNextLabel();
+        }
+        function setSerialCountPreset(num) {
+            const el = document.getElementById("serial-chapter-count");
+            if (!el) return;
+            el.value = num;
+            syncSerialCountUI(num);
+            updateNextLabel();
+        }
+        function syncSerialCountUI(currentVal) {
+            document.querySelectorAll(".serial-chip-btn").forEach(btn => {
+                const text = btn.innerText;
+                const m = text.match(/^(\d+)章/);
+                if (m && parseInt(m[1], 10) === currentVal) {
+                    btn.classList.add("active");
+                } else {
+                    btn.classList.remove("active");
+                }
+            });
+        }
 
         // 全局极速 SWR 高性能前端缓存池 (实现0ms秒切，无白屏无闪烁)
         const CLIENT_CACHE = {
@@ -3600,10 +3705,15 @@
                 CLIENT_CACHE.books = [];
                 applyChaptersData([]);
                 document.getElementById('dispatch-btn').disabled = true;
+                return;
             }
-            if (BOOKS.length > 0 && !BOOKS.some(book => book.id === CURRENT_BOOK)) {
+            const saved = localStorage.getItem("nrh_active_book");
+            if (saved && BOOKS.some(b => b.id === saved)) {
+                CURRENT_BOOK = saved;
+            } else if (!BOOKS.some(book => book.id === CURRENT_BOOK)) {
                 CURRENT_BOOK = BOOKS[0].id;
             }
+            try { localStorage.setItem("nrh_active_book", CURRENT_BOOK); } catch (e) {}
             updateBookLabels();
         }
 
@@ -4327,6 +4437,7 @@
             document.getElementById('term-container').style.display = 'none';
             document.getElementById('task-terminal').innerText = '';
             CURRENT_BOOK = bookId;
+            try { localStorage.setItem("nrh_active_book", CURRENT_BOOK); } catch (e) {}
             CURRENT_INDEX = 0;
             CURRENT_TOMATO_FILE = "";
             CURRENT_TOMATO_DATA = null;
