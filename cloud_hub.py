@@ -212,10 +212,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 20,
-    "versionName": "1.13.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.13.0",
-    "changelog": "四大创作功能与三大作品体量深度自适应联动；彻底解决新书断章钩子跨书残留；SOP指南按书籍类型动态直达；作品信息支持体量修改。",
+    "versionCode": 21,
+    "versionName": "1.14.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.14.0",
+    "changelog": "支持多部小说同时并发创作；单部小说排他互斥防并发重入与防脏数据；全新多书并行创作进度看板与书架大厅实时任务动态徽章。",
     "forceUpdate": False
 }
 
@@ -1235,6 +1235,33 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json({"task": None, "refresh_agents": refresh_agents})
             return
 
+        if path in ("/api/active_tasks", "/novel/api/active_tasks"):
+            active_list = []
+            by_book = {}
+            for t in TASKS.values():
+                b_id = t.get("book_id")
+                if t.get("status") in ("pending", "assigned", "running"):
+                    logs = t.get("progress_log") or []
+                    prog_line = next((line for line in reversed(logs) if "续写进度" in line), logs[-1] if logs else "处理中")
+                    clean_prog = re.sub(r"^\[[^\]]+\]\s*", "", prog_line) if isinstance(prog_line, str) else ""
+                    info = {
+                        "id": t["id"],
+                        "book_id": b_id,
+                        "status": t["status"],
+                        "action": t.get("action"),
+                        "workflow": t.get("extra_data", {}).get("workflow"),
+                        "chapter_count": t.get("extra_data", {}).get("chapter_count", 1),
+                        "progress": clean_prog,
+                        "latest_log": logs[-1] if logs else "",
+                        "created_at": t.get("created_at"),
+                        "heartbeat_at": t.get("heartbeat_at")
+                    }
+                    active_list.append(info)
+                    if b_id and (b_id not in by_book or t.get("status") == "running"):
+                        by_book[b_id] = info
+            self.send_json({"ok": True, "active_tasks": active_list, "by_book": by_book})
+            return
+
         # 任务状态查询接口
         if path == "/api/task_status" or path == "/novel/api/task_status":
             tid = qs.get("id", [""])[0]
@@ -1449,9 +1476,15 @@ class HubHandler(BaseHTTPRequestHandler):
 
         if path in ("/api/heartbeat", "/novel/api/heartbeat"):
             LOCAL_STATUS.update(online=True, last_seen=time.time())
-            tid = body.get("id")
-            if tid in TASKS and TASKS[tid]["status"] == "running":
-                TASKS[tid]["heartbeat_at"] = time.time()
+            now = time.time()
+            tids = body.get("ids", [])
+            if not isinstance(tids, list):
+                tids = []
+            if body.get("id"):
+                tids.append(body.get("id"))
+            for tid in tids:
+                if tid in TASKS and TASKS[tid]["status"] == "running":
+                    TASKS[tid]["heartbeat_at"] = now
             self.send_json({"ok": True, "sync_requested_at": LOCAL_STATUS.get("sync_requested_at", 0)})
             return
 

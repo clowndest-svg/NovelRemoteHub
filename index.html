@@ -1722,6 +1722,10 @@
             <span style="font-size:10px;">▼</span>
         </div>
         <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+            <button class="btn-new-book-quick" onclick="openTasksDashboardModal()" title="查看所有小说当前并发创作进度看板" style="border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; background: rgba(56, 189, 248, 0.1);">
+                <span>📊 任务看板</span>
+                <span id="active-tasks-badge" style="display:none; background:#10b981; color:#000; font-size:10px; font-weight:bold; padding:1px 5px; border-radius:10px; margin-left:3px;">0</span>
+            </button>
             <button class="btn-new-book-quick" onclick="openWorkflowGuideModal()" title="查看从构思新书到千章创作的完整SOP操作流程指南" style="border-color: rgba(226, 183, 64, 0.45); color: var(--accent); background: rgba(226, 183, 64, 0.1);">
                 <span>📖 创作指南</span>
             </button>
@@ -2215,6 +2219,27 @@
                 </button>
                 <button class="btn-new-book-quick" style="padding:10px 16px;" onclick="closeBookDrawer()">
                     关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 多小说并行创作看板 Modal -->
+    <div id="tasks-dashboard-modal" class="modal-overlay" onclick="closeTasksDashboardModal(event)">
+        <div class="modal-box modal-box-large" onclick="event.stopPropagation()" style="max-width:680px; max-height:85vh; display:flex; flex-direction:column;">
+            <div class="modal-header" style="flex-shrink:0;">
+                <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                    <span>🚀 多小说并行创作看板</span>
+                    <span id="dashboard-active-count" style="font-size:12px; font-weight:normal; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); border-radius:12px; padding:2px 8px;">0 部作品创作中</span>
+                </div>
+                <button class="close-btn" onclick="closeTasksDashboardModal()">&times;</button>
+            </div>
+            <div id="tasks-dashboard-content" style="flex:1; overflow-y:auto; padding:16px;">
+                <!-- 动态载入任务卡片列表 -->
+            </div>
+            <div class="modal-pinned-footer" style="flex-shrink:0;">
+                <button class="btn-new-book-quick" style="flex:1; padding:10px;" onclick="closeTasksDashboardModal()">
+                    关闭看板
                 </button>
             </div>
         </div>
@@ -3165,6 +3190,7 @@
             setInterval(refreshSyncStatus, 10000);
             switchWorkflowTab('serial');
             restoreExtrasTasks();
+            startGlobalTasksPoller();
         }
 
         const INFLIGHT_GETS = new Map();
@@ -3620,8 +3646,14 @@
                 const typeBadge = b.novel_type === 'short_story' ? '🔥 短故事' : (b.novel_type === 'mid_short' ? '⚡ 中短篇' : '👑 百万长篇');
                 const typeStyle = b.novel_type === 'short_story' ? 'background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3);' : (b.novel_type === 'mid_short' ? 'background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);' : 'background:rgba(226,183,64,0.15); color:#e2b740; border:1px solid rgba(226,183,64,0.3);');
                 const desc = b.description ? escapeHtml(b.description).replace(/\n/g, ' ') : '暂无作品简介，点击【修改信息】即可补充故事背景与金手指介绍。';
+                const bTask = (typeof GLOBAL_BOOK_TASKS !== 'undefined' && GLOBAL_BOOK_TASKS.get(b.id));
+                const isTaskRunning = bTask && ['pending', 'assigned', 'running'].includes(bTask.status);
+                const taskBadge = isTaskRunning
+                    ? `<div style="position:absolute; top:8px; left:8px; background:rgba(16,185,129,0.25); border:1px solid #10b981; color:#34d399; font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(16,185,129,0.35); z-index:2;"><span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block;"></span>${escapeHtml(bTask.progress || 'Agent创作中')}</div>`
+                    : '';
                 return `
                     <div class="book-gallery-card ${isCurrent ? 'active-card' : ''}" onclick="if(!event.target.closest('button'))selectBook(${htmlArgument(b.id)})" style="background:var(--bg-secondary); border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'}; border-radius:10px; padding:12px; display:flex; gap:14px; margin-bottom:10px; position:relative; transition:all 0.2s ease;">
+                        ${taskBadge}
                         ${isCurrent ? '<div style="position:absolute; top:8px; right:8px; background:rgba(245,158,11,0.2); border:1px solid var(--accent); color:var(--accent); font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px;">● 当前创作中</div>' : ''}
                         <div style="flex-shrink:0; width:88px; height:120px; border-radius:6px; overflow:hidden; border:1px solid var(--border-highlight); background:#0b0f19; box-shadow:0 4px 10px rgba(0,0,0,0.5);">
                             <img loading="lazy" decoding="async" width="88" height="120" src="${coverSrc}" alt="${escapeHtml(b.title)}" style="width:100%; height:100%; object-fit:cover; display:block;" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' viewBox=\\'0 0 100 140\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23111827\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23e2b740\\' font-size=\\'12\\' text-anchor=\\'middle\\'>封面</text></svg>'">
@@ -5096,6 +5128,21 @@
         async function launchTask() {
             if (!CURRENT_BOOK) return showToast('请先创建或选择作品', 'warning');
             if (CURRENT_WORKFLOW === 'polish' && !CHAPTERS.length) return showToast('当前作品暂无可精修章节', 'warning');
+
+            // 单书排他防重入锁：同一本小说正在创作时严禁重复下发，确保数据强一致性
+            if (typeof GLOBAL_BOOK_TASKS !== 'undefined' && GLOBAL_BOOK_TASKS.has(CURRENT_BOOK)) {
+                const existing = GLOBAL_BOOK_TASKS.get(CURRENT_BOOK);
+                if (existing && ["pending", "assigned", "running"].includes(existing.status)) {
+                    showToast(`《${CURRENT_BOOK}》当前已有创作任务正在执行中，请等待完成后再发布！`, "warning", 3500);
+                    showNovelDialog({
+                        type: "warning",
+                        title: "⚠️ 任务执行中，请勿重复操作",
+                        message: `作品《${CURRENT_BOOK}》已有任务正在电脑端执行！\n\n当前状态：${existing.status === "running" ? "⚡ 正在创作" : "⏳ 正在排队"}\n当前进度：${existing.progress || "处理中"}\n\n为保证小说上下文数据强一致性，杜绝多重写入造成章节错乱或脏数据，单本小说必须等待当前任务执行完毕后方可继续发布新任务。\n\n💡 提示：您现在可以随时在顶栏切换到其他小说，发起其他小说的并行创作！`
+                    });
+                    return;
+                }
+            }
+
             const prompt = document.getElementById("prompt-box").value.trim();
             if (!prompt) { showToast("请输入创作指令要求！", "error"); return; }
 
@@ -5136,6 +5183,16 @@
                 if (res.ok) {
                     localStorage.removeItem('novel_submission_retry');
                     ACTIVE_TASK_ID = res.task.id;
+                    GLOBAL_BOOK_TASKS.set(CURRENT_BOOK, {
+                        id: res.task.id,
+                        book_id: CURRENT_BOOK,
+                        status: "running",
+                        progress: "任务已下发，正在启动...",
+                        workflow: CURRENT_WORKFLOW,
+                        chapter_count: CURRENT_WORKFLOW === "serial" ? Number(document.getElementById("serial-chapter-count").value) : 1,
+                        created_at: Date.now() / 1000
+                    });
+
                     document.getElementById("term-container").style.display = "block";
                     const modelDisplayName = (currentModel() || {}).name || CURRENT_MODEL_TIER;
                     document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 ${modelDisplayName} 执行任务...`;
@@ -5144,17 +5201,11 @@
                     showNovelDialog({
                         type: "success",
                         title: "🎉 创作任务下发成功",
-                        message: `长篇创作指令已成功下发至电脑端！\n\n目标作品：《${CURRENT_BOOK}》\n执行模式：${CURRENT_WORKFLOW === "serial" ? "自动续写" : (CURRENT_WORKFLOW === "polish" ? "单章精控" : (CURRENT_WORKFLOW === "outline" ? "大纲推演" : "自由指令"))}\n所选模型：${modelDisplayName}\n\n电脑端正在执行深度创作。可关注下方实时终端日志，新章节完成后将自动同步！`
+                        message: `创作指令已成功下发至电脑端！\n\n目标作品：《${CURRENT_BOOK}》\n执行模式：${CURRENT_WORKFLOW === "serial" ? "自动续写" : (CURRENT_WORKFLOW === "polish" ? "单章精控" : (CURRENT_WORKFLOW === "outline" ? "大纲推演" : "自由指令"))}\n所选模型：${modelDisplayName}\n\n💡 提示：本小说任务将在后台持续执行。您可以随时切换到其他小说同时发起创作，各小说任务互不影响！`
                     });
-                    startPolling(async () => {
-                        await loadChapters();
-                        showToast("🎉 创作任务完成！新章节已同步，快去阅读吧！", "success", 4000);
-                        showNovelDialog({
-                            type: "success",
-                            title: "🎉 创作任务完成",
-                            message: "恭喜！长篇小说创作任务已顺利完成，最新章节已同步入库，可前往目录或正文查阅！"
-                        });
-                    });
+
+                    updateCurrentBookTaskStatus();
+                    pollAllActiveTasks();
                 } else {
                     const errMsg = res.error || "未知错误";
                     showToast("指令下发失败: " + errMsg, "error", 4500);
@@ -5167,60 +5218,200 @@
             } catch (e) {
                 showToast("网络请求失败，请检查网络或电脑连接状态", "error", 4500);
             } finally {
-                btn.disabled = false;
-                updateNextLabel();
+                const bTask = GLOBAL_BOOK_TASKS.get(CURRENT_BOOK);
+                if (!bTask || !['pending', 'assigned', 'running'].includes(bTask.status)) {
+                    btn.disabled = false;
+                    btn.style.opacity = "1";
+                    btn.style.cursor = "pointer";
+                    btn.title = "";
+                    updateNextLabel();
+                }
             }
+        }
+
+        // ================= 🚀 多小说并行创作状态管控与看板系统 =================
+        const GLOBAL_BOOK_TASKS = new Map(); // book_id -> { id, status, progress, workflow, chapter_count, created_at, latest_log }
+        let GLOBAL_TASKS_TIMER = null;
+
+        async function pollAllActiveTasks() {
+            try {
+                const res = await fetchAPI(`${API}/active_tasks`);
+                if (res && res.ok) {
+                    const byBook = res.by_book || {};
+                    const activeList = res.active_tasks || [];
+                    GLOBAL_BOOK_TASKS.clear();
+                    for (const [bid, info] of Object.entries(byBook)) {
+                        GLOBAL_BOOK_TASKS.set(bid, info);
+                    }
+                    updateActiveTasksBadge(activeList);
+                    updateCurrentBookTaskStatus();
+                    renderDashboardModalContent();
+                }
+            } catch (e) {}
+        }
+
+        function updateActiveTasksBadge(activeList) {
+            const badge = document.getElementById("active-tasks-badge");
+            if (!badge) return;
+            const count = (activeList || []).length;
+            if (count > 0) {
+                badge.style.display = "inline-block";
+                badge.innerText = count;
+            } else {
+                badge.style.display = "none";
+            }
+            const dCount = document.getElementById("dashboard-active-count");
+            if (dCount) dCount.innerText = `${count} 部作品并行创作中`;
+        }
+
+        function updateCurrentBookTaskStatus() {
+            if (!CURRENT_BOOK) return;
+            const task = GLOBAL_BOOK_TASKS.get(CURRENT_BOOK);
+            const btn = document.getElementById("dispatch-btn");
+            const termContainer = document.getElementById("term-container");
+            const statusText = document.getElementById("pipeline-status-text");
+
+            if (task && ["pending", "assigned", "running"].includes(task.status)) {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.style.opacity = "0.75";
+                    btn.style.cursor = "not-allowed";
+                    const progStr = task.progress ? ` (${task.progress})` : " (执行中)";
+                    btn.innerText = `⏳ 《${CURRENT_BOOK}》创作中${progStr}...`;
+                    btn.title = `《${CURRENT_BOOK}》已有创作任务在执行中，请等待其完成后再发布新任务`;
+                }
+                if (termContainer) termContainer.style.display = "block";
+                if (statusText) {
+                    statusText.innerText = task.status === 'pending'
+                        ? '⏳ 任务排队中，等待电脑端 Worker 调度…'
+                        : `⚡ ${task.progress || '电脑端 Agent 正在全力创作…'}`;
+                }
+                if (ACTIVE_TASK_ID !== task.id) {
+                    ACTIVE_TASK_ID = task.id;
+                    fetchSingleBookTaskLogs(task.id);
+                }
+            } else {
+                if (btn && btn.disabled && btn.innerText.includes("创作中")) {
+                    btn.disabled = false;
+                    btn.style.opacity = "1";
+                    btn.style.cursor = "pointer";
+                    btn.title = "";
+                    updateNextLabel();
+                }
+            }
+        }
+
+        async function fetchSingleBookTaskLogs(taskId) {
+            try {
+                const book = CURRENT_BOOK;
+                const data = await fetchAPI(`${API}/task_status?id=${taskId}`);
+                if (book !== CURRENT_BOOK) return;
+                const term = document.getElementById("task-terminal");
+                if (term && data && data.progress_log) {
+                    term.innerText = data.progress_log.join("\n");
+                    term.scrollTop = term.scrollHeight;
+                }
+                if (data && data.status === "completed") {
+                    await loadChapters();
+                    pollAllActiveTasks();
+                }
+            } catch (e) {}
         }
 
         async function restoreWritingTask() {
             const book = CURRENT_BOOK;
             if (!book) return;
-            const task = await fetchAPI(`${API}/task_status?book=${encodeURIComponent(book)}`);
-            if (book !== CURRENT_BOOK || !task.id || task.id === ACTIVE_TASK_ID) return;
-            ACTIVE_TASK_ID = task.id;
-            document.getElementById('term-container').style.display = 'block';
-            document.getElementById('task-terminal').innerText = (task.progress_log || []).join('\n');
-            document.getElementById('pipeline-status-text').innerText = '已恢复当前作品的任务进度';
-            startPolling(() => loadChapters());
+            await pollAllActiveTasks();
+            const task = GLOBAL_BOOK_TASKS.get(book);
+            if (task) {
+                ACTIVE_TASK_ID = task.id;
+                document.getElementById('term-container').style.display = 'block';
+                document.getElementById('pipeline-status-text').innerText = `⚡ ${task.progress || '已恢复当前作品的任务进度'}`;
+                fetchSingleBookTaskLogs(task.id);
+            }
         }
 
-        function startPolling(onSuccess) {
-            if (TASK_POLL_TIMER) clearInterval(TASK_POLL_TIMER);
-            TASK_POLL_TIMER = setInterval(async () => {
-                if (!ACTIVE_TASK_ID) return;
-                try {
-                    const taskId = ACTIVE_TASK_ID;
-                    const book = CURRENT_BOOK;
-                    const data = await fetchAPI(`${API}/task_status?id=${taskId}`);
-                    if (taskId !== ACTIVE_TASK_ID || book !== CURRENT_BOOK) return;
-                    const term = document.getElementById("task-terminal");
-                    term.innerText = (data.progress_log || []).join("\n");
-                    if (data.status === 'pending') {
-                        const waiting = data.waiting_for || [];
-                        document.getElementById('pipeline-status-text').innerText = data.queue_position > 0
-                            ? `排队中，前方 ${data.queue_position} 个任务` : '等待电脑领取任务';
-                        if (waiting.length) term.innerText += '\n轮到本任务时，将从当时最新章节继续。';
-                        for (const item of waiting) term.innerText += `\n前序任务（${item.chapter_count} 章/项） ${item.progress}`;
-                    } else if (data.status === 'running') {
-                        const stage = [...(data.progress_log || [])].reverse().find(line => /核验现有全书账本|正在沿用本任务|缺少全书账本|历史正文有修订|更新作品记忆|第\d+章，|续写进度|格式需要修正|正在重试云端同步/.test(line));
-                        document.getElementById('pipeline-status-text').innerText = stage ? stage.replace(/^\[[^\]]+\]\s*/, '') : '电脑已接收，正在执行';
-                    }
-                    term.scrollTop = term.scrollHeight;
+        function startGlobalTasksPoller() {
+            if (GLOBAL_TASKS_TIMER) clearInterval(GLOBAL_TASKS_TIMER);
+            pollAllActiveTasks();
+            GLOBAL_TASKS_TIMER = setInterval(pollAllActiveTasks, 2500);
+        }
 
-                    if (data.status === "completed") {
-                        clearInterval(TASK_POLL_TIMER);
-                        document.getElementById("pipeline-status-text").innerText = `✅ 任务执行完毕！落盘文件已双端同步！`;
-                        term.innerText += `\n\n🎉 任务执行完毕！落盘文件已同步！`;
-                        if (onSuccess) await onSuccess();
-                    } else if (data.status === "failed") {
-                        clearInterval(TASK_POLL_TIMER);
-                        const reason = (data.progress_log || []).at(-1) || '执行端未返回错误说明';
-                        document.getElementById("pipeline-status-text").innerText = `❌ ${reason.replace(/^\[[^\]]+\]\s*/, '')}`;
-                        term.innerText += `\n\n❌ ${reason}`;
-                        await loadChapters();
-                    }
-                } catch (e) {}
-            }, 2500);
+        function openTasksDashboardModal() {
+            const modal = document.getElementById("tasks-dashboard-modal");
+            if (modal) {
+                modal.classList.add("show");
+                pollAllActiveTasks();
+                showToast("已打开多小说并行创作看板", "info", 1500);
+            }
+        }
+
+        function closeTasksDashboardModal(e) {
+            if (e && e.target !== e.currentTarget && !e.target.classList.contains("close-btn")) return;
+            const modal = document.getElementById("tasks-dashboard-modal");
+            if (modal) modal.classList.remove("show");
+        }
+
+        function renderDashboardModalContent() {
+            const container = document.getElementById("tasks-dashboard-content");
+            if (!container) return;
+
+            const activeEntries = Array.from(GLOBAL_BOOK_TASKS.entries());
+            if (activeEntries.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align:center; padding:40px 20px; color:var(--text-sub);">
+                        <div style="font-size:36px; margin-bottom:12px;">☕</div>
+                        <div style="font-size:14px; font-weight:bold; color:var(--text-main); margin-bottom:6px;">当前没有正在运行的创作任务</div>
+                        <div style="font-size:12px; color:var(--text-dim); max-width:360px; margin:0 auto; line-height:1.6;">
+                            您可以在任意小说中点击【开始续写】或【下发指令】，系统支持多部小说同时并发创作，各小说任务互不干扰！
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = activeEntries.map(([bookId, task]) => {
+                const isCurrent = (bookId === CURRENT_BOOK);
+                const wfNames = { serial: '⚡ 自动续写', polish: '✨ 单章精修', outline: '📜 大纲推演', freeform: '🎯 自由指令' };
+                const wfLabel = wfNames[task.workflow] || task.action || '创作任务';
+                const statusColor = task.status === 'running' ? '#10b981' : (task.status === 'pending' ? '#f59e0b' : '#38bdf8');
+                const statusText = task.status === 'running' ? '🟢 正在执行' : (task.status === 'pending' ? '🟡 队列排队' : '🔵 已分配');
+                const progText = escapeHtml(task.progress || 'Agent 正在规划执行…');
+                const latestLog = escapeHtml(task.latest_log || '');
+
+                return `
+                    <div style="background:var(--bg-secondary); border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'}; border-radius:10px; padding:14px; margin-bottom:12px; transition:all 0.2s;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <h4 style="margin:0; font-size:15px; font-weight:bold; color:${isCurrent ? 'var(--accent)' : 'var(--text-main)'};">《${escapeHtml(bookId)}》</h4>
+                                <span style="font-size:11px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); border-radius:4px; padding:1px 6px;">${wfLabel}</span>
+                                ${isCurrent ? '<span style="font-size:10px; background:rgba(245,158,11,0.2); color:var(--accent); border:1px solid var(--accent); border-radius:10px; padding:1px 7px;">当前视图</span>' : ''}
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <span style="font-size:12px; font-weight:bold; color:${statusColor};">${statusText}</span>
+                            </div>
+                        </div>
+                        <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:12px; color:var(--text-main);">
+                            <div style="display:flex; align-items:center; gap:6px; color:#34d399; font-weight:bold; margin-bottom:4px;">
+                                <span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block;"></span>
+                                <span>${progText}</span>
+                            </div>
+                            ${latestLog ? `<div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">最新日志: ${latestLog}</div>` : ''}
+                        </div>
+                        <div style="display:flex; justify-content:flex-end; gap:8px;">
+                            ${!isCurrent ? `
+                                <button class="btn-new-book-quick" style="padding:4px 12px; font-size:11px; border-color:var(--accent); color:var(--accent);" onclick="closeTasksDashboardModal(); selectBook(${htmlArgument(bookId)});">
+                                    ➔ 切换到该作品查看
+                                </button>
+                            ` : `
+                                <button class="btn-new-book-quick" style="padding:4px 12px; font-size:11px; background:rgba(245,158,11,0.15); border-color:var(--accent); color:var(--accent);" onclick="closeTasksDashboardModal();">
+                                    ✓ 当前正在查看
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }).join("");
         }
 
         // ================= 🍅 番茄发布智审工作台 3.5 全维升级 =================

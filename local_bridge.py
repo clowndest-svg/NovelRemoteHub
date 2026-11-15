@@ -625,10 +625,21 @@ def sync_agent_catalog():
         time.sleep(60)
 
 
+ACTIVE_WORKERS = {}
+WORKERS_LOCK = threading.Lock()
+MAX_CONCURRENT_BOOKS = 4
+
 def heartbeat_loop():
     global SYNC_REQUEST_ID
     while True:
-        result = api_post("heartbeat", {"id": ACTIVE_TASK})
+        with WORKERS_LOCK:
+            tids = [info["task_id"] for info in ACTIVE_WORKERS.values()]
+        payload = {"ids": tids}
+        if tids:
+            payload["id"] = tids[0]
+        elif ACTIVE_TASK:
+            payload["id"] = ACTIVE_TASK
+        result = api_post("heartbeat", payload)
         requested = result.get("sync_requested_at", 0) if result else 0
         if requested > SYNC_REQUEST_ID:
             SYNC_REQUEST_ID = requested
@@ -636,115 +647,78 @@ def heartbeat_loop():
         time.sleep(10)
 
 
-# 8. 任务调度主循环
-def run_bridge_loop():
+def process_single_task(task):
     global ACTIVE_TASK
-    ensure_single_instance()
-    threading.Thread(target=heartbeat_loop, daemon=True).start()
-    threading.Thread(target=sync_agent_catalog, daemon=True).start()
-    prevent_sleep()
-    ok, c_cnt, s_cnt = sync_all_books_to_cloud()
-    threading.Thread(target=sync_loop, daemon=True).start()
-    print(f"[Sync] 初始同步完成: 多书架章节总数={c_cnt}, 设定文档={s_cnt}")
+    book_id = safe_component(task.get("book_id", DEFAULT_BOOK))
+    tid = task.get("id")
+    try:
+        tid = task["id"]
+        ACTIVE_TASK = tid
+        action = task.get("action", "creative_instruction")
+        sub_action = task.get("sub_action", "")
+        extra_data = task.get("extra_data", {})
+        user_prompt = task.get("prompt", "")
+        book_id = safe_component(task.get("book_id", DEFAULT_BOOK))
+        engine = canonical_engine(task.get("engine_mode", "antigravity_pro"))
+        model_tier = extra_data.get("model_tier")
+        reasoning_effort = extra_data.get("reasoning_effort")
 
-    print("\n" + "="*50)
-    print("🚀 NovelRemoteHub · 智笔云枢 本地执行端 (Local Bridge 3.0) 已就绪！")
-    print(f"📡 监听云端中枢: {CLOUD_SERVER_URL}")
-    print("🤖 执行端: Antigravity / ChatGPT（Codex），按任务选择模型与思考等级")
-    print(f"📚 多书架工作区: {BOOKS_ROOT}")
-    print("="*50 + "\n")
+        print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
 
-    while True:
-        try:
-            if not flush_task_reports():
-                time.sleep(5)
-                continue
-            # 1. 轮询云端任务
-            active = story_memory.load_json(ACTIVE_JOB_PATH, {})
-            if active:
-                remote = api_get('task_status?' + urllib.parse.urlencode({'id': active['id']}))
-                if not remote:
-                    time.sleep(5)
-                    continue
-                if remote.get('status') in ('completed', 'failed') or remote.get('error'):
-                    ACTIVE_JOB_PATH.unlink(missing_ok=True)
-                    continue
-                data = {'task': active}
+        report_task({'id': tid, 'status': 'running', 'log': '电脑已领取任务，正在核对云端资料'})
+
+        # 等待对账确认，短暂断网期间保留当前任务。
+        wait_for_cloud_sync(lambda msg: report_task({'id': tid, 'status': 'running', 'log': msg}))
+
+        # 进度更新回调闭包
+        def report_progress(msg):
+            report_task({"id": tid, "status": "running", "log": msg})
+
+        # A. 远程唤醒/健康检查指令
+        if action == "wake_antigravity":
+            report_progress(f"正在检测与唤醒所选桌面端 {engine}…")
+            if engine == "codex":
+                desktop_agents.codex_client.CLIENT.wake()
+                ensure_ok, ensure_msg = True, "ChatGPT（Codex）小说工作区已连接"
             else:
-                data = api_get("pending_task")
-            if data and data.get("refresh_agents"):
-                api_post("sync_agents", desktop_agents.catalog())
-            if data and data.get("task"):
-                task = data["task"]
-                if task.get('extra_data', {}).get('workflow') == 'serial':
-                    atomic_json(ACTIVE_JOB_PATH, task)
-                tid = task["id"]
-                ACTIVE_TASK = tid
-                action = task.get("action", "creative_instruction")
-                sub_action = task.get("sub_action", "")
-                extra_data = task.get("extra_data", {})
-                user_prompt = task.get("prompt", "")
-                book_id = safe_component(task.get("book_id", DEFAULT_BOOK))
-                engine = canonical_engine(task.get("engine_mode", "antigravity_pro"))
-                model_tier = extra_data.get("model_tier")
-                reasoning_effort = extra_data.get("reasoning_effort")
+                ensure_ok, ensure_msg = ensure_antigravity_running(progress_cb=report_progress)
+            if not ensure_ok:
+                raise RuntimeError(ensure_msg)
+            api_post("sync_agents", desktop_agents.catalog())
+            proxy_ok, proxy_msg = check_proxy_health()
+            log_text = f"✅ 电脑端健康检测完毕：\n1. 引擎状态：{ensure_msg}\n2. 网络代理：{proxy_msg}"
+            report_task({"id": tid, "status": "completed", "log": log_text})
+            time.sleep(1)
+            return
 
-                print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
+        # B. 构思创建全新小说架构
+        elif action == "create_new_novel":
+            book_title = safe_component(book_id)
+            display_title = extra_data.get("title") or book_id
+            genre = extra_data.get("genre", "科幻修真 / 网文")
+            concept = extra_data.get("concept", user_prompt)
+            novel_type = extra_data.get("novel_type") or extra_data.get("scale_type") or "million_long"
+            book_root = os.path.join(BOOKS_ROOT, book_title)
 
-                report_task({'id': tid, 'status': 'running', 'log': '电脑已领取任务，正在核对云端资料'})
+            report_progress(f"正在为全新作品《{book_title}》初始化工程目录结构...")
+            os.makedirs(os.path.join(book_root, "00_设定集"), exist_ok=True)
+            if novel_type == "short_story":
+                os.makedirs(os.path.join(book_root, "01_正文"), exist_ok=True)
+            elif novel_type == "mid_short":
+                os.makedirs(os.path.join(book_root, "01_正文", "第一卷_开端篇"), exist_ok=True)
+            else:
+                os.makedirs(os.path.join(book_root, "01_正文", "第一卷_人界篇"), exist_ok=True)
 
-                # 等待对账确认，短暂断网期间保留当前任务。
-                wait_for_cloud_sync(lambda msg: report_task({'id': tid, 'status': 'running', 'log': msg}))
+            novel_manager.save_book_meta(book_title, {
+                "title": display_title,
+                "genre": genre,
+                "novel_type": novel_type
+            }, BOOKS_ROOT, rename=False)
 
-                # 进度更新回调闭包
-                def report_progress(msg):
-                    report_task({"id": tid, "status": "running", "log": msg})
+            type_label = "百万长篇巨制 (1000+章)" if novel_type == "million_long" else ("中短篇精品 (几十万字)" if novel_type == "mid_short" else "爆款短故事 (极速反转)")
 
-                # A. 远程唤醒/健康检查指令
-                if action == "wake_antigravity":
-                    report_progress(f"正在检测与唤醒所选桌面端 {engine}…")
-                    if engine == "codex":
-                        desktop_agents.codex_client.CLIENT.wake()
-                        ensure_ok, ensure_msg = True, "ChatGPT（Codex）小说工作区已连接"
-                    else:
-                        ensure_ok, ensure_msg = ensure_antigravity_running(progress_cb=report_progress)
-                    if not ensure_ok:
-                        raise RuntimeError(ensure_msg)
-                    api_post("sync_agents", desktop_agents.catalog())
-                    proxy_ok, proxy_msg = check_proxy_health()
-                    log_text = f"✅ 电脑端健康检测完毕：\n1. 引擎状态：{ensure_msg}\n2. 网络代理：{proxy_msg}"
-                    report_task({"id": tid, "status": "completed", "log": log_text})
-                    time.sleep(1)
-                    continue
-
-                # B. 构思创建全新小说架构
-                elif action == "create_new_novel":
-                    book_title = safe_component(book_id)
-                    display_title = extra_data.get("title") or book_id
-                    genre = extra_data.get("genre", "科幻修真 / 网文")
-                    concept = extra_data.get("concept", user_prompt)
-                    novel_type = extra_data.get("novel_type") or extra_data.get("scale_type") or "million_long"
-                    book_root = os.path.join(BOOKS_ROOT, book_title)
-
-                    report_progress(f"正在为全新作品《{book_title}》初始化工程目录结构...")
-                    os.makedirs(os.path.join(book_root, "00_设定集"), exist_ok=True)
-                    if novel_type == "short_story":
-                        os.makedirs(os.path.join(book_root, "01_正文"), exist_ok=True)
-                    elif novel_type == "mid_short":
-                        os.makedirs(os.path.join(book_root, "01_正文", "第一卷_开端篇"), exist_ok=True)
-                    else:
-                        os.makedirs(os.path.join(book_root, "01_正文", "第一卷_人界篇"), exist_ok=True)
-
-                    novel_manager.save_book_meta(book_title, {
-                        "title": display_title,
-                        "genre": genre,
-                        "novel_type": novel_type
-                    }, BOOKS_ROOT, rename=False)
-
-                    type_label = "百万长篇巨制 (1000+章)" if novel_type == "million_long" else ("中短篇精品 (几十万字)" if novel_type == "mid_short" else "爆款短故事 (极速反转)")
-
-                    if novel_type == "short_story":
-                        prompt = f"""【爆款短故事架构与设定工程创建指令 · 《{book_title}》】
+            if novel_type == "short_story":
+                prompt = f"""【爆款短故事架构与设定工程创建指令 · 《{book_title}》】
 目标工程目录：`D:\\小说\\{book_title}`
 题材分类：{genre}
 创作体量模式：爆款短故事 / 极速反转脑洞（1~5万字 / 3~10章）
@@ -761,8 +735,8 @@ def run_bridge_loop():
 
 请直接调用 write_file 将以上文档全部写入落盘，确保开局抓人、反转震撼、节奏紧凑、绝无废话！
 """
-                    elif novel_type == "mid_short":
-                        prompt = f"""【中短篇精品小说架构与分卷总谱工程创建指令 · 《{book_title}》】
+            elif novel_type == "mid_short":
+                prompt = f"""【中短篇精品小说架构与分卷总谱工程创建指令 · 《{book_title}》】
 目标工程目录：`D:\\小说\\{book_title}`
 题材分类：{genre}
 创作体量模式：中短篇精品连载（几十万字 / 50~200章 · 快节奏爽文）
@@ -779,8 +753,8 @@ def run_bridge_loop():
 
 请直接调用 write_file 将以上文档全部写入落盘，确保主线单刀直入、节奏如离弦之箭、爽感密集！
 """
-                    else:
-                        prompt = f"""【全新长篇小说架构与总谱工程创建指令 · 《{book_title}》】
+            else:
+                prompt = f"""【全新长篇小说架构与总谱工程创建指令 · 《{book_title}》】
 目标工程目录：`D:\\小说\\{book_title}`
 题材分类：{genre}
 创作体量模式：百万级长篇巨制（1000+章 / 200万字+ · 史诗世界观）
@@ -797,24 +771,24 @@ def run_bridge_loop():
 
 请直接调用 write_file 将以上文档全部写入落盘，确保内容详实充沛、设定自洽、爽点与悬念密集！
 """
-                    task_title = f"【手机遥控】新建作品架构《{book_title}》（{type_label}）"
+            task_title = f"【手机遥控】新建作品架构《{book_title}》（{type_label}）"
 
-                # C. 设定集演进 (新增、润色扩展、一致性排查)
-                elif action == "evolve_settings":
-                    book_root = os.path.join(BOOKS_ROOT, book_id)
-                    target_doc = extra_data.get("target_doc", "")
-                    if target_doc:
-                        safe_component(target_doc)
-                    doc_path = os.path.join(book_root, "00_设定集", target_doc) if target_doc else ""
+        # C. 设定集演进 (新增、润色扩展、一致性排查)
+        elif action == "evolve_settings":
+            book_root = os.path.join(BOOKS_ROOT, book_id)
+            target_doc = extra_data.get("target_doc", "")
+            if target_doc:
+                safe_component(target_doc)
+            doc_path = os.path.join(book_root, "00_设定集", target_doc) if target_doc else ""
 
-                    report_progress(f"正在分析《{book_id}》设定集，准备执行【{sub_action}】...")
+            report_progress(f"正在分析《{book_id}》设定集，准备执行【{sub_action}】...")
 
-                    existing_content = ""
-                    if doc_path and os.path.exists(doc_path):
-                        with open(doc_path, "r", encoding="utf-8", errors="ignore") as fp:
-                            existing_content = fp.read()
+            existing_content = ""
+            if doc_path and os.path.exists(doc_path):
+                with open(doc_path, "r", encoding="utf-8", errors="ignore") as fp:
+                    existing_content = fp.read()
 
-                    prompt = f"""【《{book_id}》设定大典升级演进指令 · 操作模式：{sub_action}】
+            prompt = f"""【《{book_id}》设定大典升级演进指令 · 操作模式：{sub_action}】
 当前小说工程目录：`D:\\小说\\{book_id}`
 设定集目录：`D:\\小说\\{book_id}\\00_设定集`
 目标设定文档：{target_doc if target_doc else "根据需求新建或更新对应设定文件"}
@@ -834,108 +808,108 @@ def run_bridge_loop():
 2. 直接调用 write_file 或 edit_file 更新落盘到 `D:\\小说\\{book_id}\\00_设定集\\` 对应文件；
 3. 完成后返回更新总结！
 """
-                    task_title = f"【手机遥控】《{book_id}》设定演进"
+            task_title = f"【手机遥控】《{book_id}》设定演进"
 
-                # D. 番茄发布专属：为章节绘制概念插图与生成作者有话说
-                elif action in ("generate_chapter_illustrations", "generate_chapter_notes"):
-                    filename = safe_component(extra_data.get("chapter_file") or extra_data.get("target_chapter"))
-                    image_count = int(extra_data.get("image_count", 4))
-                    notes_only = action == "generate_chapter_notes"
-                    bpath, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
-                    chapter_text = novel_manager.read_chapter(book_id, filename, BOOKS_ROOT)
-                    query = urllib.parse.urlencode({"book": book_id, "file": filename})
-                    previous = api_get("chapter_extras?" + query)
-                    if not previous or not previous.get("ok"):
-                        raise RuntimeError("读取云端章节素材版本失败，请重试")
-                    base_revision = (previous.get("meta") or {}).get("revision", "")
-                    import illustration_generator
-                    if engine == "antigravity":
-                        ready, message = ensure_antigravity_running(report_progress)
-                        if not ready:
-                            raise RuntimeError(message)
-                    meta_res = illustration_generator.generate_chapter_visual_bundle(
-                        bpath, filename, chapter_text, image_count,
-                        extra_data.get("custom_prompt", user_prompt), report_progress,
-                        notes_only=notes_only, model=model_tier, engine=engine, reasoning_effort=reasoning_effort)
-                    import base64
-                    illu_dir = Path(bpath) / "02_插图" / meta_res["chapter_code"]
-                    filenames = [item[key] for item in meta_res["illustrations"]
-                                 for key in ("filename", "thumbnail_filename") if item.get(key)]
-                    images = {name: base64.b64encode((illu_dir / name).read_bytes()).decode() for name in filenames}
-                    report_progress("素材已生成，正在验证云端保存回执")
-                    uploaded = api_post("sync_illustrations", {
-                        "book_id": book_id, "chapter_code": meta_res["chapter_code"],
-                        "meta": meta_res, "images": images, "notes_only": notes_only,
-                        "base_revision": base_revision})
-                    if not uploaded or not uploaded.get("ok") or uploaded.get("saved_images") != len(meta_res["illustrations"]):
-                        raise RuntimeError((uploaded or {}).get("error") or "云端未确认完整保存，本地生成文件已保留，可重试同步")
-                    latest = api_get("chapter_extras?" + query)
-                    if latest and latest.get("meta"):
-                        atomic_json(illu_dir / "meta.json", latest["meta"])
-                    report_task({"id": tid, "status": "completed",
-                        "log": "章节文案已生成并保存" if notes_only else f"已生成并同步 {len(meta_res['illustrations'])} 张二维水墨场景插画与互动文案",
-                        "result": {"conversation_id": meta_res["conversation_id"]}})
-                    continue
+        # D. 番茄发布专属：为章节绘制概念插图与生成作者有话说
+        elif action in ("generate_chapter_illustrations", "generate_chapter_notes"):
+            filename = safe_component(extra_data.get("chapter_file") or extra_data.get("target_chapter"))
+            image_count = int(extra_data.get("image_count", 4))
+            notes_only = action == "generate_chapter_notes"
+            bpath, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
+            chapter_text = novel_manager.read_chapter(book_id, filename, BOOKS_ROOT)
+            query = urllib.parse.urlencode({"book": book_id, "file": filename})
+            previous = api_get("chapter_extras?" + query)
+            if not previous or not previous.get("ok"):
+                raise RuntimeError("读取云端章节素材版本失败，请重试")
+            base_revision = (previous.get("meta") or {}).get("revision", "")
+            import illustration_generator
+            if engine == "antigravity":
+                ready, message = ensure_antigravity_running(report_progress)
+                if not ready:
+                    raise RuntimeError(message)
+            meta_res = illustration_generator.generate_chapter_visual_bundle(
+                bpath, filename, chapter_text, image_count,
+                extra_data.get("custom_prompt", user_prompt), report_progress,
+                notes_only=notes_only, model=model_tier, engine=engine, reasoning_effort=reasoning_effort)
+            import base64
+            illu_dir = Path(bpath) / "02_插图" / meta_res["chapter_code"]
+            filenames = [item[key] for item in meta_res["illustrations"]
+                         for key in ("filename", "thumbnail_filename") if item.get(key)]
+            images = {name: base64.b64encode((illu_dir / name).read_bytes()).decode() for name in filenames}
+            report_progress("素材已生成，正在验证云端保存回执")
+            uploaded = api_post("sync_illustrations", {
+                "book_id": book_id, "chapter_code": meta_res["chapter_code"],
+                "meta": meta_res, "images": images, "notes_only": notes_only,
+                "base_revision": base_revision})
+            if not uploaded or not uploaded.get("ok") or uploaded.get("saved_images") != len(meta_res["illustrations"]):
+                raise RuntimeError((uploaded or {}).get("error") or "云端未确认完整保存，本地生成文件已保留，可重试同步")
+            latest = api_get("chapter_extras?" + query)
+            if latest and latest.get("meta"):
+                atomic_json(illu_dir / "meta.json", latest["meta"])
+            report_task({"id": tid, "status": "completed",
+                "log": "章节文案已生成并保存" if notes_only else f"已生成并同步 {len(meta_res['illustrations'])} 张二维水墨场景插画与互动文案",
+                "result": {"conversation_id": meta_res["conversation_id"]}})
+            return
 
-                # E. 番茄驳回/存量章节定点重塑修复
-                elif action == "repair_chapter":
-                    chapter_filename = extra_data.get("chapter_file", "")
-                    rejection_reason = extra_data.get("rejection_reason", user_prompt)
-                    repair_mode = extra_data.get("repair_mode", "polish")
-                    audit_issues = extra_data.get("audit_issues", [])
+        # E. 番茄驳回/存量章节定点重塑修复
+        elif action == "repair_chapter":
+            chapter_filename = extra_data.get("chapter_file", "")
+            rejection_reason = extra_data.get("rejection_reason", user_prompt)
+            repair_mode = extra_data.get("repair_mode", "polish")
+            audit_issues = extra_data.get("audit_issues", [])
 
-                    report_progress(f"正在调阅《{book_id}》【{chapter_filename}】，准备进行定点重塑修复...")
+            report_progress(f"正在调阅《{book_id}》【{chapter_filename}】，准备进行定点重塑修复...")
 
-                    bpath = os.path.join(BOOKS_ROOT, book_id)
-                    all_c_files = novel_manager.chapter_files(bpath)
-                    
-                    target_file_path = None
-                    target_idx = -1
-                    for idx_c, cf in enumerate(all_c_files):
-                        if os.path.basename(cf) == os.path.basename(chapter_filename):
-                            target_file_path = cf
-                            target_idx = idx_c
-                            break
+            bpath = os.path.join(BOOKS_ROOT, book_id)
+            all_c_files = novel_manager.chapter_files(bpath)
+            
+            target_file_path = None
+            target_idx = -1
+            for idx_c, cf in enumerate(all_c_files):
+                if os.path.basename(cf) == os.path.basename(chapter_filename):
+                    target_file_path = cf
+                    target_idx = idx_c
+                    break
 
-                    if not target_file_path or not os.path.exists(target_file_path):
-                        report_task({"id": tid, "status": "failed", "log": f"未找到对应章节正文文件: {chapter_filename}"})
-                        continue
+            if not target_file_path or not os.path.exists(target_file_path):
+                report_task({"id": tid, "status": "failed", "log": f"未找到对应章节正文文件: {chapter_filename}"})
+                return
 
-                    # 自动安全备份原章节文件
-                    backup_dir = os.path.join(bpath, "01_正文", ".backup")
-                    os.makedirs(backup_dir, exist_ok=True)
-                    backup_filename = f"{os.path.basename(target_file_path)}.bak_{int(time.time())}"
-                    backup_path = os.path.join(backup_dir, backup_filename)
-                    with open(target_file_path, "r", encoding="utf-8", errors="ignore") as rfp:
-                        orig_content = rfp.read()
-                    with open(backup_path, "w", encoding="utf-8") as wfp:
-                        wfp.write(orig_content)
-                    report_progress(f"原章节已安全备份至: .backup/{backup_filename}")
+            # 自动安全备份原章节文件
+            backup_dir = os.path.join(bpath, "01_正文", ".backup")
+            os.makedirs(backup_dir, exist_ok=True)
+            backup_filename = f"{os.path.basename(target_file_path)}.bak_{int(time.time())}"
+            backup_path = os.path.join(backup_dir, backup_filename)
+            with open(target_file_path, "r", encoding="utf-8", errors="ignore") as rfp:
+                orig_content = rfp.read()
+            with open(backup_path, "w", encoding="utf-8") as wfp:
+                wfp.write(orig_content)
+            report_progress(f"原章节已安全备份至: .backup/{backup_filename}")
 
-                    # 确定前一章与后一章，保证上下文承接
-                    prev_chapter_path = all_c_files[target_idx - 1] if target_idx > 0 else None
-                    next_chapter_path = all_c_files[target_idx + 1] if target_idx < len(all_c_files) - 1 else None
+            # 确定前一章与后一章，保证上下文承接
+            prev_chapter_path = all_c_files[target_idx - 1] if target_idx > 0 else None
+            next_chapter_path = all_c_files[target_idx + 1] if target_idx < len(all_c_files) - 1 else None
 
-                    # 收集全套设定集清单
-                    setting_files = sorted(glob.glob(os.path.join(bpath, "00_设定集", "*.md")))
-                    setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
+            # 收集全套设定集清单
+            setting_files = sorted(glob.glob(os.path.join(bpath, "00_设定集", "*.md")))
+            setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
 
-                    # 格式化机审问题清单
-                    issues_summary_lines = []
-                    for iss in audit_issues[:15]:
-                        cat = iss.get("category_name") or iss.get("category") or "机审项"
-                        msg = iss.get("msg") or ""
-                        sug = iss.get("suggestion") or ""
-                        issues_summary_lines.append(f"- [{cat}] {msg} {f'（建议：{sug}）' if sug else ''}")
-                    issues_summary_str = "\n".join(issues_summary_lines) if issues_summary_lines else "（暂无具体机审问题，按作者要求重构）"
+            # 格式化机审问题清单
+            issues_summary_lines = []
+            for iss in audit_issues[:15]:
+                cat = iss.get("category_name") or iss.get("category") or "机审项"
+                msg = iss.get("msg") or ""
+                sug = iss.get("suggestion") or ""
+                issues_summary_lines.append(f"- [{cat}] {msg} {f'（建议：{sug}）' if sug else ''}")
+            issues_summary_str = "\n".join(issues_summary_lines) if issues_summary_lines else "（暂无具体机审问题，按作者要求重构）"
 
-                    rep_meta = novel_manager.read_book_meta(bpath)
-                    rep_type = extra_data.get("novel_type") or extra_data.get("scale_type") or rep_meta.get("novel_type", "million_long")
-                    type_polish_note = "【中短篇快节奏精修】：剔除注水旁白，紧盯单主线与打脸爽感" if rep_type == "mid_short" else ("【爆款短故事精修】：拉满情绪压迫感，强化反转钥匙与隐秘证据链" if rep_type == "short_story" else "【长篇巨制精修】：兼顾世界观深度与伏笔呼应，黄金留存率排版")
+            rep_meta = novel_manager.read_book_meta(bpath)
+            rep_type = extra_data.get("novel_type") or extra_data.get("scale_type") or rep_meta.get("novel_type", "million_long")
+            type_polish_note = "【中短篇快节奏精修】：剔除注水旁白，紧盯单主线与打脸爽感" if rep_type == "mid_short" else ("【爆款短故事精修】：拉满情绪压迫感，强化反转钥匙与隐秘证据链" if rep_type == "short_story" else "【长篇巨制精修】：兼顾世界观深度与伏笔呼应，黄金留存率排版")
 
-                    mode_desc = "【🛡️ 合规脱敏精修】：保持原章节剧情大骨架不变，精准替换、重写涉敏涉嫌违规词句（如涉暴动、敏感冲突等），使用文雅合规的修仙科幻隐喻艺术化表达，优化不顺对白。" if repair_mode == "polish" else "【⚡ 深度剧情重构】：结合前后章节主线与细纲，全盘重写本章高潮冲突与悬念反转，解决逻辑违和或节奏拖沓问题，彻底重塑读者爽感与完读率。"
+            mode_desc = "【🛡️ 合规脱敏精修】：保持原章节剧情大骨架不变，精准替换、重写涉敏涉嫌违规词句（如涉暴动、敏感冲突等），使用文雅合规的修仙科幻隐喻艺术化表达，优化不顺对白。" if repair_mode == "polish" else "【⚡ 深度剧情重构】：结合前后章节主线与细纲，全盘重写本章高潮冲突与悬念反转，解决逻辑违和或节奏拖沓问题，彻底重塑读者爽感与完读率。"
 
-                    prompt = f"""【《{book_id}》番茄小说章节定点重构与驳回修复指令 · {os.path.basename(target_file_path)}】
+            prompt = f"""【《{book_id}》番茄小说章节定点重构与驳回修复指令 · {os.path.basename(target_file_path)}】
 当前小说工程工作区：`D:\\小说\\{book_id}`
 作品体量模式：{rep_type}（{type_polish_note}）
 目标修复章节文件：`{target_file_path}`
@@ -963,78 +937,78 @@ def run_bridge_loop():
 4. 步骤4：将重塑后的完整正文直接调用 write_file 覆盖写入目标章节路径：
    `{target_file_path}`！
 """
-                    task_title = f"【手机遥控】重构修复《{book_id}》{os.path.basename(target_file_path)}"
+            task_title = f"【手机遥控】重构修复《{book_id}》{os.path.basename(target_file_path)}"
 
-                # F. 正文创作与章节续写精修 / 大纲总谱推演
-                else:
-                    book_root = os.path.join(BOOKS_ROOT, book_id)
-                    c_files = novel_manager.chapter_files(book_root)
-                    next_chapter_num = max((int(m.group(1)) for f in c_files if (m := re.search(r"第(\d+)章", os.path.basename(f)))), default=0) + 1
-                    pad_num = f"{next_chapter_num:03d}"
+        # F. 正文创作与章节续写精修 / 大纲总谱推演
+        else:
+            book_root = os.path.join(BOOKS_ROOT, book_id)
+            c_files = novel_manager.chapter_files(book_root)
+            next_chapter_num = max((int(m.group(1)) for f in c_files if (m := re.search(r"第(\d+)章", os.path.basename(f)))), default=0) + 1
+            pad_num = f"{next_chapter_num:03d}"
 
-                    prev_chapter_file = c_files[-1] if c_files else None
-                    prev_chapter_tail = ""
-                    if prev_chapter_file:
-                        with open(prev_chapter_file, "r", encoding="utf-8", errors="ignore") as fp:
-                            prev_chapter_tail = fp.read()[-2000:]
+            prev_chapter_file = c_files[-1] if c_files else None
+            prev_chapter_tail = ""
+            if prev_chapter_file:
+                with open(prev_chapter_file, "r", encoding="utf-8", errors="ignore") as fp:
+                    prev_chapter_tail = fp.read()[-2000:]
 
-                    # 收集全套设定集清单
-                    setting_files = sorted(glob.glob(os.path.join(book_root, "00_设定集", "*.md")))
-                    setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
+            # 收集全套设定集清单
+            setting_files = sorted(glob.glob(os.path.join(book_root, "00_设定集", "*.md")))
+            setting_file_list_str = "\n".join([f"  * `{os.path.basename(sf)}`" for sf in setting_files])
 
-                    outline_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*细纲*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*大纲*.md"))
-                    chapter_outline = ""
-                    if outline_candidates:
-                        with open(outline_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
-                            outline_text = fp.read()
-                            pattern = rf"(第0*{next_chapter_num}章[^\n]*\n.*?)(?=\n[^\n]*第\d+章|\Z)"
-                            m = re.search(pattern, outline_text, re.DOTALL)
-                            if m:
-                                chapter_outline = m.group(1).strip()
+            outline_candidates = glob.glob(os.path.join(book_root, "00_设定集", "*细纲*.md")) + glob.glob(os.path.join(book_root, "00_设定集", "*大纲*.md"))
+            chapter_outline = ""
+            if outline_candidates:
+                with open(outline_candidates[0], "r", encoding="utf-8", errors="ignore") as fp:
+                    outline_text = fp.read()
+                    pattern = rf"(第0*{next_chapter_num}章[^\n]*\n.*?)(?=\n[^\n]*第\d+章|\Z)"
+                    m = re.search(pattern, outline_text, re.DOTALL)
+                    if m:
+                        chapter_outline = m.group(1).strip()
 
-                    workflow = extra_data.get("workflow")
-                    is_write_chapter = workflow == "serial" or (not workflow and (not user_prompt or "续写" in user_prompt or "开始写作" in user_prompt))
-                    if workflow == "polish" and prev_chapter_file:
-                        backup = Path(book_root) / "01_正文/.backup" / (Path(prev_chapter_file).name + ".bak_" + uuid.uuid4().hex)
-                        atomic_write(backup, Path(prev_chapter_file).read_bytes())
-                        user_prompt += f"\n本次只精修现有章节 {prev_chapter_file}，原稿已备份到 {backup}。"
+            workflow = extra_data.get("workflow")
+            is_write_chapter = workflow == "serial" or (not workflow and (not user_prompt or "续写" in user_prompt or "开始写作" in user_prompt))
+            if workflow == "polish" and prev_chapter_file:
+                backup = Path(book_root) / "01_正文/.backup" / (Path(prev_chapter_file).name + ".bak_" + uuid.uuid4().hex)
+                atomic_write(backup, Path(prev_chapter_file).read_bytes())
+                user_prompt += f"\n本次只精修现有章节 {prev_chapter_file}，原稿已备份到 {backup}。"
 
-                    if is_write_chapter:
-                        if engine == "deepseek":
-                            ok, output, last_file = deepseek_client.write_serial_chapters(
-                                book_root=book_root, book_id=book_id, count=extra_data.get("chapter_count", 1),
-                                user_prompt=user_prompt, model=model_tier, effort=reasoning_effort, progress_cb=report_progress
-                            )
-                            if ok:
-                                sync_all_books_to_cloud()
-                            report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
-                            continue
-                        ok, output = execute_serial_chapters(book_id, extra_data.get("chapter_count", 1), user_prompt,
-                            engine, model_tier, reasoning_effort, report_progress, task_id=tid)
-                        report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
-                        continue
+            if is_write_chapter:
+                if engine == "deepseek":
+                    ok, output, last_file = deepseek_client.write_serial_chapters(
+                        book_root=book_root, book_id=book_id, count=extra_data.get("chapter_count", 1),
+                        user_prompt=user_prompt, model=model_tier, effort=reasoning_effort, progress_cb=report_progress
+                    )
+                    if ok:
+                        sync_all_books_to_cloud()
+                    report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
+                    return
+                ok, output = execute_serial_chapters(book_id, extra_data.get("chapter_count", 1), user_prompt,
+                    engine, model_tier, reasoning_effort, report_progress, task_id=tid)
+                report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
+                return
+            else:
+                if engine == "deepseek":
+                    ok, output = deepseek_client.execute_instruction(
+                        book_root=book_root, book_id=book_id, user_prompt=user_prompt,
+                        model=model_tier, effort=reasoning_effort, progress_cb=report_progress
+                    )
+                    if ok:
+                        sync_all_books_to_cloud()
+                    report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
+                    return
+                book_meta_data = novel_manager.read_book_meta(book_root)
+                current_novel_type = extra_data.get("novel_type") or extra_data.get("scale_type") or book_meta_data.get("novel_type", "million_long")
+                type_outline_guide = ""
+                if workflow == "outline":
+                    if current_novel_type == "short_story":
+                        type_outline_guide = "\n【爆款短故事推演核心原则】：紧扣黄金开篇冲突与三重惊天大反转，严密核验证据链与反转钥匙，确保终局绝地反杀意料之外又情理之中！"
+                    elif current_novel_type == "mid_short":
+                        type_outline_guide = "\n【中短篇精品推演核心原则】：紧扣单主线与三幕式紧凑大纲，推演后续 10~15 章快节奏升级与核心高潮卡点，拒绝注水拖沓！"
                     else:
-                        if engine == "deepseek":
-                            ok, output = deepseek_client.execute_instruction(
-                                book_root=book_root, book_id=book_id, user_prompt=user_prompt,
-                                model=model_tier, effort=reasoning_effort, progress_cb=report_progress
-                            )
-                            if ok:
-                                sync_all_books_to_cloud()
-                            report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
-                            continue
-                        book_meta_data = novel_manager.read_book_meta(book_root)
-                        current_novel_type = extra_data.get("novel_type") or extra_data.get("scale_type") or book_meta_data.get("novel_type", "million_long")
-                        type_outline_guide = ""
-                        if workflow == "outline":
-                            if current_novel_type == "short_story":
-                                type_outline_guide = "\n【爆款短故事推演核心原则】：紧扣黄金开篇冲突与三重惊天大反转，严密核验证据链与反转钥匙，确保终局绝地反杀意料之外又情理之中！"
-                            elif current_novel_type == "mid_short":
-                                type_outline_guide = "\n【中短篇精品推演核心原则】：紧扣单主线与三幕式紧凑大纲，推演后续 10~15 章快节奏升级与核心高潮卡点，拒绝注水拖沓！"
-                            else:
-                                type_outline_guide = "\n【百万长篇推演核心原则】：兼顾宏大世界观徐徐展开、多线交织、长线伏笔暗埋与人物多阶段深度成长。"
+                        type_outline_guide = "\n【百万长篇推演核心原则】：兼顾宏大世界观徐徐展开、多线交织、长线伏笔暗埋与人物多阶段深度成长。"
 
-                        prompt = f"""【《{book_id}》小说辅助构思与推演指令】
+                prompt = f"""【《{book_id}》小说辅助构思与推演指令】
 当前小说工程工作区：`D:\\小说\\{book_id}`
 作品体量模式：{current_novel_type}
 设定集目录：`D:\\小说\\{book_id}\\00_设定集`
@@ -1048,43 +1022,97 @@ def run_bridge_loop():
 
 请严格通读并参考上述全部设定集文档，遵循本书宏观世界观与严密逻辑执行该推演要求，并在必要时直接调用 write_file 或 edit_file 更新对应文档！
 """
-                        task_title = f"【手机遥控】《{book_id}》智能推演"
+                task_title = f"【手机遥控】《{book_id}》智能推演"
 
-                report_progress(f"正在连接 {engine}（模型 {model_tier}，思考等级 {reasoning_effort}），准备在小说工作区执行…")
-                if action in ("creative_instruction", "repair_chapter", "evolve_settings"):
-                    root = Path(BOOKS_ROOT, book_id).resolve()
-                    def stage_generate(request):
-                        return desktop_stage(root, book_id, request, engine, model_tier, reasoning_effort, report_progress)
-                    material = story_memory.instruction_material(root, prompt, BRIDGE_PREFERENCES, stage_generate, report_progress)
-                    prompt += "\n【当前作品记忆及历史溯源资料】\n" + material
-                ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier, progress_cb=report_progress, reasoning_effort=reasoning_effort)
-                if ok and action == "create_new_novel" and not any(path.read_text(encoding="utf-8-sig").strip() for path in Path(book_root, "00_设定集").glob("*.md")):
-                    ok, output = False, "新书任务未保存有效设定文档，请检查执行结果后重试"
-                
-                if ok:
-                    wait_for_cloud_sync(report_progress)
-                    report_task({
-                        "id": tid, 
-                        "status": "completed", 
-                        "log": f"{output.strip()}\n\n成果已校验并同步至云端。"
-                    })
-                    print(f"[Task] 成功执行任务: {task_title}")
-                    # 立即全量同步最新生成的文件
-                else:
-                    report_task({
-                        "id": tid, 
-                        "status": "failed", 
-                        "log": output
-                    })
+        report_progress(f"正在连接 {engine}（模型 {model_tier}，思考等级 {reasoning_effort}），准备在小说工作区执行…")
+        if action in ("creative_instruction", "repair_chapter", "evolve_settings"):
+            root = Path(BOOKS_ROOT, book_id).resolve()
+            def stage_generate(request):
+                return desktop_stage(root, book_id, request, engine, model_tier, reasoning_effort, report_progress)
+            material = story_memory.instruction_material(root, prompt, BRIDGE_PREFERENCES, stage_generate, report_progress)
+            prompt += "\n【当前作品记忆及历史溯源资料】\n" + material
+        ok, output = execute_agentapi(prompt, title=task_title, engine_mode=engine, model_tier=model_tier, progress_cb=report_progress, reasoning_effort=reasoning_effort)
+        if ok and action == "create_new_novel" and not any(path.read_text(encoding="utf-8-sig").strip() for path in Path(book_root, "00_设定集").glob("*.md")):
+            ok, output = False, "新书任务未保存有效设定文档，请检查执行结果后重试"
+        
+        if ok:
+            wait_for_cloud_sync(report_progress)
+            report_task({
+                "id": tid, 
+                "status": "completed", 
+                "log": f"{output.strip()}\n\n成果已校验并同步至云端。"
+            })
+            print(f"[Task] 成功执行任务: {task_title}")
+            # 立即全量同步最新生成的文件
+        else:
+            report_task({
+                "id": tid, 
+                "status": "failed", 
+                "log": output
+            })
 
+
+    except Exception as e:
+        print(f"[Task Worker Error 《{book_id}》] {e}")
+        if tid:
+            report_task({"id": tid, "status": "failed", "log": str(e)})
+    finally:
+        with WORKERS_LOCK:
+            ACTIVE_WORKERS.pop(book_id, None)
+            if ACTIVE_TASK == tid:
+                ACTIVE_TASK = next((w["task_id"] for w in ACTIVE_WORKERS.values()), None)
+
+
+# 8. 多书并行任务调度主循环
+def run_bridge_loop():
+    global ACTIVE_TASK
+    ensure_single_instance()
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
+    threading.Thread(target=sync_agent_catalog, daemon=True).start()
+    prevent_sleep()
+    ok, c_cnt, s_cnt = sync_all_books_to_cloud()
+    threading.Thread(target=sync_loop, daemon=True).start()
+    print(f"[Sync] 初始同步完成: 多书架章节总数={c_cnt}, 设定文档={s_cnt}")
+
+    print("\n" + "="*50)
+    print("🚀 NovelRemoteHub · 智笔云枢 多书并行本地执行端 (Multi-Worker Bridge) 已就绪！")
+    print(f"📡 监听云端中枢: {CLOUD_SERVER_URL}")
+    print("🤖 执行端: Antigravity / ChatGPT（Codex），支持多部小说同时并发创作")
+    print(f"📚 多书架工作区: {BOOKS_ROOT}")
+    print("="*50 + "\n")
+
+    while True:
+        try:
+            if not flush_task_reports():
+                time.sleep(5)
+                continue
+            # 1. 清理已退出的 Worker 线程
+            with WORKERS_LOCK:
+                dead_books = [bid for bid, info in ACTIVE_WORKERS.items() if not info["thread"].is_alive()]
+                for bid in dead_books:
+                    del ACTIVE_WORKERS[bid]
+                running_count = len(ACTIVE_WORKERS)
+
+            # 2. 如果当前并行任务数未达上限，拉取下一部小说的待处理任务
+            if running_count < MAX_CONCURRENT_BOOKS:
+                data = api_get("pending_task")
+                if data and data.get("refresh_agents"):
+                    api_post("sync_agents", desktop_agents.catalog())
+                task = data.get("task") if data else None
+                if task:
+                    task_book = safe_component(task.get("book_id", DEFAULT_BOOK))
+                    with WORKERS_LOCK:
+                        already_running = task_book in ACTIVE_WORKERS
+                    if not already_running:
+                        th = threading.Thread(target=process_single_task, args=(task,), daemon=True, name=f"Worker-{task_book}")
+                        with WORKERS_LOCK:
+                            ACTIVE_WORKERS[task_book] = {"thread": th, "task_id": task["id"], "task": task, "started_at": time.time()}
+                            ACTIVE_TASK = task["id"]
+                        th.start()
         except Exception as e:
             print(f"[Loop Exception] {e}")
-            if ACTIVE_TASK:
-                report_task({"id": ACTIVE_TASK, "status": "failed", "log": str(e)})
-        finally:
-            ACTIVE_TASK = None
+        time.sleep(2)
 
-        time.sleep(3)
 
 if __name__ == "__main__":
     run_bridge_loop()

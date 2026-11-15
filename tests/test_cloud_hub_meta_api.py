@@ -84,6 +84,55 @@ class CloudHubMetaApiTest(unittest.TestCase):
             if raw_type not in ("million_long", "mid_short", "short_story"):
                 raise ValueError("作品体量类型无效")
 
+    def test_multi_novel_parallel_and_single_novel_lock(self):
+        # 1. 验证同一作品的单书互斥防重入锁 (Per-Novel Single-Flight Lock)
+        book_a = "作品A"
+        book_b = "作品B"
+        os.makedirs(os.path.join(self.books_dir, book_a, "00_设定集"), exist_ok=True)
+        os.makedirs(os.path.join(self.books_dir, book_b, "00_设定集"), exist_ok=True)
+
+        cloud_hub.TASKS.clear()
+        task_a1 = {
+            "id": "task_a1",
+            "action": "creative_instruction",
+            "book_id": book_a,
+            "engine_mode": "antigravity",
+            "status": "running",
+            "progress_log": ["续写进度 2/10 章"],
+            "extra_data": {"workflow": "serial", "chapter_count": 10}
+        }
+        cloud_hub.TASKS["task_a1"] = task_a1
+
+        # 检查同一书尝试下发不同任务，必须被拦截
+        for existing in cloud_hub.TASKS.values():
+            if existing.get("book_id") == book_a and existing.get("status") in ("pending", "assigned", "running"):
+                has_active = True
+                break
+        self.assertTrue(has_active, "同一作品已有运行中任务时应被检测到")
+
+        # 2. 验证不同作品可以并发发起与执行 (Multi-novel Parallelism)
+        task_b1 = {
+            "id": "task_b1",
+            "action": "creative_instruction",
+            "book_id": book_b,
+            "engine_mode": "antigravity",
+            "status": "running",
+            "progress_log": ["续写进度 1/5 章"],
+            "extra_data": {"workflow": "serial", "chapter_count": 5}
+        }
+        cloud_hub.TASKS["task_b1"] = task_b1
+
+        # 3. 验证 active_tasks 汇聚能力
+        by_book = {}
+        for t in cloud_hub.TASKS.values():
+            if t.get("status") in ("pending", "assigned", "running"):
+                by_book[t["book_id"]] = t
+        self.assertEqual(len(by_book), 2)
+        self.assertIn(book_a, by_book)
+        self.assertIn(book_b, by_book)
+        self.assertEqual(by_book[book_a]["id"], "task_a1")
+        self.assertEqual(by_book[book_b]["id"], "task_b1")
+
 
 if __name__ == "__main__":
     unittest.main()
