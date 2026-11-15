@@ -68,18 +68,25 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertNotIn("狄拉克海", danger_words)
         self.assertNotIn("端粒酶", danger_words)
 
+    def test_fuzzy_book_path_matching(self):
+        # 验证平台书名截断时（如七猫字数限制）能自动模糊匹配
+        path, title = novel_manager.get_book_path("测试", str(self.test_dir))
+        self.assertEqual(title, "测试作品")
+
     def test_userscript_file_exists_and_valid(self):
         js_path = Path("fanqie_publisher.user.js")
         self.assertTrue(js_path.exists())
         text = js_path.read_text(encoding="utf-8")
         self.assertIn("// ==UserScript==", text)
-        self.assertIn("@match        https://fanqienovel.com/main/writer/*", text)
+        self.assertIn("@match        *://fanqienovel.com/*", text)
+        self.assertIn("@match        *://zuozhe.qimao.com/*", text)
         self.assertIn("@grant        GM_deleteValue", text)
-        self.assertIn("1.2.0", text)
-        self.assertIn("nrh_fanqie_batch_pipeline", text)
+        self.assertIn("2.0.0", text)
+        self.assertIn("nrh_multi_platform_batch", text)
         self.assertIn("expandAuthorNoteIfCollapsed", text)
         self.assertIn("nrh-dock-tab", text)
         self.assertIn("智笔云枢", text)
+        self.assertIn("qimao", text)
 
 if __name__ == "__main__":
     unittest.main()

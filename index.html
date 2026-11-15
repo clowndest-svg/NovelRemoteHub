@@ -2001,7 +2001,7 @@
                         <span style="font-size:11px; opacity:0.85;">(已自动净化错字与缩进)</span>
                     </button>
                     <button class="btn-launch-big" style="flex:1.2; min-width:200px; background:linear-gradient(135deg, #eab308, #ca8a04); color:#000; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="openFanqieScriptModal()">
-                        <span>🤖 番茄自动发布助手 (油猴脚本)</span>
+                        <span>🤖 网文自动发布助手 (番茄/七猫双平台油猴脚本)</span>
                     </button>
                     <button class="btn-launch-big" style="flex:1; min-width:180px; background:linear-gradient(135deg, #3b82f6, #1d4ed8); color:#fff; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="copyFanqiePublishPackage()">
                         <span>📦 复制本章发布包</span>
@@ -2590,13 +2590,13 @@
         </div>
     </div>
 
-    <!-- 🤖 番茄小说作家助手 · 全自动发布与批量存草稿脚本 Modal -->
+    <!-- 🤖 网文作家助手 · 番茄小说 & 七猫作家中心双平台自动发布与批量存草稿脚本 Modal -->
     <div id="fanqie-script-modal" class="modal-overlay" onclick="closeFanqieScriptModal(event)" style="z-index: 12600;">
         <div class="modal-box modal-box-large" onclick="event.stopPropagation()" style="border: 1px solid rgba(234, 179, 8, 0.45); box-shadow: 0 25px 70px rgba(0,0,0,0.95), 0 0 35px rgba(234, 179, 8, 0.2); background: linear-gradient(180deg, #131b29 0%, #0d121c 100%); padding: 22px;">
             <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; margin-bottom: 16px;">
                 <div class="modal-title" style="display:flex; align-items:center; gap:8px; font-size: 16px; font-weight: 800; color: #fef08a;">
                     <span>🤖</span>
-                    <span>智笔云枢 ✕ 番茄作家助手 · 全自动发布与批量存草稿脚本</span>
+                    <span>智笔云枢 ✕ 网文作家助手 · 番茄小说 & 七猫作家中心双平台自动发布脚本</span>
                 </div>
                 <button class="close-btn" onclick="closeFanqieScriptModal()">&times;</button>
             </div>
@@ -2609,9 +2609,11 @@
                         <span>官方前台真实 DOM 仿真运行 · 100% 账号安全 · 零风控拦截</span>
                     </div>
                     <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
-                        • <b>单章秒填</b>：自动填入章节序号、纯标题、全角两格缩进正文、作者有话说与互动话题。<br>
-                        • <b>错字拦截自愈</b>：发布或存草稿时，自动拦截并忽略番茄平台由于专有名词造成的误报。<br>
-                        • <b>批量连发流水线</b>：支持一次性将 5~10 个新章节全自动循环填入并存入番茄草稿箱！
+                        • <b>支持双平台</b>：原生深度适配 <b>番茄小说作家后台 (fanqienovel.com)</b> 与 <b>七猫作家中心 (zuozhe.qimao.com)</b>。<br>
+                        • <b>智能贴边抽屉</b>：微型挂签智能贴附在屏幕右侧，点击网页其他地方自动吸附收起，100% 不遮挡任何签约流程或后台内容！<br>
+                        • <b>单章秒填</b>：自动填入章节序号、纯标题/完整标题、全角两格缩进正文、作家的话与互动话题。<br>
+                        • <b>错字拦截自愈</b>：发布或存草稿时，自动拦截并忽略各大平台机审误报。<br>
+                        • <b>批量连发流水线</b>：支持一次性将多个新章节全自动循环填入并存入草稿箱！
                     </div>
                 </div>
 
@@ -2636,7 +2638,7 @@
                         <span>⚠️</span>
                         <span>关键提示：若油猴提示「请启用“允许用户脚本”扩展设置」（见右上角红点）</span>
                     </div>
-                    这是 Chrome 最新扩展安全规范。请在浏览器地址栏打开 <code>chrome://extensions</code> ➔ 找到 <b>篡改猴 (Tampermonkey)</b> 点击「详细信息」 ➔ 打开 <b>「允许用户脚本」</b>（或在扩展页面右上角开启<b>「开发者模式」</b>开关）。开启后油猴红点消失，刷新番茄后台悬浮控制面板即刻秒显！
+                    这是 Chrome 最新扩展安全规范。请在浏览器地址栏打开 <code>chrome://extensions</code> ➔ 找到 <b>篡改猴 (Tampermonkey)</b> 点击「详细信息」 ➔ 打开 <b>「允许用户脚本」</b>（或在扩展页面右上角开启<b>「开发者模式」</b>开关）。开启后油猴红点消失，刷新番茄/七猫后台悬浮控制面板即刻秒显！
                 </div>
 
                 <!-- 三步极速上手指南 -->
@@ -2654,20 +2656,21 @@
 
                 <div class="workflow-step-card" style="margin-bottom: 10px;">
                     <div class="workflow-step-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">第 2 步</div>
-                    <div class="workflow-step-title" style="color: #38bdf8;">安装专属发布脚本</div>
+                    <div class="workflow-step-title" style="color: #38bdf8;">安装专属发布脚本 (已支持番茄 & 七猫)</div>
                     <div class="workflow-step-content" style="font-size:12px; line-height:1.6; color:#cbd5e1;">
-                        点击上方 <b>【🚀 一键直接安装脚本】</b> 按钮，油猴会自动弹出安装界面，点击「安装」即可完成！<br>
+                        点击上方 <b>【🚀 一键直接安装脚本】</b> 按钮，油猴会自动弹出安装界面，点击「安装」或「更新」即可完成！<br>
                         （也可点击【📋 复制脚本全量源码】，打开油猴管理面板，点击「+」新建脚本粘贴保存）。
                     </div>
                 </div>
 
                 <div class="workflow-step-card" style="margin-bottom: 16px;">
                     <div class="workflow-step-badge" style="background: rgba(16, 185, 129, 0.2); color: #4ade80; border-color: rgba(16, 185, 129, 0.4);">第 3 步</div>
-                    <div class="workflow-step-title" style="color: #4ade80;">打开番茄小说作家后台，享受全自动发布</div>
+                    <div class="workflow-step-title" style="color: #4ade80;">打开番茄小说或七猫作家后台，享受全自动发布</div>
                     <div class="workflow-step-content" style="font-size:12px; line-height:1.6; color:#cbd5e1;">
-                        进入番茄作家后台（<code>fanqienovel.com/main/writer/...</code>），页面右下角将自动浮现 <b>【🚀 智笔云枢 · 番茄发布助手】</b> 悬浮面板：<br>
-                        • <b>单章发布</b>：选好章节，点击 <b>【⚡ 一键填入本章】</b>，正文、标题、有话说瞬间填满，点击 <b>【💾 存草稿】</b>；<br>
-                        • <b>批量 10 章连发</b>：点击 <b>【🚀 批量全自动流水线】</b>，输入起始章与结束章，10 个新章节全自动依次存入番茄草稿箱！
+                        进入番茄作家后台（<code>fanqienovel.com</code>）或七猫作家中心（<code>zuozhe.qimao.com</code>），页面右侧将自动贴边浮现专属科技挂签：<br>
+                        • <b>智能贴边防挡</b>：在作品管理或签约等页面自动折叠为右侧 32px 金色小标签，点击网页任意处自动缩回，绝不遮挡操作；<br>
+                        • <b>单章发布</b>：选好章节，点击 <b>【⚡ 一键填入本章】</b>，正文、标题、作家的话瞬间填满，点击 <b>【💾 存草稿】</b>；<br>
+                        • <b>批量连发流水线</b>：点击 <b>【🚀 批量全自动流水线】</b>，输入起始章与结束章，多章节全自动依次录入草稿箱！
                     </div>
                 </div>
 

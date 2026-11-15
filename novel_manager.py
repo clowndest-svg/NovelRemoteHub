@@ -287,7 +287,24 @@ def get_book_path(book_id=None, root_dir=None):
         book_id = books[0]["id"]
     path = within(base, book_id)
     if not os.path.isdir(path):
-        raise FileNotFoundError("作品不存在")
+        # 智能模糊匹配：处理平台书名截断（如七猫字数限制）、别名或多平台书名差异
+        books = list_books(base)
+        matched = None
+        for b in books:
+            bid = b["id"]
+            btitle = b.get("title", bid)
+            if book_id in bid or bid in book_id or book_id in btitle or btitle in book_id:
+                matched = bid
+                break
+            common_prefix = os.path.commonprefix([book_id, bid])
+            if len(common_prefix) >= 4:
+                matched = bid
+                break
+        if matched:
+            book_id = matched
+            path = within(base, book_id)
+        else:
+            raise FileNotFoundError(f"作品「{book_id}」不存在")
     return path, read_book_meta(path, book_id).get("title", book_id)
 
 
