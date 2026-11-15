@@ -2558,13 +2558,13 @@
 
             <!-- 体量专属 SOP Tab 导航切换 -->
             <div class="sop-tab-bar">
-                <button class="sop-tab-btn active" id="sop-tab-btn-million" onclick="switchWorkflowTab('million')">
+                <button class="sop-tab-btn active" id="sop-tab-btn-million" onclick="switchSopGuideTab('million')">
                     <span>👑</span><span>百万长篇巨制 SOP (1000+章)</span>
                 </button>
-                <button class="sop-tab-btn" id="sop-tab-btn-mid" onclick="switchWorkflowTab('mid')">
+                <button class="sop-tab-btn" id="sop-tab-btn-mid" onclick="switchSopGuideTab('mid')">
                     <span>⚡</span><span>中短篇精品连载 SOP (几十万字)</span>
                 </button>
-                <button class="sop-tab-btn" id="sop-tab-btn-short" onclick="switchWorkflowTab('short')">
+                <button class="sop-tab-btn" id="sop-tab-btn-short" onclick="switchSopGuideTab('short')">
                     <span>🔥</span><span>爆款短故事/脑洞 SOP (1~5万字)</span>
                 </button>
             </div>
@@ -4334,7 +4334,7 @@
             }
         }
 
-        function switchWorkflowTab(tabId) {
+        function switchSopGuideTab(tabId) {
             const tabs = ["million", "mid", "short"];
             tabs.forEach(t => {
                 const btn = document.getElementById(`sop-tab-btn-${t}`);
@@ -4349,6 +4349,8 @@
             if (scaleMap[tabId]) {
                 selectNovelScale(scaleMap[tabId]);
             }
+            const sopNames = { million: "👑 百万长篇巨制 SOP", mid: "⚡ 中短篇精品连载 SOP", short: "🔥 爆款短故事 SOP" };
+            showToast(`已切换至：${sopNames[tabId] || tabId}`, "info", 1200);
         }
 
         function openWorkflowGuideFromNewBook() {
@@ -4375,9 +4377,7 @@
             const modal = document.getElementById("workflow-guide-modal");
             if (modal) {
                 modal.classList.add("show");
-                if (targetTab) {
-                    switchWorkflowTab(targetTab);
-                }
+                switchSopGuideTab(targetTab || "million");
                 showToast("已打开创作全流程指南", "info", 1500);
             }
         }
@@ -5518,14 +5518,6 @@
             } catch (e) {
                 showToast("网络请求失败: " + e.message, "error", 4500);
             }
-        }
-
-        function switchPreviewMode(mode) {
-            CURRENT_PREVIEW_MODE = mode;
-            document.getElementById("btn-view-highlight").classList.toggle("active", mode === 'highlight');
-            document.getElementById("btn-view-clean").classList.toggle("active", mode === 'clean');
-            renderTomatoPreviewText();
-            showToast(mode === 'highlight' ? '已切换为：缺陷高亮显影模式' : '已切换为：番茄纯净排版模式', "info", 1800);
         }
 
         function htmlArgument(value) { return escapeHtml(JSON.stringify(value)); }
