@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台多书架版)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.3.1
-// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品自由切换与智能匹配、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导/弹窗自动消解、错别字拦截自愈与多章节全自动批量存草稿流水线！
+// @version      2.4.0
+// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品多平台精准识别与持久化绑定、跨作品串写熔断阻断拦截、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导自动消解、错别字自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
 // @match        *://*.fanqienovel.com/*
@@ -106,6 +106,25 @@
         }
     }
 
+    // ================= 多平台作品持久化映射与防串书绑定库 =================
+    const BINDINGS_STORAGE_KEY = 'nrh_platform_book_bindings_v2';
+
+    function getBookBindings() {
+        try {
+            const raw = GM_getValue(BINDINGS_STORAGE_KEY, '{}');
+            return typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function setBookBinding(platformKey, bookTitle) {
+        if (!platformKey || !bookTitle) return;
+        const bindings = getBookBindings();
+        bindings[platformKey] = bookTitle;
+        GM_setValue(BINDINGS_STORAGE_KEY, JSON.stringify(bindings));
+    }
+
     function getBookIdFromUrl() {
         if (PLATFORM === 'fanqie') {
             const m = location.href.match(/writer\/(?:preview\/)?(\d+)/);
@@ -113,9 +132,8 @@
                 GM_setValue('nrh_last_book_id', m[1]);
                 return m[1];
             }
-            return GM_getValue('nrh_last_book_id', '7706774841793186841');
+            return GM_getValue('nrh_last_book_id', '');
         } else if (PLATFORM === 'qimao') {
-            // 七猫支持 ?id=14206182 或 ?bookId=14206182 或 /book/14206182
             const m = location.href.match(/[?&]id=(\d+)/) || location.href.match(/[?&]bookId=(\d+)/) || location.href.match(/book\/(\d+)/);
             if (m) {
                 GM_setValue('nrh_qimao_book_id', m[1]);
@@ -133,43 +151,162 @@
         return '';
     }
 
-    // 智能识别页面上的书名 (无论完整书名还是平台截断书名均能归一化，优先比对全部书架)
-    function detectPageBookName() {
-        let rawUrl = '';
-        try {
-            rawUrl = decodeURIComponent(location.href || '');
-        } catch (e) {
-            rawUrl = location.href || '';
-        }
-        const docTitle = document.title || '';
-        const bodyText = document.body ? document.body.innerText.slice(0, 5000) : '';
+    // 智能深度探测当前平台页面所属作品与平台ID
+    function detectPageBookInfo() {
+        const bookId = getBookIdFromUrl();
+        const platformKey = bookId ? `${PLATFORM}_${bookId}` : null;
+        const bindings = getBookBindings();
+        const boundBook = (platformKey && bindings[platformKey]) ? bindings[platformKey] : null;
 
-        // 1. 优先在已同步的作品书架列表中匹配
+        let rawUrl = '';
+        try { rawUrl = decodeURIComponent(location.href || ''); } catch (e) { rawUrl = location.href || ''; }
+        const docTitle = document.title || '';
+
+        // 收集页面核心文本特征 (面包屑、导航条、卡片标题)
+        const candidates = [];
+        const headerElements = Array.from(document.querySelectorAll(
+            '.arco-breadcrumb, .breadcrumb, [class*="header"], [class*="title"], [class*="novel"], [class*="book"], h1, h2, h3, .book-name, .novel-name'
+        )).filter(el => !el.closest('#nrh-floating-widget') && !el.closest('#nrh-batch-banner'));
+
+        for (const el of headerElements) {
+            const txt = (el.innerText || '').trim();
+            if (txt && txt.length < 80) candidates.push(txt);
+        }
+
+        if (PLATFORM === 'qimao') {
+            try {
+                const u = new URL(location.href);
+                const t = u.searchParams.get('title');
+                if (t) candidates.unshift(decodeURIComponent(t));
+            } catch (e) {}
+        }
+
+        let detectedBook = null;
+
+        // 1. 优先比对中枢书架全部作品 (精确命中或特征匹配)
         if (availableBooks && availableBooks.length > 0) {
             for (const b of availableBooks) {
                 const bTitle = b.title || b.id || '';
                 if (!bTitle) continue;
-                if (rawUrl.includes(bTitle) || docTitle.includes(bTitle) || bodyText.includes(bTitle)) {
-                    return bTitle;
+
+                // URL 或页面标题直接包含完整书名
+                if (rawUrl.includes(bTitle) || docTitle.includes(bTitle)) {
+                    detectedBook = bTitle;
+                    break;
                 }
-                const snippet = bTitle.slice(0, Math.min(8, bTitle.length));
-                if (snippet.length >= 4) {
-                    if (rawUrl.includes(snippet) || docTitle.includes(snippet) || bodyText.includes(snippet)) {
-                        return bTitle;
+                // 面包屑/导航栏包含完整书名
+                for (const c of candidates) {
+                    if (c.includes(bTitle)) {
+                        detectedBook = bTitle;
+                        break;
                     }
+                }
+                if (detectedBook) break;
+
+                // 前缀特征截断比对 (部分平台限制标题字数或显示为短标题，取前6~12字)
+                const prefix = bTitle.slice(0, Math.min(8, bTitle.length));
+                if (prefix.length >= 4) {
+                    if (rawUrl.includes(prefix) || docTitle.includes(prefix)) {
+                        detectedBook = bTitle;
+                        break;
+                    }
+                    for (const c of candidates) {
+                        if (c.includes(prefix)) {
+                            detectedBook = bTitle;
+                            break;
+                        }
+                    }
+                    if (detectedBook) break;
                 }
             }
         }
 
-        // 2. 常见特征兜底
-        if (bodyText.includes('给政哥讲量子') || rawUrl.includes('给政哥讲量子') || docTitle.includes('给政哥讲量子')) {
-            return '给政哥讲量子力学，他竟肉身硬抗二向箔';
-        }
-        if (bodyText.includes('山河无恙') || rawUrl.includes('山河无恙') || docTitle.includes('山河无恙')) {
-            return '山河无恙，请先生阅卷';
+        // 2. 若未从当前 DOM 解析出，但该平台 ID 此前已持久化绑定过中枢书籍，则读取绑定值
+        if (!detectedBook && boundBook) {
+            detectedBook = boundBook;
         }
 
-        return currentSelectedBook || CONFIG.bookName || '给政哥讲量子力学，他竟肉身硬抗二向箔';
+        // 3. 常见特征强兜底
+        if (!detectedBook) {
+            const bodySnippet = document.body ? document.body.innerText.slice(0, 3000) : '';
+            if (rawUrl.includes('山河无恙') || docTitle.includes('山河无恙') || bodySnippet.includes('山河无恙')) {
+                detectedBook = '山河无恙，请先生阅卷';
+            } else if (rawUrl.includes('给政哥讲量子') || docTitle.includes('给政哥讲量子') || bodySnippet.includes('给政哥讲量子')) {
+                detectedBook = '给政哥讲量子力学，他竟肉身硬抗二向箔';
+            }
+        }
+
+        // 4. 若解析到了确切书名且有平台 ID，沉淀为双向绑定关系
+        if (platformKey && detectedBook) {
+            setBookBinding(platformKey, detectedBook);
+        }
+
+        return {
+            bookId,
+            platformKey,
+            detectedBook,
+            boundBook,
+            isCreation: isBookCreationPage()
+        };
+    }
+
+    // 获取当前页面确定的书名 (若无确切页面书名，安全返回当前选定书目)
+    function detectPageBookName() {
+        const info = detectPageBookInfo();
+        return info.detectedBook || currentSelectedBook || CONFIG.bookName || '给政哥讲量子力学，他竟肉身硬抗二向箔';
+    }
+
+    // 检查页面作品与插件选定作品的一致性
+    function checkBookAlignment() {
+        const info = detectPageBookInfo();
+        const selected = currentSelectedBook;
+
+        // 若当前属于新书创建页面，或者平台页面未能检测出特定已有作品（自由无锚定状态）
+        if (!info.detectedBook) {
+            return { aligned: true, isUnbound: true, info };
+        }
+
+        if (info.detectedBook === selected) {
+            return { aligned: true, isUnbound: false, info };
+        }
+
+        // 严重冲突：页面作品与插件选中作品不符！
+        return {
+            aligned: false,
+            isUnbound: false,
+            pageBook: info.detectedBook,
+            selectedBook: selected,
+            info
+        };
+    }
+
+    // 严密安全守卫：在执行任何写入、录入、存草稿前拦截跨书串写！
+    async function guardBookAction(actionName = '操作') {
+        const check = checkBookAlignment();
+        if (check.aligned) return true;
+
+        const msg = `🛑【智笔云枢 · 严禁跨书串写安全拦截】\n\n` +
+            `检测到严重的跨作品串写风险：\n` +
+            `• 平台当前页面作品：【${check.pageBook}】${check.info.bookId ? '(平台ID: ' + check.info.bookId + ')' : ''}\n` +
+            `• 插件当前选中书目：【${check.selectedBook}】\n\n` +
+            `⚠️ 若继续${actionName}，将把《${check.selectedBook}》的内容强行填入《${check.pageBook}》的草稿箱，造成灾难性串书污染！\n\n` +
+            `系统已为您自动启动安全熔断拦截。请选择：\n` +
+            `• 点击【确定】：一键纠正对齐为《${check.pageBook}》并安全${actionName}\n` +
+            `• 点击【取消】：立即终止本次${actionName}，草稿箱不作任何修改`;
+
+        if (confirm(msg)) {
+            currentSelectedBook = check.pageBook;
+            CONFIG.bookName = check.pageBook;
+            GM_setValue('book_name', check.pageBook);
+            updateBookSelect();
+            updateBookGuardUI();
+            showToast(`已纠正对齐为平台当前作品：《${check.pageBook}》`);
+            await loadChapters(check.pageBook);
+            return true;
+        } else {
+            showToast(`🛑 已安全拦截本次${actionName}，杜绝串书写入。`, 4000);
+            return false;
+        }
     }
 
     // ================= 样式注入 (黑金奢华科技主题 + 边缘智能吸附抽屉) =================
@@ -897,8 +1034,9 @@
         }
 
         // 智能探针：若当前页面所在作品与选定书籍不一致，自动切换对齐
-        const pageBook = detectPageBookName();
-        if (pageBook) {
+        const pageInfo = detectPageBookInfo();
+        if (pageInfo.detectedBook) {
+            const pageBook = pageInfo.detectedBook;
             if (!availableBooks.some(b => b.title === pageBook || b.id === pageBook)) {
                 availableBooks.unshift({ id: pageBook, title: pageBook });
             }
@@ -908,6 +1046,64 @@
         }
 
         updateBookSelect();
+        updateBookGuardUI();
+    }
+
+    function updateBookGuardUI() {
+        const statusEl = document.getElementById('nrh-book-alignment-status');
+        if (!statusEl) return;
+        const check = checkBookAlignment();
+        if (check.aligned) {
+            if (check.isUnbound) {
+                statusEl.style.background = 'rgba(59, 130, 246, 0.12)';
+                statusEl.style.border = '1px solid rgba(59, 130, 246, 0.35)';
+                statusEl.style.color = '#93c5fd';
+                statusEl.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <span>🛡️ 新建/自由模式：当前选定《${currentSelectedBook}》</span>
+                        <span style="font-size:9px; background:#1d4ed8; color:#fff; padding:1px 4px; border-radius:3px;">就绪</span>
+                    </div>
+                `;
+            } else {
+                statusEl.style.background = 'rgba(34, 197, 94, 0.12)';
+                statusEl.style.border = '1px solid rgba(34, 197, 94, 0.35)';
+                statusEl.style.color = '#86efac';
+                statusEl.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <span>🟢 <b>已精准锁定：</b>对齐平台《${currentSelectedBook}》</span>
+                        <span style="font-size:9px; background:#15803d; color:#fff; padding:1px 4px; border-radius:3px;">防串锁定</span>
+                    </div>
+                `;
+            }
+        } else {
+            statusEl.style.background = 'rgba(239, 68, 68, 0.18)';
+            statusEl.style.border = '1px solid rgba(239, 68, 68, 0.5)';
+            statusEl.style.color = '#fca5a5';
+            statusEl.innerHTML = `
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <span style="font-weight:700;">🔴 跨书冲突！网页为《${check.pageBook}》</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:10px; color:#f87171;">已启动阻断保护，防止串书</span>
+                        <button id="nrh-btn-quick-align" style="background:#ef4444; color:#fff; border:none; padding:2px 8px; border-radius:4px; font-size:10px; cursor:pointer; font-weight:700;">⚡ 立即对齐</button>
+                    </div>
+                </div>
+            `;
+            const quickAlignBtn = document.getElementById('nrh-btn-quick-align');
+            if (quickAlignBtn) {
+                quickAlignBtn.onclick = async () => {
+                    currentSelectedBook = check.pageBook;
+                    CONFIG.bookName = check.pageBook;
+                    GM_setValue('book_name', check.pageBook);
+                    updateBookSelect();
+                    updateBookGuardUI();
+                    showToast(`已纠正对齐为平台当前作品：《${check.pageBook}》`);
+                    await loadChapters(check.pageBook);
+                };
+            }
+        }
+    }
     }
 
     function updateBookSelect() {
@@ -1009,6 +1205,8 @@
     }
 
     async function fillCurrentSelected() {
+        if (!await guardBookAction('单章录入')) return;
+
         // 如果在七猫作品管理页，提示并自动进入上传页
         if (PLATFORM === 'qimao' && location.href.includes('book-manage')) {
             const bookId = getBookIdFromUrl();
@@ -1048,6 +1246,7 @@
     }
 
     async function fillFromClipboard() {
+        if (!await guardBookAction('剪贴板录入')) return;
         try {
             const text = await navigator.clipboard.readText();
             if (!text || !text.trim()) {
@@ -1278,6 +1477,7 @@
 
     async function startBatchPipeline() {
         if (isBatchRunning) return;
+        if (!await guardBookAction('启动批量多章存草稿')) return;
 
         const defaultStart = detectPageNextChapter() || 1;
         const startInput = prompt(`[${getPlatformDisplayName()}] 请输入批量起始章节号：`, String(defaultStart));
@@ -1296,7 +1496,7 @@
         const bookId = getBookIdFromUrl();
         const currentBook = currentSelectedBook || detectPageBookName();
 
-        if (!confirm(`即将启动【${getPlatformDisplayName()}】全自动多章节存草稿流水线：\n\n• 作品：${currentBook}\n• 目标范围：第 ${startNum} 章 ~ 第 ${endNum} 章 (共 ${count} 篇草稿)\n• 流程：自动开辟新草稿 ➔ 注入正文/标题 ➔ 存草稿 ➔ 消解提示 ➔ 自动切入下一章\n• 终点：全部存入草稿箱后自动停靠\n\n确认立即启动？`)) {
+        if (!confirm(`即将启动【${getPlatformDisplayName()}】全自动多章节存草稿流水线：\n\n• 目标作品：【${currentBook}】\n• 平台校验：已通过防串书对齐认证\n• 目标范围：第 ${startNum} 章 ~ 第 ${endNum} 章 (共 ${count} 篇草稿)\n• 流程：自动开辟新草稿 ➔ 注入正文/标题 ➔ 存草稿 ➔ 消解提示 ➔ 自动切入下一章\n• 终点：全部存入草稿箱后自动停靠\n\n确认立即启动？`)) {
             return;
         }
 
@@ -1344,6 +1544,14 @@
         const state = getBatchState();
         if (!state || !state.active) {
             removeBatchBanner();
+            return;
+        }
+
+        // 批量步进深度核验：防止页面意外切入其他作品草稿箱
+        const pageInfo = detectPageBookInfo();
+        if (pageInfo.detectedBook && pageInfo.detectedBook !== state.bookName) {
+            alert(`🛑 批量流水线紧急熔断！检测到当前页面作品变更为《${pageInfo.detectedBook}》，与批量目标作品《${state.bookName}》不符！流水线已自动安全终止，绝无脏数据写入。`);
+            stopBatchPipeline();
             return;
         }
 
@@ -1527,9 +1735,11 @@
                     <select id="nrh-book-select" class="nrh-select" style="font-weight:700; color:#fef08a; background:#0b1120; border-color:rgba(234,179,8,0.5);">
                         <option value="${displayBook}">📖 ${displayBook}</option>
                     </select>
+                    <!-- 实时作品防串书对齐状态卡片 -->
+                    <div id="nrh-book-alignment-status" style="margin-top:6px; font-size:11px; padding:5px 8px; border-radius:6px; transition:all 0.25s;"></div>
                     <div style="font-size:10px; color:#94a3b8; margin-top:5px; display:flex; justify-content:space-between;">
                         <span>平台：<b style="color:#60a5fa;">${getPlatformDisplayName()}</b></span>
-                        <span style="color:#4ade80;">✓ 多书架实时协同就绪</span>
+                        <span style="color:#4ade80;">✓ 跨书熔断保护就绪</span>
                     </div>
                 </div>
 
@@ -1594,6 +1804,7 @@
                 currentSelectedBook = selected;
                 CONFIG.bookName = selected;
                 GM_setValue('book_name', selected);
+                updateBookGuardUI();
                 showToast(`已切换当前发布作品：《${selected}》`);
                 await loadChapters(selected);
             });

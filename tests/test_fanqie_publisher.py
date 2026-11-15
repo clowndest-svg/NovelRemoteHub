@@ -93,9 +93,15 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("@match        *://zuozhe.qimao.com/*", text)
         self.assertIn("@match        *://write.shuqi.com/*", text)
         self.assertIn("@grant        GM_deleteValue", text)
-        self.assertIn("2.3.1", text)
+        self.assertIn("2.4.0", text)
         self.assertIn("autoDismissTourOrGuide", text)
         self.assertIn("nrh-resume-batch-btn", text)
+        self.assertIn("nrh_platform_book_bindings", text)
+        self.assertIn("detectPageBookInfo", text)
+        self.assertIn("checkBookAlignment", text)
+        self.assertIn("guardBookAction", text)
+        self.assertIn("nrh-book-alignment-status", text)
+        self.assertIn("nrh-btn-quick-align", text)
         self.assertIn("nrh_multi_platform_batch", text)
         self.assertIn("nrh-book-select", text)
         self.assertIn("loadBooksCatalog", text)
@@ -164,6 +170,16 @@ class TestFanqiePublisher(unittest.TestCase):
         # read_chapter 也支持模糊匹配
         text = novel_manager.read_chapter("模糊匹配测试书", "第001章.md", str(self.test_dir))
         self.assertIn("穿越到了浩瀚星河之中", text)
+
+    def test_multi_book_isolation_in_userscript(self):
+        # 验证前端脚本中包含完善的多书区分、安全拦截与绑定防护体系
+        js_text = Path("fanqie_publisher.user.js").read_text(encoding="utf-8")
+        self.assertIn("detectPageBookInfo", js_text)
+        self.assertIn("guardBookAction", js_text)
+        self.assertIn("checkBookAlignment", js_text)
+        self.assertIn("nrh_platform_book_bindings_v2", js_text)
+        self.assertIn("严禁跨书串写安全拦截", js_text)
+        self.assertIn("批量流水线紧急熔断", js_text)
 
 if __name__ == "__main__":
     unittest.main()
