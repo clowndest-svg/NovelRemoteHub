@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台多书架版)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.4.1
+// @version      2.4.2
 // @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品多平台精准识别与持久化绑定、看门狗自动防卡滞自愈、跨作品串写熔断阻断拦截、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导自动消解、错别字自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
@@ -1104,7 +1104,6 @@
             }
         }
     }
-    }
 
     function updateBookSelect() {
         const bookSelect = document.getElementById('nrh-book-select');
@@ -1904,11 +1903,7 @@
     function restoreWidgetPosition(widget, reopenDot) {
         const savedTop = GM_getValue('nrh_widget_top', null);
         const isHidden = GM_getValue('nrh_widget_hidden', false);
-        const isDocked = GM_getValue('nrh_widget_docked', true);
-
-        const onEditorPage = (PLATFORM === 'fanqie' && (location.href.includes('/publish') || location.href.includes('enter_from=newchapter')))
-            || (PLATFORM === 'qimao' && (location.href.includes('chapter') || location.href.includes('edit') || location.href.includes('book-upload')))
-            || (PLATFORM === 'shuqi' && (location.href.includes('chapter') || location.href.includes('edit') || location.href.includes('bookinfocreate')));
+        const isDocked = GM_getValue('nrh_widget_docked', false);
 
         if (savedTop !== null) {
             const topNum = Math.max(20, Math.min(window.innerHeight - 140, parseInt(savedTop, 10)));
@@ -1925,8 +1920,8 @@
             return;
         }
 
-        // 非章节编辑页面（如七猫作品列表 book-manage、签约管理等），默认始终自动贴边挂起！
-        if (!onEditorPage || isDocked) {
+        // 默认展开面板，让作者一眼可见！仅在用户主动点击贴边后才吸附收起
+        if (isDocked) {
             widget.classList.add('docked');
         } else {
             widget.classList.remove('docked');
@@ -2049,7 +2044,6 @@
                 }
             }
         }, 2000);
-    }
     }
 
     if (document.readyState === 'loading') {

@@ -93,10 +93,15 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("@match        *://zuozhe.qimao.com/*", text)
         self.assertIn("@match        *://write.shuqi.com/*", text)
         self.assertIn("@grant        GM_deleteValue", text)
-        self.assertIn("2.4.1", text)
+        self.assertIn("2.4.2", text)
         self.assertIn("autoDismissTourOrGuide", text)
         self.assertIn("startBatchWatchdog", text)
         self.assertIn("nrh-resume-batch-btn", text)
+
+        # 语法严密性自动化校验
+        import subprocess
+        res = subprocess.run(["node", "-c", str(js_path)], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"JS语法错误: {res.stderr}")
         self.assertIn("nrh_platform_book_bindings", text)
         self.assertIn("detectPageBookInfo", text)
         self.assertIn("checkBookAlignment", text)
