@@ -2252,6 +2252,15 @@
             </div>
 
             <div class="input-group">
+                <label class="input-label">📊 作品体量与创作模式</label>
+                <select id="edit-book-novel-type" class="input-text" style="background:var(--bg-secondary); color:var(--text); border:1px solid var(--border);">
+                    <option value="million_long">👑 百万长篇巨制 (1000+章·宏大世界观与全书总账)</option>
+                    <option value="mid_short">⚡ 中短篇精品 (几十万字·紧凑快节奏与单主线)</option>
+                    <option value="short_story">🔥 爆款短故事 (1~5万字·极速高能反转脑洞)</option>
+                </select>
+            </div>
+
+            <div class="input-group">
                 <label class="input-label">🏷️ 题材与流派</label>
                 <input type="text" id="edit-book-genre" class="input-text" placeholder="例如：宇宙科技修仙 / 历史科幻 / 赛博仙侠">
             </div>
@@ -3666,6 +3675,9 @@
             const book = BOOKS.find(b => b.id === bookId) || { id: bookId, title: bookId, genre: '', description: '' };
             document.getElementById("edit-book-id").value = book.id;
             document.getElementById("edit-book-title").value = book.title || book.id;
+            const nType = book.novel_type || book.scale_type || "million_long";
+            const selType = document.getElementById("edit-book-novel-type");
+            if (selType) selType.value = nType;
             document.getElementById("edit-book-genre").value = book.genre || "";
             document.getElementById("edit-book-desc").value = book.description || "";
             document.getElementById("edit-book-author").value = book.author || "作者";
@@ -3706,11 +3718,14 @@
             
             if (!newTitle) { showToast("书名不能为空！", "error"); return; }
             
+            const selectedNovelType = (document.getElementById("edit-book-novel-type") ? document.getElementById("edit-book-novel-type").value : "million_long");
             const payload = {
                 book_id: bookId,
                 title: newTitle,
                 genre: genre,
                 description: desc,
+                novel_type: selectedNovelType,
+                scale_type: selectedNovelType,
                 author: document.getElementById("edit-book-author").value.trim(),
                 tags: document.getElementById("edit-book-tags").value.split(/[,，]/).map(tag => tag.trim()).filter(Boolean)
             };
@@ -3739,6 +3754,7 @@
                     if (CURRENT_BOOK === bookId || CURRENT_BOOK === newTitle) {
                         CURRENT_BOOK = res.book_id || bookId;
                         updateBookLabels();
+                        fillWorkflowPrompt(CURRENT_WORKFLOW);
                     }
                     openBookDrawer();
                 } else {
@@ -4263,6 +4279,13 @@
             }
         }
 
+        function getCurrentNovelType() {
+            const book = (BOOKS || []).find(b => b.id === CURRENT_BOOK || b.title === CURRENT_BOOK);
+            if (book && book.novel_type) return book.novel_type;
+            if (book && book.scale_type) return book.scale_type;
+            return SELECTED_NOVEL_SCALE || "million_long";
+        }
+
         async function selectBook(bookId) {
             document.getElementById('dispatch-btn').disabled = false;
             showToast(`正在切换创作作品至《${bookId}》...`, "info", 1800);
@@ -4279,6 +4302,8 @@
             CURRENT_EXTRAS_DATA = null;
             window.hasLoadedFirst = false;
             LAST_CHAPTER_HOOK = "";
+            const hookPreview = document.getElementById("hook-preview-content");
+            if (hookPreview) hookPreview.innerText = `正在读取《${bookId}》章节状态...`;
             document.getElementById("chapter-content").innerText = "正在调阅正文…";
             updateBookLabels();
             closeBookDrawer();
@@ -4377,7 +4402,12 @@
             const modal = document.getElementById("workflow-guide-modal");
             if (modal) {
                 modal.classList.add("show");
-                switchSopGuideTab(targetTab || "million");
+                if (!targetTab) {
+                    const nType = getCurrentNovelType();
+                    const tabMap = { "million_long": "million", "mid_short": "mid", "short_story": "short" };
+                    targetTab = tabMap[nType] || "million";
+                }
+                switchSopGuideTab(targetTab);
                 showToast("已打开创作全流程指南", "info", 1500);
             }
         }
@@ -4690,6 +4720,10 @@
                     window.hasLoadedFirst = true;
                     openChapter(CHAPTERS.length - 1, false);
                 }
+            } else {
+                LAST_CHAPTER_HOOK = "";
+                const preview = document.getElementById("hook-preview-content");
+                if (preview) preview.innerText = "（新书开篇立骨，暂无上一章，即将依据大纲与设定创作黄金首章）";
             }
         }
 
@@ -4698,15 +4732,25 @@
             try {
                 const key = `${book}_${filename}`;
                 const res = CLIENT_CACHE.chapterContent[key] ? {content:CLIENT_CACHE.chapterContent[key]} : await fetchAPI(`${API}/chapter?book=${encodeURIComponent(book)}&file=${encodeURIComponent(filename)}`);
+                if (book !== CURRENT_BOOK) return;
                 if (res && res.content) {
-                    if (book !== CURRENT_BOOK) return;
                     const lines = res.content.trim().split("\n");
                     const tail = lines.slice(-8).join("\n");
                     LAST_CHAPTER_HOOK = tail;
                     const preview = document.getElementById("hook-preview-content");
                     if (preview) preview.innerText = tail;
+                } else {
+                    LAST_CHAPTER_HOOK = "";
+                    const preview = document.getElementById("hook-preview-content");
+                    if (preview) preview.innerText = "（未检测到上一章结尾内容）";
                 }
-            } catch (e) {}
+            } catch (e) {
+                if (book === CURRENT_BOOK) {
+                    LAST_CHAPTER_HOOK = "";
+                    const preview = document.getElementById("hook-preview-content");
+                    if (preview) preview.innerText = "（未检测到上一章结尾内容）";
+                }
+            }
         }
 
         function toggleHookPreview() {
@@ -4935,40 +4979,106 @@
             const chips = document.getElementById("workflow-chips-container");
             const pbox = document.getElementById("prompt-box");
             pbox.placeholder = "在此补充本次创作要求";
+            const novelType = getCurrentNovelType();
 
             if (wf === "serial") {
-                chips.innerHTML = `
-                    <div class="chip active" onclick="applyPromptTag('标准4000字')">🎯 标准篇幅 (4000-5000字)</div>
-                    <div class="chip" onclick="applyPromptTag('长篇爆发')">🔥 爆发长章 (6000-8000字)</div>
-                    <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
-                    <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
-                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
-                `;
-                pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与剧情发展边界，每轮更新剧情记忆、人物状态及伏笔，核对本章细纲、上一章全文及相关历史原文，草稿审核通过后保存，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
+                if (novelType === "short_story") {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('极速反转2500字')">🔥 极速反转 (2000-3000字)</div>
+                        <div class="chip" onclick="applyPromptTag('黄金三秒开篇冲突')">🔪 黄金三秒开篇冲突</div>
+                        <div class="chip" onclick="applyPromptTag('撕开反派伪装')">🎭 撕开反派伪装面具</div>
+                        <div class="chip" onclick="applyPromptTag('终局绝地反杀')">⚡ 终局绝地反杀伏笔</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('short')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请严格遵循《${CURRENT_BOOK}》爆款短故事脑洞架构，开篇即黄金冲突，拉满情绪压迫感！围绕隐秘线索与反转钥匙推进剧情，核对前章线索与反转大纲，逐章创作正文（2000-3000字，高频反转，冷峻张力，中文全角双引号“”，章末留生死存亡或真相反转钩子）。`;
+                } else if (novelType === "mid_short") {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('精炼快奏3000字')">⚡ 精炼快奏 (2500-3500字)</div>
+                        <div class="chip" onclick="applyPromptTag('强爽打脸单主线')">💥 强爽打脸 (单主线推进)</div>
+                        <div class="chip" onclick="applyPromptTag('密集反转小高潮')">🚨 密集反转 (3章小高潮)</div>
+                        <div class="chip" onclick="applyPromptTag('核心爽点爆发')">🔑 核心爽点爆发</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('mid')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请严格遵循《${CURRENT_BOOK}》中短篇紧凑主线与大纲设定，保持单主线高速推进，绝不注水拖沓！每章紧扣核心爽点与危机反转，逐章创作正文（2500-3500字，对话紧凑，段落精炼，中文全角双引号“”，章末卡在情节最高压或致命悬念节点）。`;
+                } else {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('标准4000字')">🎯 标准篇幅 (4000-5000字)</div>
+                        <div class="chip" onclick="applyPromptTag('长篇爆发')">🔥 爆发长章 (6000-8000字)</div>
+                        <div class="chip" onclick="applyPromptTag('搞笑反差')">😂 强化角色反差笑点</div>
+                        <div class="chip" onclick="applyPromptTag('硬核科修')">⚡ 深化本书核心设定</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('million')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请严格遵循《${CURRENT_BOOK}》大纲设定与剧情发展边界，每轮更新剧情记忆、人物状态及伏笔，核对本章细纲、上一章全文及相关历史原文，草稿审核通过后保存，逐章创作正文（${APP_PREFERENCES.default_chapter_words || "4000-5000"}字，番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。`;
+                }
             } else if (wf === "polish") {
-                chips.innerHTML = `
-                    <div class="chip active" onclick="applyPromptTag('黄金留存')">🔥 黄金留存率爆改 (前3章优化)</div>
-                    <div class="chip" onclick="applyPromptTag('笑点加量')">😂 强化喜剧冲突</div>
-                    <div class="chip" onclick="applyPromptTag('重塑钩子')">🎣 重塑章末王炸悬念钩子</div>
-                    <div class="chip" onclick="applyPromptTag('标点纠偏')">🔍 全角标点与错别字排查</div>
-                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
-                `;
-                pbox.value = `请对最新章节进行全篇精修润色：强化当前作品人物的情绪与冲突，深化本书核心设定在剧情中的呈现，确保中文全角双引号“”规范与移动端短段落排版。`;
+                if (novelType === "short_story") {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('拉满情绪压迫感')">🎭 极致拉满情绪压迫感</div>
+                        <div class="chip" onclick="applyPromptTag('强化证据链暗线')">🔑 强化隐秘证据伏笔暗线</div>
+                        <div class="chip" onclick="applyPromptTag('真相反转冲击力')">💥 炸裂真相反转冲击力</div>
+                        <div class="chip" onclick="applyPromptTag('冷峻短句纠偏')">🔍 极速短句排版与错字纠偏</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('short')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请对短故事最新章节进行极限制冷精修：删去任何平淡交代，拉满情绪压迫感与受众代入感，强化关键证据链伏笔与人物微表情疑点，让反转爆发时具备绝对逻辑闭环与震撼力。`;
+                } else if (novelType === "mid_short") {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('极致脱水')">⚡ 极致脱水 (砍掉冗余铺垫)</div>
+                        <div class="chip" onclick="applyPromptTag('打脸爽感强化')">💥 强化打脸爽感与冲突张力</div>
+                        <div class="chip" onclick="applyPromptTag('卡点悬念断章')">🎣 卡点致命悬念断章</div>
+                        <div class="chip" onclick="applyPromptTag('错别字纠偏')">🔍 错别字与标点规范化</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('mid')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请对最新章节进行紧凑精修：重点剔除拖沓注水描写与冗余旁白，压缩叙事节奏，强化主角与反派的即时冲突张力与打脸爽感，确保对白生动有力，章末保留高能断章悬念。`;
+                } else {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('黄金留存')">🔥 黄金留存率爆改 (前3章优化)</div>
+                        <div class="chip" onclick="applyPromptTag('笑点加量')">😂 强化喜剧冲突</div>
+                        <div class="chip" onclick="applyPromptTag('重塑钩子')">🎣 重塑章末王炸悬念钩子</div>
+                        <div class="chip" onclick="applyPromptTag('标点纠偏')">🔍 全角标点与错别字排查</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('million')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请对最新章节进行全篇精修润色：强化当前作品人物的情绪与冲突，深化本书核心设定在剧情中的呈现，确保中文全角双引号“”规范与移动端短段落排版。`;
+                }
             } else if (wf === "outline") {
-                chips.innerHTML = `
-                    <div class="chip active" onclick="applyPromptTag('主线高潮')">🌌 推演后20章大主线走向</div>
-                    <div class="chip" onclick="applyPromptTag('伏笔暗线')">🔍 设计本书伏笔与回收计划</div>
-                    <div class="chip" onclick="applyPromptTag('战力推演')">⚖️ 人物关系与剧情因果推演</div>
-                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
-                `;
-                pbox.value = `请基于《${CURRENT_BOOK}》的 00_设定集，推演后续 20-30 章的主线走向与剧情大高潮，重点设计符合本书题材与设定的核心反转、人物成长和伏笔回收！`;
+                if (novelType === "short_story") {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('三重惊天大反转')">🔄 设计三重惊天大反转</div>
+                        <div class="chip" onclick="applyPromptTag('证据链闭环')">🗝️ 证据链与反转钥匙核验</div>
+                        <div class="chip" onclick="applyPromptTag('绝境终极反杀')">💥 绝境终极反杀闭环</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('short')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请基于《${CURRENT_BOOK}》短故事核心脑洞与证据链清单，精细推演全篇的三重高能反转与终局绝地反杀逻辑，核验主角翻盘钥匙的严密性，确保意料之外又在情理之中！`;
+                } else if (novelType === "mid_short") {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('后10章快节奏细纲')">⚡ 推演后续10章快节奏细纲</div>
+                        <div class="chip" onclick="applyPromptTag('三幕式高潮节点')">🎯 三幕式核心高潮节点</div>
+                        <div class="chip" onclick="applyPromptTag('主线矛盾集中爆发')">🔑 主线矛盾集中爆发设计</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('mid')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请基于《${CURRENT_BOOK}》的三幕式中短篇大纲与人物设定，推演后续 10-15 章的高潮走向与剧情爆发点，设计单主线冲突步步升级与阶段性大爽点，确保情节紧凑环环相扣！`;
+                } else {
+                    chips.innerHTML = `
+                        <div class="chip active" onclick="applyPromptTag('主线高潮')">🌌 推演后20章大主线走向</div>
+                        <div class="chip" onclick="applyPromptTag('伏笔暗线')">🔍 设计本书伏笔与回收计划</div>
+                        <div class="chip" onclick="applyPromptTag('战力推演')">⚖️ 人物关系与剧情因果推演</div>
+                        <div class="chip" onclick="openWorkflowGuideModal('million')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    `;
+                    pbox.value = `请基于《${CURRENT_BOOK}》的 00_设定集，推演后续 20-30 章的主线走向与剧情大高潮，重点设计符合本书题材与设定的核心反转、人物成长和伏笔回收！`;
+                }
             } else if (wf === "freeform") {
+                const sopTab = novelType === "short_story" ? "short" : (novelType === "mid_short" ? "mid" : "million");
                 chips.innerHTML = `
                     <div class="chip" onclick="applyPromptTag('清空')">🧹 清空输入框</div>
-                    <div class="chip" onclick="openWorkflowGuideModal()" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
+                    <div class="chip" onclick="openWorkflowGuideModal('${sopTab}')" style="border-color:rgba(226, 183, 64, 0.5); color:var(--accent); background:rgba(226, 183, 64, 0.1);">📖 创作全流程SOP</div>
                 `;
                 pbox.value = "";
-                pbox.placeholder = "请输入你的自定义自由指令，所选执行端将理解并执行...";
+                if (novelType === "short_story") {
+                    pbox.placeholder = "请输入短故事创作指令，执行端将结合高概念脑洞与极速反转设计执行...";
+                } else if (novelType === "mid_short") {
+                    pbox.placeholder = "请输入中短篇创作指令，执行端将遵循紧凑快节奏与单主线原则执行...";
+                } else {
+                    pbox.placeholder = "请输入你的自定义自由指令，所选执行端将理解并执行...";
+                }
             }
         }
 
@@ -4996,7 +5106,8 @@
 
             const intent = JSON.stringify({ book: CURRENT_BOOK, prompt, workflow: CURRENT_WORKFLOW,
                 count: CURRENT_WORKFLOW === 'serial' ? Number(document.getElementById('serial-chapter-count').value) : 1,
-                engine: CURRENT_ENGINE, model: CURRENT_MODEL_TIER, effort: CURRENT_REASONING_EFFORT });
+                engine: CURRENT_ENGINE, model: CURRENT_MODEL_TIER, effort: CURRENT_REASONING_EFFORT,
+                novel_type: getCurrentNovelType() });
             let submission;
             try { submission = JSON.parse(localStorage.getItem('novel_submission_retry') || 'null'); } catch (error) {}
             if (!submission || submission.intent !== intent) {
@@ -5015,6 +5126,8 @@
                         extra_data: {
                             model_tier: CURRENT_MODEL_TIER,
                             workflow: CURRENT_WORKFLOW,
+                            novel_type: getCurrentNovelType(),
+                            scale_type: getCurrentNovelType(),
                             chapter_count: CURRENT_WORKFLOW === "serial" ? Number(document.getElementById("serial-chapter-count").value) : 1
                         }
                     })

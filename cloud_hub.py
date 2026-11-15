@@ -212,10 +212,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 19,
-    "versionName": "1.12.0",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.12.0",
-    "changelog": "构思工坊支持百万长篇、中短篇精品与爆款短故事多体量架构；重构创作全流程SOP交互与移动端触控体验。",
+    "versionCode": 20,
+    "versionName": "1.13.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.13.0",
+    "changelog": "四大创作功能与三大作品体量深度自适应联动；彻底解决新书断章钩子跨书残留；SOP指南按书籍类型动态直达；作品信息支持体量修改。",
     "forceUpdate": False
 }
 
@@ -359,7 +359,7 @@ def sync_book(body):
             save_json_file(os.path.join(DATA_DIR, "conversations.json"), conversations)
         meta = body.get("meta")
         current_meta = novel_manager.read_book_meta(book_path, book_id)
-        if isinstance(meta, dict) and meta and any(current_meta.get(key) != meta.get(key) for key in ("title", "genre", "author", "description", "tags") if key in meta):
+        if isinstance(meta, dict) and meta and any(current_meta.get(key) != meta.get(key) for key in ("title", "genre", "author", "description", "tags", "novel_type", "scale_type") if key in meta):
             novel_manager.save_book_meta(book_id, meta, BOOKS_DIR, rename=False)
             changed = True
         cover_base64 = body.get("cover_base64")
@@ -1343,6 +1343,13 @@ class HubHandler(BaseHTTPRequestHandler):
                 meta_update["tags"] = [str(t).strip() for t in body["tags"] if str(t).strip()]
             elif "tags" in body:
                 raise ValueError("标签必须为列表")
+            if "novel_type" in body or "scale_type" in body:
+                raw_type = str(body.get("novel_type") or body.get("scale_type")).strip()
+                if raw_type in ("million_long", "mid_short", "short_story"):
+                    meta_update["novel_type"] = raw_type
+                    meta_update["scale_type"] = raw_type
+                else:
+                    raise ValueError("作品体量类型无效")
 
             if body.get("cover_base64"):
                 novel_manager.decode_cover(body["cover_base64"])

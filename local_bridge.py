@@ -929,10 +929,15 @@ def run_bridge_loop():
                         issues_summary_lines.append(f"- [{cat}] {msg} {f'（建议：{sug}）' if sug else ''}")
                     issues_summary_str = "\n".join(issues_summary_lines) if issues_summary_lines else "（暂无具体机审问题，按作者要求重构）"
 
+                    rep_meta = novel_manager.read_book_meta(bpath)
+                    rep_type = extra_data.get("novel_type") or extra_data.get("scale_type") or rep_meta.get("novel_type", "million_long")
+                    type_polish_note = "【中短篇快节奏精修】：剔除注水旁白，紧盯单主线与打脸爽感" if rep_type == "mid_short" else ("【爆款短故事精修】：拉满情绪压迫感，强化反转钥匙与隐秘证据链" if rep_type == "short_story" else "【长篇巨制精修】：兼顾世界观深度与伏笔呼应，黄金留存率排版")
+
                     mode_desc = "【🛡️ 合规脱敏精修】：保持原章节剧情大骨架不变，精准替换、重写涉敏涉嫌违规词句（如涉暴动、敏感冲突等），使用文雅合规的修仙科幻隐喻艺术化表达，优化不顺对白。" if repair_mode == "polish" else "【⚡ 深度剧情重构】：结合前后章节主线与细纲，全盘重写本章高潮冲突与悬念反转，解决逻辑违和或节奏拖沓问题，彻底重塑读者爽感与完读率。"
 
                     prompt = f"""【《{book_id}》番茄小说章节定点重构与驳回修复指令 · {os.path.basename(target_file_path)}】
 当前小说工程工作区：`D:\\小说\\{book_id}`
+作品体量模式：{rep_type}（{type_polish_note}）
 目标修复章节文件：`{target_file_path}`
 前置章节参考：`{prev_chapter_path if prev_chapter_path else "（此章为第一章）"}`
 后置章节参考：`{next_chapter_path if next_chapter_path else "（此章为目前最新章）"}`
@@ -1018,8 +1023,20 @@ def run_bridge_loop():
                                 sync_all_books_to_cloud()
                             report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
                             continue
+                        book_meta_data = novel_manager.read_book_meta(book_root)
+                        current_novel_type = extra_data.get("novel_type") or extra_data.get("scale_type") or book_meta_data.get("novel_type", "million_long")
+                        type_outline_guide = ""
+                        if workflow == "outline":
+                            if current_novel_type == "short_story":
+                                type_outline_guide = "\n【爆款短故事推演核心原则】：紧扣黄金开篇冲突与三重惊天大反转，严密核验证据链与反转钥匙，确保终局绝地反杀意料之外又情理之中！"
+                            elif current_novel_type == "mid_short":
+                                type_outline_guide = "\n【中短篇精品推演核心原则】：紧扣单主线与三幕式紧凑大纲，推演后续 10~15 章快节奏升级与核心高潮卡点，拒绝注水拖沓！"
+                            else:
+                                type_outline_guide = "\n【百万长篇推演核心原则】：兼顾宏大世界观徐徐展开、多线交织、长线伏笔暗埋与人物多阶段深度成长。"
+
                         prompt = f"""【《{book_id}》小说辅助构思与推演指令】
 当前小说工程工作区：`D:\\小说\\{book_id}`
+作品体量模式：{current_novel_type}
 设定集目录：`D:\\小说\\{book_id}\\00_设定集`
 现有全套设定文档：
 {setting_file_list_str}
@@ -1027,7 +1044,7 @@ def run_bridge_loop():
 来自作者的指令：
 \"\"\"
 {user_prompt}
-\"\"\"
+\"\"\"{type_outline_guide}
 
 请严格通读并参考上述全部设定集文档，遵循本书宏观世界观与严密逻辑执行该推演要求，并在必要时直接调用 write_file 或 edit_file 更新对应文档！
 """

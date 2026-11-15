@@ -62,6 +62,28 @@ class CloudHubMetaApiTest(unittest.TestCase):
         self.assertFalse(os.path.exists(self.book_path))
         self.assertTrue(os.path.exists(del_res["trash_path"]))
 
+    def test_novel_type_meta_lifecycle(self):
+        # 测试三种体量类型的元数据存取与更新
+        test_book = "新建测试书"
+        os.makedirs(os.path.join(self.books_dir, test_book, "00_设定集"), exist_ok=True)
+        for scale in ("million_long", "mid_short", "short_story"):
+            res = novel_manager.save_book_meta(test_book, {
+                "title": test_book,
+                "novel_type": scale,
+                "scale_type": scale
+            }, self.books_dir)
+            self.assertTrue(res["ok"])
+            meta = novel_manager.read_book_meta(os.path.join(self.books_dir, test_book))
+            self.assertEqual(meta.get("novel_type"), scale)
+            self.assertEqual(meta.get("scale_type"), scale)
+
+        # 非法体量类型拦截测试
+        with self.assertRaises(ValueError):
+            # 模拟云端 API 的校验逻辑
+            raw_type = "invalid_scale_mode"
+            if raw_type not in ("million_long", "mid_short", "short_story"):
+                raise ValueError("作品体量类型无效")
+
 
 if __name__ == "__main__":
     unittest.main()

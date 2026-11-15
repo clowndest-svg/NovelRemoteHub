@@ -470,9 +470,20 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                 base, references = writing_context(root, documents, memory, number, user_prompt, preferences)
                 review = {**load_json(run, {}), 'source_revision': revision, 'references': references, 'status': 'drafting'}
                 atomic_json(run, review)
-                words = preferences.get('default_chapter_words', '4000-5000')
+                meta = novel_manager.read_book_meta(str(root))
+                novel_type = meta.get("novel_type") or meta.get("scale_type") or "million_long"
+                if novel_type == "short_story":
+                    scale_guide = "【爆款短故事模式】：注重黄金开篇冲突、情绪紧绷、伏笔暗线埋设与极速高能反转，绝不注水。"
+                    default_words = "2000-3000"
+                elif novel_type == "mid_short":
+                    scale_guide = "【中短篇精品模式】：单主线高速推进、强化即时打脸爽感、3~5章一小高潮、紧凑快节奏不拖沓。"
+                    default_words = "2500-3500"
+                else:
+                    scale_guide = "【百万长篇模式】：兼顾宏大世界观徐徐展开、多线交织、长线伏笔暗埋与人物深度成长。"
+                    default_words = "4000-5000"
+                words = preferences.get('default_chapter_words') or default_words
                 layout = '中文全角标点、短段落、对话单列。' if preferences.get('strict_tomato_layout', True) else '保持本书原有排版。'
-                instructions = (f'先在本会话内部规划本章因果与伏笔，再创作完整正文，目标{words}字。{layout}'
+                instructions = (f'{scale_guide}先在本会话内部规划本章因果与伏笔，再创作完整正文，目标{words}字。{layout}'
                     f'第一行必须为第{number:03d}章 标题，随后仅输出正文。'
                     '若必须核对的历史材料缺失，返回JSON {"needed_sources":["本书目录内文件路径"],"reason":"需要核对的内容"}，软件补充后再写正文。')
                 progress(f'第{number:03d}章，写作会话规划并生成草稿，使用{len(base)}字符资料')
@@ -509,7 +520,15 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                 suffix = re.sub(r'[\\/*?:"<>|]', '', title.group(1)).strip().rstrip('. ')
                 if not suffix:
                     raise ValueError('章节标题为空，草稿已保留')
-                directory = Path(files[-1]).parent if files else root / '01_正文/第一卷_人界篇'
+                if files:
+                    directory = Path(files[-1]).parent
+                else:
+                    if novel_type == "short_story":
+                        directory = root / '01_正文'
+                    elif novel_type == "mid_short":
+                        directory = root / '01_正文/第一卷_开端篇'
+                    else:
+                        directory = root / '01_正文/第一卷_人界篇'
                 target = directory / f'第{number:03d}章_{suffix[:100]}.md'
                 final_text = f'# 第{number:03d}章 {suffix}\n\n{body.strip()}\n'
                 target_name = target.relative_to(root).as_posix()
