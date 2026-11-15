@@ -2038,6 +2038,14 @@
                         <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(50)">50章</button>
                         <button type="button" class="serial-chip-btn" onclick="setSerialCountPreset(100)">100章 (长篇冲刺)</button>
                     </div>
+                    <!-- 大纲完备性前置校验提示条 -->
+                    <div id="serial-outline-check-tip" style="margin-top:10px; padding:7px 12px; border-radius:6px; background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.25); font-size:11px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                        <span id="serial-outline-check-text" style="color:#38bdf8; display:flex; align-items:center; gap:6px;">
+                            <span>🗺️</span>
+                            <span>分章大纲前置校验：正在核验接续章节标题与细纲文案...</span>
+                        </span>
+                        <span id="serial-outline-check-badge" style="font-size:10px; padding:2px 8px; border-radius:10px; background:rgba(56, 189, 248, 0.2); color:#38bdf8; font-weight:bold;">检测中</span>
+                    </div>
                 </div>
                 <!-- 模式快捷辅助芯片 -->
                 <div id="workflow-chips-container" class="quick-chips-row">
@@ -2046,9 +2054,14 @@
 
                 <textarea id="prompt-box" oninput="rememberWorkflowDraft()" class="prompt-textarea" placeholder="在此输入具体创作指令..."></textarea>
 
-                <button id="dispatch-btn" class="btn-launch-big" onclick="launchTask()">
-                    执行当前类型任务
-                </button>
+                <div style="display:flex; gap:8px; align-items:center; width:100%;">
+                    <button id="dispatch-btn" class="btn-launch-big" style="flex:1;" onclick="launchTask()">
+                        执行当前类型任务
+                    </button>
+                    <button id="cancel-task-btn" class="tool-btn" style="display:none; background:rgba(239,68,68,0.2); border:1px solid #ef4444; color:#fca5a5; font-size:12px; padding:12px 14px; white-space:nowrap; border-radius:8px; cursor:pointer; font-weight:700;" onclick="cancelCurrentTask()" title="终止当前卡滞或进行中的任务并重置面板">
+                        🛑 终止/重置任务
+                    </button>
+                </div>
 
                 <!-- 动态执行流水线与日志视窗 -->
                 <div id="term-container" class="term-container" style="display:none;">
@@ -5409,6 +5422,53 @@
             }
         }
 
+        let LAST_OUTLINE_CHECK = null;
+
+        async function checkSerialOutlines() {
+            if (CURRENT_WORKFLOW !== "serial") return;
+            const tip = document.getElementById("serial-outline-check-tip");
+            const text = document.getElementById("serial-outline-check-text");
+            const badge = document.getElementById("serial-outline-check-badge");
+            if (!tip || !text || !badge) return;
+
+            const countInput = document.getElementById("serial-chapter-count");
+            const count = countInput ? (parseInt(countInput.value) || 1) : 1;
+            const book = CURRENT_BOOK;
+            if (!book) return;
+
+            try {
+                const res = await fetchAPI(`${API}/outline_check?book=${encodeURIComponent(book)}&count=${count}`);
+                if (res && res.ok && res.check) {
+                    LAST_OUTLINE_CHECK = res.check;
+                    const c = res.check;
+                    const start = c.start_chapter;
+                    const end = start + count - 1;
+                    if (c.ready) {
+                        tip.style.background = "rgba(16, 185, 129, 0.08)";
+                        tip.style.borderColor = "rgba(16, 185, 129, 0.35)";
+                        text.style.color = "#10b981";
+                        text.innerHTML = `<span>🗺️</span><span>设定集大纲已闭环：第 ${start} 至 ${end} 章细纲均已齐备，将直接按大纲创作正文</span>`;
+                        badge.style.background = "rgba(16, 185, 129, 0.2)";
+                        badge.style.color = "#10b981";
+                        badge.innerText = "细纲齐备";
+                    } else {
+                        const missing = c.missing_chapters || [];
+                        const minM = Math.min(...missing);
+                        const maxM = Math.max(...missing);
+                        tip.style.background = "rgba(245, 158, 11, 0.1)";
+                        tip.style.borderColor = "rgba(245, 158, 11, 0.4)";
+                        text.style.color = "#f59e0b";
+                        text.innerHTML = `<span>💡</span><span>前置推演保障：检测到第 ${minM} 至 ${maxM} 章未规划细纲，点击执行将由 AI <b>先行推演补齐大纲写回设定集</b>，随后创作正文！</span>`;
+                        badge.style.background = "rgba(245, 158, 11, 0.25)";
+                        badge.style.color = "#f59e0b";
+                        badge.innerText = "先行补大纲";
+                    }
+                }
+            } catch (e) {
+                console.warn("大纲校验失败", e);
+            }
+        }
+
         function updateNextLabel() {
             const nextNum = Math.max(0, ...CHAPTERS.map(chapter => Number((chapter.filename.match(/第(\d+)章/) || [0, 0])[1]))) + 1;
             const padNum = String(nextNum).padStart(3, "0");
@@ -5419,6 +5479,7 @@
                 const count = Number(document.getElementById("serial-chapter-count").value);
                 btn.innerText = CURRENT_WORKFLOW === "serial" ? `开始续写 ${count} 章（从第${padNum}章起）` : "执行当前类型任务";
             }
+            checkSerialOutlines();
         }
 
         function renderCatalogCards() {
@@ -5571,6 +5632,8 @@
 
             if (tabId === 'settings') {
                 loadSettings();
+            } else if (tabId === 'antigravity') {
+                updateNextLabel();
             } else if (tabId === 'tomato') {
                 if (CHAPTERS.length > 0) {
                     const targetFile = (CHAPTERS[CURRENT_INDEX] && CHAPTERS[CURRENT_INDEX].filename) ? CHAPTERS[CURRENT_INDEX].filename : CHAPTERS[CHAPTERS.length - 1].filename;
@@ -5609,7 +5672,7 @@
             document.getElementById("wf-tab-polish").classList.toggle("active", wf === "polish");
             document.getElementById("wf-tab-outline").classList.toggle("active", wf === "outline");
             document.getElementById("wf-tab-freeform").classList.toggle("active", wf === "freeform");
-            document.getElementById("serial-count-row").style.display = wf === "serial" ? "flex" : "none";
+            document.getElementById("serial-count-row").style.display = wf === "serial" ? "block" : "none";
             fillWorkflowPrompt(wf);
             const context = `${CURRENT_BOOK}:${wf}`;
             if (WORKFLOW_DRAFTS.has(context)) document.getElementById("prompt-box").value = WORKFLOW_DRAFTS.get(context);
@@ -5787,7 +5850,8 @@
                             workflow: CURRENT_WORKFLOW,
                             novel_type: getCurrentNovelType(),
                             scale_type: getCurrentNovelType(),
-                            chapter_count: CURRENT_WORKFLOW === "serial" ? Number(document.getElementById("serial-chapter-count").value) : 1
+                            chapter_count: CURRENT_WORKFLOW === "serial" ? Number(document.getElementById("serial-chapter-count").value) : 1,
+                            auto_ensure_outline: true
                         }
                     })
                 });
@@ -5808,12 +5872,20 @@
                     document.getElementById("term-container").style.display = "block";
                     const modelDisplayName = (currentModel() || {}).name || CURRENT_MODEL_TIER;
                     document.getElementById("pipeline-status-text").innerText = `⚡ 正在调度 ${modelDisplayName} 执行任务...`;
-                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] ${res.deduplicated ? "已关联现有任务" : "任务已建立"} (${ACTIVE_TASK_ID})\n正在连接所选桌面执行端...`;
-                    showToast("🎉 创作任务已成功下发至电脑端！", "success", 3000);
+                    const outlinePreNotice = (CURRENT_WORKFLOW === "serial" && LAST_OUTLINE_CHECK && !LAST_OUTLINE_CHECK.ready)
+                        ? "\n【前置大纲核验】检测到新章节缺少细纲，将自动先行推演补齐大纲并写回设定集，再创作正文..."
+                        : "";
+                    document.getElementById("task-terminal").innerText = `[${new Date().toLocaleTimeString()}] ${res.deduplicated ? "已关联现有任务" : "任务已建立"} (${ACTIVE_TASK_ID})\n正在连接所选桌面执行端...${outlinePreNotice}`;
+                    showToast("🎉 创作任务已成功下发！", "success", 3000);
+                    const outlineDialogMsg = (CURRENT_WORKFLOW === "serial")
+                        ? ((LAST_OUTLINE_CHECK && !LAST_OUTLINE_CHECK.ready)
+                            ? "\n\n🗺️ 前置大纲保障：检测到即将创作的部分章节缺少细纲，执行端将首先通读设定集推演补齐标准化大纲并写回设定集，随后无缝启动正文连更！"
+                            : "\n\n🗺️ 大纲闭环：即将创作章节的细纲均已完备，正文将紧扣细纲冲突与反转断章钩子展开。")
+                        : "";
                     showNovelDialog({
                         type: "success",
                         title: "🎉 创作任务下发成功",
-                        message: `创作指令已成功下发至电脑端！\n\n目标作品：《${CURRENT_BOOK}》\n执行模式：${CURRENT_WORKFLOW === "serial" ? "自动续写" : (CURRENT_WORKFLOW === "polish" ? "单章精控" : (CURRENT_WORKFLOW === "outline" ? "大纲推演" : "自由指令"))}\n所选模型：${modelDisplayName}\n\n💡 提示：本小说任务将在后台持续执行。您可以随时切换到其他小说同时发起创作，各小说任务互不影响！`
+                        message: `创作指令已成功下发！\n\n目标作品：《${CURRENT_BOOK}》\n执行模式：${CURRENT_WORKFLOW === "serial" ? "自动续写" : (CURRENT_WORKFLOW === "polish" ? "单章精控" : (CURRENT_WORKFLOW === "outline" ? "大纲推演" : "自由指令"))}\n所选模型：${modelDisplayName}${outlineDialogMsg}\n\n💡 提示：本小说任务将在后台持续执行。您可以随时切换到其他小说同时发起创作，各小说任务互不影响！`
                     });
 
                     updateCurrentBookTaskStatus();
@@ -5880,6 +5952,7 @@
             if (!CURRENT_BOOK) return;
             const task = GLOBAL_BOOK_TASKS.get(CURRENT_BOOK);
             const btn = document.getElementById("dispatch-btn");
+            const cancelBtn = document.getElementById("cancel-task-btn");
             const termContainer = document.getElementById("term-container");
             const statusText = document.getElementById("pipeline-status-text");
 
@@ -5888,9 +5961,11 @@
                     btn.disabled = true;
                     btn.style.opacity = "0.75";
                     btn.style.cursor = "not-allowed";
-                    const progStr = task.progress ? ` (${task.progress})` : " (执行中)";
-                    btn.innerText = `⏳ 《${CURRENT_BOOK}》创作中${progStr}...`;
-                    btn.title = `《${CURRENT_BOOK}》已有创作任务在执行中，请等待其完成后再发布新任务`;
+                    btn.innerText = `⏳ 《${CURRENT_BOOK}》创作执行中...`;
+                    btn.title = `已有任务正在执行，点击右侧终止按钮可重置`;
+                }
+                if (cancelBtn) {
+                    cancelBtn.style.display = "inline-flex";
                 }
                 if (termContainer) termContainer.style.display = "block";
                 if (statusText) {
@@ -5903,7 +5978,10 @@
                     fetchSingleBookTaskLogs(task.id);
                 }
             } else {
-                if (btn && btn.disabled && btn.innerText.includes("创作中")) {
+                if (cancelBtn) {
+                    cancelBtn.style.display = "none";
+                }
+                if (btn && btn.disabled && btn.innerText.includes("创作")) {
                     btn.disabled = false;
                     btn.style.opacity = "1";
                     btn.style.cursor = "pointer";
@@ -5911,6 +5989,40 @@
                     updateNextLabel();
                 }
             }
+        }
+
+        async function cancelCurrentTask() {
+            if (!CURRENT_BOOK) return;
+            const task = GLOBAL_BOOK_TASKS.get(CURRENT_BOOK);
+            if (!task) {
+                GLOBAL_BOOK_TASKS.delete(CURRENT_BOOK);
+                updateCurrentBookTaskStatus();
+                updateNextLabel();
+                showToast("已成功重置创作状态");
+                return;
+            }
+            if (!confirm(`确定要终止《${CURRENT_BOOK}》当前正在执行的创作任务吗？终止后可重新发起任务。`)) {
+                return;
+            }
+            try {
+                await fetchAPI(`${API}/report_task`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        id: task.id,
+                        status: "failed",
+                        log: "用户在前端手动终止并重置了任务"
+                    })
+                });
+            } catch (e) {
+                console.warn("上报任务终止失败:", e);
+            }
+            GLOBAL_BOOK_TASKS.delete(CURRENT_BOOK);
+            ACTIVE_TASK_ID = null;
+            const statusText = document.getElementById("pipeline-status-text");
+            if (statusText) statusText.innerText = "🛑 任务已由用户手动终止，控制台已重置。";
+            updateCurrentBookTaskStatus();
+            updateNextLabel();
+            showToast("已成功终止任务并恢复面板！");
         }
 
         async function fetchSingleBookTaskLogs(taskId) {

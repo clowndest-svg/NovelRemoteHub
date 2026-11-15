@@ -196,7 +196,8 @@ def get_user_settings(config_dir=None):
         "auto_write_chapters": 10,
         "auto_write_time": "06:00",
         "auto_write_engine_order": ["antigravity", "codex", "deepseek"],
-        "auto_write_fallback": True
+        "auto_write_fallback": True,
+        "auto_ensure_outline": False
     }
     if os.path.exists(cfg_path):
         try:
@@ -210,7 +211,7 @@ def get_user_settings(config_dir=None):
 def save_user_settings(settings, config_dir=None):
     if not isinstance(settings, dict):
         raise ValueError("设置必须为对象")
-    for key in ("auto_read_previous", "auto_check_ledger", "strict_tomato_layout", "deepseek_enabled", "auto_write_enabled", "auto_write_fallback"):
+    for key in ("auto_read_previous", "auto_check_ledger", "strict_tomato_layout", "deepseek_enabled", "auto_write_enabled", "auto_write_fallback", "auto_ensure_outline"):
         if key in settings and not isinstance(settings[key], bool):
             raise ValueError("开关设置必须为布尔值")
     if "auto_write_chapters" in settings:

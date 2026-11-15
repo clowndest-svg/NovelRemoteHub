@@ -220,7 +220,8 @@ def generate_and_append_outlines(book_root, book_id, missing_chapters, generate_
 请直接输出上述缺失章节的标准化细纲文档文本，无需输出额外开场白或解释。"""
 
     new_outlines_text = generate_func(prompt)
-    if not new_outlines_text or len(new_outlines_text.strip()) < 100:
+    min_required_len = 50 if len(missing_chapters) == 1 else 100
+    if not new_outlines_text or len(new_outlines_text.strip()) < min_required_len:
         return False, "大纲生成结果过短或无效"
 
     # 定位最适大纲文档进行追加写入

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台多书架版)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.4.2
-// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品多平台精准识别与持久化绑定、看门狗自动防卡滞自愈、跨作品串写熔断阻断拦截、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导自动消解、错别字自愈与多章节全自动批量存草稿流水线！
+// @version      2.4.3
+// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品多平台精准识别与持久化绑定、ProseMirror剪贴板仿真注入、零字草稿熔断拦截、看门狗自动防卡滞自愈、跨作品串写熔断阻断拦截、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导自动消解、错别字自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
 // @match        *://*.fanqienovel.com/*
@@ -866,12 +866,31 @@
 
         inputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
         inputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-        inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: String(value), inputType: 'insertText' }));
-        inputEl.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+        try {
+            inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: String(value), inputType: 'insertText' }));
+        } catch (e) {}
         return true;
     }
 
-    function fillRichEditor(editorEl, text) {
+    // 正文字数就绪与真实性校验门禁（坚决杜绝 0 字空草稿误存）
+    function verifyEditorContentReady(editorEl) {
+        if (!editorEl) return false;
+        // 尝试从页面字数指示器中读取（番茄左上角/右下角“正文字数 xxx”）
+        const pageText = document.body.innerText || '';
+        const countMatch = pageText.match(/正文字数\s*[:：]?\s*(\d+)/);
+        if (countMatch) {
+            const count = parseInt(countMatch[1], 10);
+            if (count >= 100) return true;
+        }
+        const text = editorEl.innerText || editorEl.textContent || '';
+        const clean = text.replace(/开新书没思路.*帮你生成大纲/g, '')
+                         .replace(/请输入正文/g, '')
+                         .replace(/作者有话说/g, '')
+                         .trim();
+        return clean.length >= 100;
+    }
+
+    async function fillRichEditor(editorEl, text) {
         if (!editorEl) return false;
 
         // 如果是纯 textarea
@@ -880,13 +899,16 @@
         }
 
         editorEl.focus();
+        await new Promise(r => setTimeout(r, 80));
 
-        const sel = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(editorEl);
-        sel.removeAllRanges();
-        sel.addRange(range);
-        document.execCommand('delete', false, null);
+        // 选中全部现有内容以便覆盖
+        try {
+            const sel = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(editorEl);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } catch (e) {}
 
         const paragraphs = text.split('\n\n').filter(p => p.trim());
         const html = paragraphs.map(p => {
@@ -894,25 +916,57 @@
             return `<p>${cleanP}</p>`;
         }).join('');
 
-        let success = false;
+        // 1. 首选：通过 ClipboardEvent 模拟标准 Paste 粘贴！
+        // 这是现代 ProseMirror（番茄后台底层）与富文本引擎最被支持的标准事务更新入口
+        let pasteSuccess = false;
         try {
-            success = document.execCommand('insertHTML', false, html);
-        } catch (e) {}
-
-        if (!success) {
-            try {
-                success = document.execCommand('insertText', false, text);
-            } catch (e) {}
+            const dt = new DataTransfer();
+            dt.setData('text/plain', text);
+            dt.setData('text/html', html);
+            const pasteEvt = new ClipboardEvent('paste', {
+                bubbles: true,
+                cancelable: true,
+                clipboardData: dt,
+                composed: true
+            });
+            editorEl.dispatchEvent(pasteEvt);
+            await new Promise(r => setTimeout(r, 200));
+            if (editorEl.innerText && editorEl.innerText.trim().length > 100) {
+                pasteSuccess = true;
+            }
+        } catch (e) {
+            console.warn('[NRH Publisher] 模拟剪贴板粘贴未完全拦截，切换备用方案', e);
         }
 
-        if (!success || !editorEl.innerText.trim()) {
+        // 2. 次选：若粘贴未生效，尝试使用 execCommand 插入
+        if (!pasteSuccess || !verifyEditorContentReady(editorEl)) {
+            try {
+                document.execCommand('delete', false, null);
+                document.execCommand('insertHTML', false, html);
+            } catch (e) {}
+            if (!verifyEditorContentReady(editorEl)) {
+                try {
+                    document.execCommand('insertText', false, text);
+                } catch (e) {}
+            }
+        }
+
+        // 3. 兜底方案：直接写 innerHTML 并广播全量 InputEvent 与 CompositionEvent
+        if (!verifyEditorContentReady(editorEl)) {
             editorEl.innerHTML = html;
         }
 
-        editorEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-        editorEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-        editorEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
-        return true;
+        ['input', 'change', 'blur', 'focus', 'compositionend'].forEach(type => {
+            try {
+                editorEl.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
+            } catch (e) {}
+        });
+        try {
+            editorEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
+        } catch (e) {}
+
+        await new Promise(r => setTimeout(r, 200));
+        return verifyEditorContentReady(editorEl);
     }
 
     // 自动拦截与关闭机审弹窗
@@ -1420,6 +1474,11 @@
     // ================= 自动存草稿 =================
 
     async function saveDraftNow() {
+        const editor = getBodyEditor();
+        if (!verifyEditorContentReady(editor)) {
+            showToast('🛑 正文为空或字数不足，已拦截存草稿以防存入空章节！', 4000);
+            return false;
+        }
         const btn = getSaveDraftButton();
         if (!btn) {
             showToast('⚠️ 未找到「存草稿」按钮，请确认页面已就绪！', 3000);
@@ -1586,12 +1645,26 @@
             showToast(`正在从智笔云枢获取第 ${state.currentNum} 章发布数据...`);
             let pkg = null;
 
-            // 确保章节清单已缓存就绪
-            if (!chaptersCatalog || chaptersCatalog.length === 0) {
+            // 强制确保章节清单属于当前批量的目标作品 state.bookName
+            if (!chaptersCatalog || chaptersCatalog.length === 0 || currentSelectedBook !== state.bookName) {
+                currentSelectedBook = state.bookName;
+                CONFIG.bookName = state.bookName;
                 await loadChapters(state.bookName);
             }
 
-            const targetChap = chaptersCatalog.find(c => c.chapter_number === state.currentNum);
+            let targetChap = chaptersCatalog.find(c => c.chapter_number === state.currentNum);
+            if (!targetChap) {
+                targetChap = chaptersCatalog.find(c => {
+                    const m = (c.filename || '').match(/第(\d+)章/);
+                    return m && parseInt(m[1], 10) === state.currentNum;
+                });
+            }
+            if (!targetChap) {
+                // 若仍未找到，强制重新从服务器拉取一次最新章节清单
+                await loadChapters(state.bookName);
+                targetChap = chaptersCatalog.find(c => c.chapter_number === state.currentNum);
+            }
+
             const fileParam = targetChap ? targetChap.filename : `第${String(state.currentNum).padStart(3, '0')}章.md`;
 
             try {
@@ -1604,13 +1677,35 @@
                 throw new Error(`获取第 ${state.currentNum} 章数据失败，请确认中枢服务正常并已写入本章。`);
             }
 
-            // 填充数据
-            await executeFillChapter(pkg);
-            await new Promise(r => setTimeout(r, 1000));
-            autoDismissTourOrGuide();
+            // 注入数据并进行自愈校验（最多 3 次尝试，坚决杜绝 0 字草稿）
+            let fillPassed = false;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                await executeFillChapter(pkg);
+                await new Promise(r => setTimeout(r, 600));
+                autoDismissTourOrGuide();
+
+                const editor = getBodyEditor();
+                if (verifyEditorContentReady(editor)) {
+                    fillPassed = true;
+                    break;
+                }
+                showToast(`⚠️ [注入自愈 ${attempt}/3] 检测到正文尚未生效，正在重新唤醒焦点并注入...`);
+                if (editor) {
+                    editor.click();
+                    editor.focus();
+                }
+                await new Promise(r => setTimeout(r, 500));
+            }
+
+            if (!fillPassed) {
+                throw new Error(`第 ${state.currentNum} 章正文注入后字数检测未通过（字数不足或为空），已触发熔断拦截！已阻断存草稿，防止向后台写入空草稿。请点击顶部【▶️ 立即录入本章】重试`);
+            }
 
             // 存草稿并消解弹窗
-            await saveDraftNow();
+            const saveOk = await saveDraftNow();
+            if (!saveOk) {
+                throw new Error(`第 ${state.currentNum} 章未能点击保存草稿，请手动点击存草稿后点击【▶️ 立即录入本章】继续`);
+            }
             await new Promise(r => setTimeout(r, CONFIG.saveDelayMs));
 
             // 步进或收尾
@@ -1621,7 +1716,9 @@
                 await new Promise(r => setTimeout(r, 800));
 
                 if (state.platform === 'fanqie') {
-                    window.location.replace(`https://fanqienovel.com/main/writer/${state.bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`);
+                    // 番茄：强制跳转至全新的纯净草稿新建页面，杜绝旧草稿 ID 干扰
+                    const nextUrl = `https://fanqienovel.com/main/writer/${state.bookId}/publish?enter_from=newchapter&_batch_t=${Date.now()}`;
+                    window.location.href = nextUrl;
                 } else if (state.platform === 'qimao') {
                     // 七猫：直接跳转至全新的未带 cid 的空白上传章节页面，自动开辟新草稿
                     const nextUrl = `https://zuozhe.qimao.com/front/book-upload?id=${state.bookId}&title=${encodeURIComponent(state.bookName)}&_batch_t=${Date.now()}`;

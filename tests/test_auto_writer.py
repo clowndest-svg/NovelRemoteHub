@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import time
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -269,6 +270,67 @@ class AutoWriterTest(unittest.TestCase):
         self.assertTrue(ok2)
         self.assertTrue(res2.get("reused"))
         self.assertEqual(res2["task_id"], tid)
+
+    def test_auto_ensure_outline_in_write_chapters(self):
+        """测试在写新章节前，若缺少细纲，story_memory.write_chapters 自动先行补全大纲写回设定集再写正文"""
+        import story_memory
+        prefs = {"writing_context_chars": 64000, "writing_context_mode": "layered", "auto_ensure_outline": True}
+
+        called_prompts = []
+        def fake_llm(p):
+            called_prompts.append(p)
+            if "分章大纲自动推演" in p or "分章大纲" in p:
+                return """### 第008章 暗潮迭起
+- **时间与核心场景**：虚空暗域
+- **核心剧情推进与主要冲突**：遭遇魔渊先锋并正面交锋
+- **情绪爽点与反差伏笔**：主角翻手镇压强敌
+- **章末强力断章悬念钩子**：裂缝深处传来异响！
+
+### 第009章 逆转乾坤
+- **时间与核心场景**：阵法枢纽
+- **核心剧情推进与主要冲突**：逆转灵气回路化解死局
+- **情绪爽点与反差伏笔**：全场震撼
+- **章末强力断章悬念钩子**：神秘黑袍人现身！
+
+### 第010章 终极博弈
+- **时间与核心场景**：绝巅论道
+- **核心剧情推进与主要冲突**：正邪双峰对决
+- **情绪爽点与反差伏笔**：破境登临混元
+- **章末强力断章悬念钩子**：大秦战舰从虚空降临！"""
+            if "批量更新记忆" in p:
+                keys = re.findall(r"【片段 id=([a-f0-9]+)】", p)
+                records = [{"id": k, "summary": "前情线索", "synopsis": "后续发展", "characters": {}, "threads": []} for k in keys]
+                return json.dumps({"records": records}, ensure_ascii=False)
+            if "【阶段 一致性审核】" in p:
+                return json.dumps({"passed": True, "issues": [], "summary": "审核通过", "synopsis": "剧情推进", "characters": {}, "threads": []}, ensure_ascii=False)
+            if "【阶段 更新记忆】" in p:
+                return json.dumps({"summary": "剧情更新", "synopsis": "后续发展", "characters": {}, "threads": []}, ensure_ascii=False)
+            m = re.search(r"第0*(\d+)章", p)
+            num = int(m.group(1)) if m else 6
+            return f"# 第{num:03d}章 剧情正文\n\n" + "主角紧扣最新大纲设定推进主线情节，突破境界。" * 40
+
+        progress_msgs = []
+        ok, msg, last_f = story_memory.write_chapters(
+            root=self.book_path,
+            count=5,
+            user_prompt="紧扣设定集推进",
+            preferences=prefs,
+            generate=fake_llm,
+            progress=lambda m: progress_msgs.append(m)
+        )
+        self.assertTrue(ok)
+        self.assertTrue(any("【大纲前置校验】" in m for m in progress_msgs))
+        self.assertTrue(any("【大纲前置完成】" in m for m in progress_msgs))
+
+        outline_file = os.path.join(self.settings_dir, "03_全书主线与首卷分章细纲.md")
+        outline_txt = Path(outline_file).read_text(encoding="utf-8")
+        self.assertIn("第008章 暗潮迭起", outline_txt)
+        self.assertIn("第009章 逆转乾坤", outline_txt)
+        self.assertIn("第010章 终极博弈", outline_txt)
+
+        for c in range(6, 11):
+            files = list(Path(self.chapters_dir).glob(f"*第*{c}章*"))
+            self.assertTrue(len(files) > 0, f"第{c}章正文应当存在")
 
 
 if __name__ == "__main__":

@@ -464,7 +464,8 @@ def execute_deepseek_task_async(tid):
                 invalidate_cache(book_id)
                 invalidate_cache("novel:cache:books")
             _, summary, _ = deepseek_client.write_serial_chapters(book_path, book_id, extra.get("chapter_count", 1), prompt,
-                model, effort, DATA_DIR, report, write_lock=WRITE_LOCK, on_chapter=chapter_saved)
+                model, effort, DATA_DIR, report, write_lock=WRITE_LOCK, on_chapter=chapter_saved,
+                auto_ensure_outline=extra.get("auto_ensure_outline", False))
         else:
             if action == "create_new_novel":
                 if novel_type == "short_story":
@@ -796,7 +797,7 @@ class HubHandler(BaseHTTPRequestHandler):
             if self.path.split("?")[0].rstrip("/").endswith((
                     "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
                     "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/app_settings", "/sync_manifest", "/sync_document",
-                    "/fanqie_publish_package", "/fanqie_publish_list", "/fanqie_publisher.user.js", "/auto_write_status")):
+                    "/fanqie_publish_package", "/fanqie_publish_list", "/fanqie_publisher.user.js", "/auto_write_status", "/outline_check")):
                 with WRITE_LOCK:
                     self.handle_get()
             else:
@@ -1197,6 +1198,26 @@ class HubHandler(BaseHTTPRequestHandler):
             status["local_online"] = bool(LOCAL_STATUS.get("online", False))
             status["local_last_seen"] = LOCAL_STATUS.get("last_seen", 0)
             self.send_json(status)
+            return
+
+        # 操控AI：写新章节前细纲完备性实时校验接口
+        if path in ("/api/outline_check", "/novel/api/outline_check"):
+            book_id = qs.get("book", [""])[0] or "给政哥讲量子力学，他竟肉身硬抗二向箔"
+            try:
+                count = novel_manager.validate_chapter_count(int(qs.get("count", [1])[0]))
+            except Exception:
+                count = 1
+            book_path, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
+            c_files = novel_manager.chapter_files(book_path)
+            current_max = 0
+            for cf in c_files:
+                m = re.search(r"第(\d+)章", Path(cf).name)
+                if m:
+                    current_max = max(current_max, int(m.group(1)))
+            start_chap = current_max + 1
+            check = auto_writer.inspect_book_outlines(book_path, start_chap, count)
+            check.update(book_id=book_id, start_chapter=start_chap, current_max=current_max, target_count=count)
+            self.send_json({"ok": True, "check": check})
             return
 
         if path in ("/api/library", "/novel/api/library"):
@@ -1899,9 +1920,13 @@ class HubHandler(BaseHTTPRequestHandler):
                 extra_data["workflow"] = {"plot": "outline", "custom": "freeform"}.get(extra_data["workflow"], extra_data["workflow"])
 
             # 智能平铺兼容：无论前端是嵌套在 extra_data 里，还是直接平铺在 body 顶层，全部自动合并到 extra_data
-            for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "reasoning_effort", "instructions", "chapter_count"]:
+            for k in ["chapter_file", "target_chapter", "image_count", "custom_prompt", "repair_mode", "rejection_reason", "audit_issues", "model_tier", "reasoning_effort", "instructions", "chapter_count", "auto_ensure_outline"]:
                 if k in body and k not in extra_data:
                     extra_data[k] = body[k]
+
+            if action == "creative_instruction" and extra_data.get("workflow") == "serial":
+                if "auto_ensure_outline" not in extra_data and body.get("auto_ensure_outline") is not None:
+                    extra_data["auto_ensure_outline"] = bool(body.get("auto_ensure_outline"))
 
             count = novel_manager.validate_chapter_count(extra_data.get("chapter_count", 1))
             if count > 1 and (action != "creative_instruction" or extra_data.get("workflow") != "serial"):

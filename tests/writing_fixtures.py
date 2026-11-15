@@ -16,6 +16,14 @@ def response(prompt):
         return json.dumps({'plan': '承接前章，核对人物位置与认知，继续主线', 'sources': []}, ensure_ascii=False)
     if '【阶段 一致性审核】' in prompt:
         return json.dumps(dict(json.loads(response('【阶段 更新记忆】')), passed=True, issues=[]), ensure_ascii=False)
+    if '【分章大纲自动推演与补全指令】' in prompt or prompt.startswith('【《') and '分章大纲' in prompt:
+        m = re.search(r'第 (\d+) 至 第 (\d+) 章', prompt)
+        start = int(m.group(1)) if m else 1
+        end = int(m.group(2)) if m else start
+        outlines = []
+        for c in range(start, end + 1):
+            outlines.append(f"### 第{c:03d}章 规划章节{c}\n- **时间与核心场景**：码头旧地\n- **核心剧情推进与主要冲突**：追查当年隐秘线索与各方势力冲突\n- **情绪爽点与反差伏笔**：主角从容破局展现惊人推演能力\n- **章末强力断章悬念钩子**：暗中窥伺之人终于现身！\n")
+        return "\n".join(outlines)
     number = int(re.search(r'本轮只创作第(\d+)章', prompt).group(1))
     return f'# 第{number:03d}章 延续\n\n' + '正文承接前情，继续追查线索。' * 80
 

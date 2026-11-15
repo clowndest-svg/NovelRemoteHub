@@ -562,7 +562,7 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessio
     return output.read_text(encoding='utf-8-sig')
 
 
-def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress, sessions=None, task_id=None):
+def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress, sessions=None, task_id=None, auto_ensure_outline=None):
     count = novel_manager.validate_chapter_count(count)
     completed = 0
     root, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
@@ -612,6 +612,10 @@ def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, 
             prefs = dict(BRIDGE_PREFERENCES)
             if 'writing_context_chars' not in prefs:
                 prefs['writing_context_chars'] = 128000
+            if auto_ensure_outline is not None:
+                prefs['auto_ensure_outline'] = auto_ensure_outline
+            elif 'auto_ensure_outline' not in prefs:
+                prefs['auto_ensure_outline'] = False
             story_memory.write_chapters(root, remaining, user_prompt, prefs, generate, batch_progress,
                                         on_chapter=saved, batch_id=batch_id, batch_count=count)
         return True, f'已完成 {completed} 章续写'
@@ -980,14 +984,16 @@ def process_single_task(task):
                 if engine == "deepseek":
                     ok, output, last_file = deepseek_client.write_serial_chapters(
                         book_root=book_root, book_id=book_id, count=extra_data.get("chapter_count", 1),
-                        user_prompt=user_prompt, model=model_tier, effort=reasoning_effort, progress_cb=report_progress
+                        user_prompt=user_prompt, model=model_tier, effort=reasoning_effort, progress_cb=report_progress,
+                        auto_ensure_outline=extra_data.get("auto_ensure_outline", False)
                     )
                     if ok:
                         sync_all_books_to_cloud()
                     report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
                     return
                 ok, output = execute_serial_chapters(book_id, extra_data.get("chapter_count", 1), user_prompt,
-                    engine, model_tier, reasoning_effort, report_progress, task_id=tid)
+                    engine, model_tier, reasoning_effort, report_progress, task_id=tid,
+                    auto_ensure_outline=extra_data.get("auto_ensure_outline", False))
                 report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
                 return
             else:
