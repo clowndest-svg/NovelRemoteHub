@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台多书架版)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.4.0
-// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品多平台精准识别与持久化绑定、跨作品串写熔断阻断拦截、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导自动消解、错别字自愈与多章节全自动批量存草稿流水线！
+// @version      2.4.1
+// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品多平台精准识别与持久化绑定、看门狗自动防卡滞自愈、跨作品串写熔断阻断拦截、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导自动消解、错别字自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
 // @match        *://*.fanqienovel.com/*
@@ -53,10 +53,10 @@
     }
 
     function getPlatformBadgeVersion(p = PLATFORM) {
-        if (p === 'fanqie') return '番茄专版 v2.3';
-        if (p === 'qimao') return '七猫专版 v2.3';
-        if (p === 'shuqi') return '书旗专版 v2.3';
-        return '多书架专版 v2.3';
+        if (p === 'fanqie') return '番茄专版 v2.4';
+        if (p === 'qimao') return '七猫专版 v2.4';
+        if (p === 'shuqi') return '书旗专版 v2.4';
+        return '多书架专版 v2.4';
     }
 
     function isBookCreationPage() {
@@ -2005,9 +2005,51 @@
                     showBatchBanner(batchState.currentNum, batchState.endNum, batchState.total);
                 }
             }
+
+            // 启动全自动自愈看门狗
+            startBatchWatchdog();
         } catch (e) {
             console.error('[NRH Publisher] 悬浮窗构建异常:', e);
         }
+    }
+
+    // ================= 全自动防卡死自愈看门狗 (Watchdog) =================
+    let watchdogTimer = null;
+    let lastWatchdogStepTime = Date.now();
+
+    function startBatchWatchdog() {
+        if (watchdogTimer) return;
+        watchdogTimer = setInterval(async () => {
+            const state = getBatchState();
+            if (!state || !state.active) return;
+
+            const onEditorPage = (PLATFORM === 'fanqie' && location.href.includes('/publish')) ||
+                                 (PLATFORM === 'qimao' && (location.href.includes('book-upload') || location.href.includes('chapter'))) ||
+                                 (PLATFORM === 'shuqi' && (location.href.includes('chapter') || location.href.includes('edit')));
+
+            if (!onEditorPage) return;
+
+            // 持续消解新手引导气泡
+            autoDismissTourOrGuide();
+
+            // 若编辑器已就绪，但由于任何原因未处于运行态，或卡滞超过 10 秒
+            const editorReady = !!(getBodyEditor() && getTitleInput());
+            const now = Date.now();
+
+            if (editorReady) {
+                if (!isBatchRunning) {
+                    console.warn('[NRH Watchdog] 检测到批量流水线处于停顿状态，看门狗自动唤醒执行第 ' + state.currentNum + ' 章...');
+                    lastWatchdogStepTime = now;
+                    await executeBatchStep();
+                } else if (now - lastWatchdogStepTime > 12000) {
+                    console.warn('[NRH Watchdog] 批量流水线单章等待超过 12 秒，强制复位锁并重新注入...');
+                    isBatchRunning = false;
+                    lastWatchdogStepTime = now;
+                    await executeBatchStep();
+                }
+            }
+        }, 2000);
+    }
     }
 
     if (document.readyState === 'loading') {
