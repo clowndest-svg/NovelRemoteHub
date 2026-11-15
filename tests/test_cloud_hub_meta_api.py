@@ -133,6 +133,16 @@ class CloudHubMetaApiTest(unittest.TestCase):
         self.assertEqual(by_book[book_a]["id"], "task_a1")
         self.assertEqual(by_book[book_b]["id"], "task_b1")
 
+    def test_fanqie_books_and_synopsis_api(self):
+        # 验证油猴插件多书架接口的正确性与全书提取
+        books = novel_manager.list_books(self.books_dir)
+        self.assertTrue(any(b["id"] == self.book_id for b in books))
+
+        meta = novel_manager.get_novel_creation_metadata(self.book_id, self.books_dir)
+        self.assertTrue(meta["ok"])
+        self.assertEqual(meta["title"], self.book_id)
+        self.assertTrue(100 <= len(meta["synopsis_condensed"]) <= 500)
+
 
 if __name__ == "__main__":
     unittest.main()

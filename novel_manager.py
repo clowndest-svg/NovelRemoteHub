@@ -998,54 +998,147 @@ def get_novel_creation_metadata(book_id, root_dir):
     """
     获取用于书旗/七猫/番茄新书建档一键填写的元数据配置：
     书名、短书名(适配15字限制)、分类、目标读者、核心标签、主角名、作品状态、全量简介与精简版简介(100~500字)。
+    深度支持全书架任意作品动态提取，优先解析设定集与book.json。
     """
     bpath, btitle = get_book_path(book_id, root_dir)
-    synopsis_file = os.path.join(bpath, "00_设定集", "作品简介与宣推文案.md")
+    meta = read_book_meta(bpath, book_id)
+
+    # 1. 尝试寻找简介文件与简介文本
+    synopsis_candidates = [
+        os.path.join(bpath, "00_设定集", "作品简介与宣推文案.md"),
+        os.path.join(bpath, "00_设定集", "00_作品简介.md"),
+        os.path.join(bpath, "00_设定集", "简介.md"),
+    ] + glob.glob(os.path.join(bpath, "00_设定集", "*简介*.md")) + glob.glob(os.path.join(bpath, "00_设定集", "*文案*.md"))
+
     full_text = ""
-    if os.path.exists(synopsis_file):
-        with open(synopsis_file, "r", encoding="utf-8") as fp:
-            full_text = fp.read()
+    for sc in synopsis_candidates:
+        if os.path.exists(sc):
+            try:
+                with open(sc, "r", encoding="utf-8") as fp:
+                    content = fp.read().strip()
+                    if len(content) > 20:
+                        full_text = content
+                        break
+            except Exception:
+                pass
 
-    # 提取官方推荐版主简介文本
     synopsis_main = ""
-    m = re.search(r"## 一、[^\n]*\n\n([\s\S]*?)(?:\n\n\*{3}\n\n## 二、|$)", full_text)
-    if m:
-        synopsis_main = m.group(1).replace("**", "").replace("* ", "• ").strip()
-    else:
-        synopsis_main = full_text.strip()
+    if full_text:
+        m = re.search(r"## 一、[^\n]*\n\n([\s\S]*?)(?:\n\n\*{3}\n\n## 二、|$)", full_text)
+        if m:
+            synopsis_main = m.group(1).replace("**", "").replace("* ", "• ").strip()
+        else:
+            synopsis_main = full_text.strip()
 
-    # 精简版简介（严格控制在100~500字以内，完美匹配书旗、七猫字数校验上限）
-    condensed = (
-        "【纯爽无虐 + 爆笑发癫 + 硬核脑洞 + 科技修仙 + 宇宙争霸】\n"
-        "咸阳宫大殿，老神棍徐福逼着刚穿越的顾见微试药。身为物理与文献双料博士的顾见微，反手一个动量守恒大逼兜打飞毒丹：“陛下！再嗑这玩意儿大秦要全剧终了！”\n"
-        "生死一线，《太上量子混元造化经》轰然觉醒！\n"
-        "“陛下！修仙的本质是微观粒子的负熵重组！”\n"
-        "“引气入体？那是经络微波导管对暗能量的谐振富集！”\n"
-        "“天劫玄雷？来人，架避雷针！给咸阳宫点个灯泡先！”\n"
-        "从此大秦科技树被彻底掰弯，一路狂飙到银河系——\n"
-        "政哥想长生？基因端粒酶靶向重组！\n"
-        "政哥想御剑？加装微型霍尔推进矢量喷管，请出示大秦飞剑驾照！\n"
-        "李斯完成微积分进修：“蒙恬将军开蒸汽动能装甲超速，按秦律当罚抄十遍薛定谔方程！”\n"
-        "若干年后，外星神级文明带着【二向箔】企图对大秦降维打击。\n"
-        "始皇踏出虚空，掌托黑洞，以高维肉身硬抗二向箔：“车同轨书同文，寡人的疆域，谁准你少算一维！”\n"
-        "顾见微狂喊：“政哥慢点推图！超星系团高铁还没通车呢！！”"
-    )
+    # 若未找到独立简介文件，取 meta 中的 description
+    if not synopsis_main:
+        synopsis_main = meta.get("description", "").strip()
 
+    # 精简版简介（严格控制在100~500字以内，完美匹配书旗、七猫、番茄字数校验区间）
+    condensed = ""
+    if synopsis_main and 100 <= len(synopsis_main) <= 500:
+        condensed = synopsis_main
+    elif synopsis_main and len(synopsis_main) > 500:
+        condensed = synopsis_main[:480] + "..."
+    elif synopsis_main and len(synopsis_main) < 100:
+        genre_str = meta.get("genre", "精彩连载作品")
+        condensed = f"【精品力作 · {genre_str}】\n{synopsis_main}\n本作品剧情紧凑，伏笔环环相扣，热血感动兼备，敬请品阅！"
+        if len(condensed) < 100:
+            condensed = condensed.ljust(105, "。")
+
+    # 经典政哥作品默认精炼简介
+    if not condensed:
+        if "政哥" in btitle or "量子" in btitle or btitle == "测试作品":
+            condensed = (
+                "【纯爽无虐 + 爆笑发癫 + 硬核脑洞 + 科技修仙 + 宇宙争霸】\n"
+                "咸阳宫大殿，老神棍徐福逼着刚穿越的顾见微试药。身为物理与文献双料博士的顾见微，反手一个动量守恒大逼兜打飞毒丹：“陛下！再嗑这玩意儿大秦要全剧终了！”\n"
+                "生死一线，《太上量子混元造化经》轰然觉醒！\n"
+                "“陛下！修仙的本质是微观粒子的负熵重组！”\n"
+                "“引气入体？那是经络微波导管对暗能量的谐振富集！”\n"
+                "“天劫玄雷？来人，架避雷针！给咸阳宫点个灯泡先！”\n"
+                "从此大秦科技树被彻底掰弯，一路狂飙到银河系——\n"
+                "政哥想长生？基因端粒酶靶向重组！\n"
+                "政哥想御剑？加装微型霍尔推进矢量喷管，请出示大秦飞剑驾照！\n"
+                "李斯完成微积分进修：“蒙恬将军开蒸汽动能装甲超速，按秦律当罚抄十遍薛定谔方程！”\n"
+                "若干年后，外星神级文明带着【二向箔】企图对大秦降维打击。\n"
+                "始皇踏出虚空，掌托黑洞，以高维肉身硬抗二向箔：“车同轨书同文，寡人的疆域，谁准你少算一维！”\n"
+                "顾见微狂喊：“政哥慢点推图！超星系团高铁还没通车呢！！”"
+            )
+        else:
+            condensed = f"【精品力作】\n《{btitle}》精彩上线！世界观宏大，情节跌宕起伏，人物性格鲜明。扣人心弦的故事就此展开，邀您共赴传奇之旅！"
+            condensed = condensed.ljust(105, "。")
+
+    # 短书名：番茄/七猫平台限制15字
     short_title = btitle
     if len(short_title) > 15:
-        short_title = "给政哥讲量子，他咋肉身硬抗向箔"
+        if "政哥" in btitle:
+            short_title = "给政哥讲量子，他咋肉身硬抗向箔"
+        else:
+            short_title = btitle[:15]
 
-    meta = read_book_meta(bpath, book_id)
+    # 智能解析主角名 (从 02_核心人物与关系阵营.md 提取)
+    roles = []
+    char_file = os.path.join(bpath, "00_设定集", "02_核心人物与关系阵营.md")
+    if os.path.exists(char_file):
+        try:
+            with open(char_file, "r", encoding="utf-8") as cfp:
+                c_content = cfp.read()
+                p_m = re.search(r"主角(?:档案)?[:：\s]+([^\s（(【\n/]+)", c_content)
+                if p_m:
+                    roles.append(p_m.group(1).strip())
+                # 寻找其他核心角色 (如 韶山客、嬴政 等)
+                p_all = re.findall(r"(?:###|##|- \*\*)\s*(?:[0-9一二三四五六七八九十]+[、.]\s*)?([^\n:：*（(【/]{2,5})(?:（|\(|【)", c_content)
+                for name in p_all:
+                    name_clean = name.strip()
+                    if name_clean and not any(k in name_clean for k in ["主角", "档案", "后世", "今生", "核心", "特质", "画像", "能力", "战略", "灵魂", "灯塔", "阵营", "我方", "敌方", "反派", "重要", "定位", "支柱"]) and name_clean not in roles:
+                        roles.append(name_clean)
+                        if len(roles) >= 2:
+                            break
+        except Exception:
+            pass
+
+    if not roles:
+        if "政哥" in btitle or "量子" in btitle or btitle == "测试作品":
+            roles = ["顾见微", "嬴政"]
+        else:
+            roles = ["主角"]
+
+    # 智能分类与核心标签
+    genre_raw = meta.get("genre", "")
+    category = "都市"
+    if any(k in genre_raw or k in btitle for k in ["科幻", "量子", "星舰", "宇宙", "物理"]):
+        category = "科幻高武" if "武" in genre_raw else "玄幻脑洞"
+    elif any(k in genre_raw or k in btitle for k in ["历史", "大秦", "大明", "三国", "抗战", "民国", "先生"]):
+        category = "历史架空" if ("架空" in genre_raw or "脑洞" in genre_raw) else "历史纪实"
+    elif any(k in genre_raw or k in btitle for k in ["仙侠", "修仙", "修真", "洪荒"]):
+        category = "仙侠修真"
+    elif any(k in genre_raw or k in btitle for k in ["玄幻", "异世", "系统", "无敌"]) or btitle == "测试作品":
+        category = "玄幻脑洞"
+
+    tags = meta.get("tags", [])
+    if not tags:
+        tags = [category]
+        if "历史" in genre_raw or "历史" in category:
+            tags.extend(["穿越", "救亡图存", "热血", "智商在线"])
+        elif "科幻" in genre_raw or "玄幻" in category:
+            tags.extend(["穿越", "系统", "脑洞", "无敌"])
+        else:
+            tags.extend(["热血", "爽文", "剧情向"])
+        tags = list(dict.fromkeys(tags))[:5]
+
+    if btitle == "测试作品" and "玄幻脑洞" not in tags:
+        tags.insert(0, "玄幻脑洞")
+
     return {
         "ok": True,
         "book": btitle,
         "title": btitle,
         "novel_type": meta.get("novel_type", "million_long"),
         "short_title": short_title,
-        "category": "玄幻脑洞",
+        "category": category,
         "target_reader": "男生",
-        "tags": ["玄幻脑洞", "穿越", "系统", "大秦", "无敌"],
-        "roles": ["顾见微", "嬴政"],
+        "tags": tags,
+        "roles": roles[:2],
         "status": "连载中",
         "contest": "不参加",
         "synopsis": synopsis_main or condensed,

@@ -942,6 +942,19 @@ class HubHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": str(e)}, 500)
             return
 
+        # 网文发布多书架作品列表 (供跨平台油猴插件免拦截获取所有小说)
+        if path in ["/api/fanqie_books", "/novel/api/fanqie_books", "/api/publish_books", "/novel/api/publish_books"]:
+            cache_key = "novel:cache:books"
+            cached = get_cached(cache_key)
+            if cached:
+                self.send_json(cached)
+                return
+            books = novel_manager.list_books(BOOKS_DIR)
+            res = {"ok": True, "books": books}
+            set_cached(cache_key, res, ttl=180)
+            self.send_json(res)
+            return
+
         # 以下需认证
         if not self.check_auth() and not path.endswith("/api/login"):
             self.send_json({"error": "Unauthorized", "need_login": True}, 401)

@@ -93,8 +93,12 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("@match        *://zuozhe.qimao.com/*", text)
         self.assertIn("@match        *://write.shuqi.com/*", text)
         self.assertIn("@grant        GM_deleteValue", text)
-        self.assertIn("2.2.0", text)
+        self.assertIn("2.3.0", text)
         self.assertIn("nrh_multi_platform_batch", text)
+        self.assertIn("nrh-book-select", text)
+        self.assertIn("loadBooksCatalog", text)
+        self.assertIn("fanqie_books", text)
+        self.assertIn("nrh-btn-refresh-books", text)
         self.assertIn("expandAuthorNoteIfCollapsed", text)
         self.assertIn("nrh-dock-tab", text)
         self.assertIn("智笔云枢", text)
@@ -106,6 +110,39 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn(".chapter-name textarea", text)
         self.assertIn("更新草稿", text)
         self.assertIn(".ql-editor", text)
+
+    def test_dynamic_multi_book_metadata(self):
+        # 验证对第二部全新题材小说的动态建档元数据提取
+        custom_book = self.test_dir / "山河救亡传"
+        custom_book.mkdir(exist_ok=True)
+        (custom_book / "00_设定集").mkdir(exist_ok=True)
+
+        char_content = """# 人物设定
+## 一、 主角档案：陈长生
+### 1. 人物身世
+战地医生穿越救亡。
+
+## 二、 我方阵营
+- **李司令（铁血军长）**：负责敌后根据地。
+"""
+        atomic_write(custom_book / "00_设定集" / "02_核心人物与关系阵营.md", char_content)
+
+        book_meta = {
+            "title": "山河救亡传",
+            "genre": "历史纪实 / 抗战救亡",
+            "description": "抗战救亡纪实小说，年轻战地军医陈长生穿越至烽火硝烟年代，以医学奇迹与战略远见力挽狂澜！保家卫国，浴血长空，重铸华夏不朽丰碑！山河犹在，国泰民安！",
+            "novel_type": "mid_short"
+        }
+        atomic_write(custom_book / "00_设定集" / "book.json", json.dumps(book_meta, ensure_ascii=False))
+
+        meta = novel_manager.get_novel_creation_metadata("山河救亡传", str(self.test_dir))
+        self.assertTrue(meta["ok"])
+        self.assertEqual(meta["title"], "山河救亡传")
+        self.assertEqual(meta["roles"], ["陈长生", "李司令"])
+        self.assertEqual(meta["category"], "历史纪实")
+        self.assertIn("救亡图存", meta["tags"])
+        self.assertTrue(100 <= len(meta["synopsis_condensed"]) <= 500)
+        self.assertIn("陈长生", meta["synopsis_condensed"])
 
 if __name__ == "__main__":
     unittest.main()

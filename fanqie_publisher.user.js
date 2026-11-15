@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台)
+// @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台多书架版)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.2.0
-// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、错别字拦截自愈与多章节全自动批量存草稿流水线！
+// @version      2.3.0
+// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品自由切换与智能匹配、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、错别字拦截自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
 // @match        *://*.fanqienovel.com/*
@@ -53,10 +53,10 @@
     }
 
     function getPlatformBadgeVersion(p = PLATFORM) {
-        if (p === 'fanqie') return '番茄专版 v2.2';
-        if (p === 'qimao') return '七猫专版 v2.2';
-        if (p === 'shuqi') return '书旗专版 v2.2';
-        return '三平台专版 v2.2';
+        if (p === 'fanqie') return '番茄专版 v2.3';
+        if (p === 'qimao') return '七猫专版 v2.3';
+        if (p === 'shuqi') return '书旗专版 v2.3';
+        return '多书架专版 v2.3';
     }
 
     function isBookCreationPage() {
@@ -64,7 +64,9 @@
         return href.includes('bookinfocreate') ||
                href.includes('book-create') ||
                href.includes('createbook') ||
-               href.includes('newbook');
+               href.includes('newbook') ||
+               href.includes('/writer/create') ||
+               href.includes('/create?');
     }
 
     // 默认配置
@@ -78,6 +80,8 @@
 
     const BATCH_STORAGE_KEY = 'nrh_multi_platform_batch_v2';
 
+    let availableBooks = [];
+    let currentSelectedBook = CONFIG.bookName;
     let chaptersCatalog = [];
     let isBatchRunning = false;
     let isWidgetDragging = false;
@@ -129,13 +133,43 @@
         return '';
     }
 
-    // 智能识别页面上的书名 (无论完整书名还是平台截断书名均能归一化)
+    // 智能识别页面上的书名 (无论完整书名还是平台截断书名均能归一化，优先比对全部书架)
     function detectPageBookName() {
-        const text = document.body ? document.body.innerText : '';
-        if (text.includes('给政哥讲量子')) {
+        let rawUrl = '';
+        try {
+            rawUrl = decodeURIComponent(location.href || '');
+        } catch (e) {
+            rawUrl = location.href || '';
+        }
+        const docTitle = document.title || '';
+        const bodyText = document.body ? document.body.innerText.slice(0, 5000) : '';
+
+        // 1. 优先在已同步的作品书架列表中匹配
+        if (availableBooks && availableBooks.length > 0) {
+            for (const b of availableBooks) {
+                const bTitle = b.title || b.id || '';
+                if (!bTitle) continue;
+                if (rawUrl.includes(bTitle) || docTitle.includes(bTitle) || bodyText.includes(bTitle)) {
+                    return bTitle;
+                }
+                const snippet = bTitle.slice(0, Math.min(8, bTitle.length));
+                if (snippet.length >= 4) {
+                    if (rawUrl.includes(snippet) || docTitle.includes(snippet) || bodyText.includes(snippet)) {
+                        return bTitle;
+                    }
+                }
+            }
+        }
+
+        // 2. 常见特征兜底
+        if (bodyText.includes('给政哥讲量子') || rawUrl.includes('给政哥讲量子') || docTitle.includes('给政哥讲量子')) {
             return '给政哥讲量子力学，他竟肉身硬抗二向箔';
         }
-        return CONFIG.bookName;
+        if (bodyText.includes('山河无恙') || rawUrl.includes('山河无恙') || docTitle.includes('山河无恙')) {
+            return '山河无恙，请先生阅卷';
+        }
+
+        return currentSelectedBook || CONFIG.bookName || '给政哥讲量子力学，他竟肉身硬抗二向箔';
     }
 
     // ================= 样式注入 (黑金奢华科技主题 + 边缘智能吸附抽屉) =================
@@ -766,7 +800,7 @@
         return false;
     }
 
-    // ================= API 通信层 =================
+    // ================= API 通信层与数据同步 =================
 
     function apiGet(endpoint) {
         return new Promise((resolve, reject) => {
@@ -797,17 +831,89 @@
         });
     }
 
-    async function loadChapters() {
+    async function loadBooksCatalog() {
         try {
-            const currentBook = detectPageBookName();
+            let data = null;
+            try {
+                data = await apiGet('fanqie_books');
+            } catch (e1) {
+                try {
+                    data = await apiGet('books');
+                } catch (e2) {
+                    console.warn('[NRH Publisher] 获取作品书架备选接口失败:', e2);
+                }
+            }
+
+            if (data && data.books && Array.isArray(data.books)) {
+                availableBooks = data.books.map(b => {
+                    if (typeof b === 'string') return { id: b, title: b };
+                    return { id: b.id || b.title, title: b.title || b.id };
+                });
+            }
+        } catch (e) {
+            console.warn('[NRH Publisher] 获取书架作品列表异常:', e);
+        }
+
+        if (!availableBooks || availableBooks.length === 0) {
+            availableBooks = [
+                { id: CONFIG.bookName, title: CONFIG.bookName }
+            ];
+        }
+
+        // 智能探针：若当前页面所在作品与选定书籍不一致，自动切换对齐
+        const pageBook = detectPageBookName();
+        if (pageBook) {
+            if (!availableBooks.some(b => b.title === pageBook || b.id === pageBook)) {
+                availableBooks.unshift({ id: pageBook, title: pageBook });
+            }
+            currentSelectedBook = pageBook;
+            CONFIG.bookName = pageBook;
+            GM_setValue('book_name', pageBook);
+        }
+
+        updateBookSelect();
+    }
+
+    function updateBookSelect() {
+        const bookSelect = document.getElementById('nrh-book-select');
+        if (!bookSelect) return;
+
+        bookSelect.innerHTML = '';
+        availableBooks.forEach(b => {
+            const title = b.title || b.id;
+            const opt = document.createElement('option');
+            opt.value = title;
+            opt.textContent = `📖 ${title}`;
+            if (title === currentSelectedBook) {
+                opt.selected = true;
+            }
+            bookSelect.appendChild(opt);
+        });
+
+        if (currentSelectedBook) {
+            bookSelect.value = currentSelectedBook;
+        }
+    }
+
+    async function loadChapters(targetBook) {
+        try {
+            const currentBook = targetBook || currentSelectedBook || detectPageBookName();
+            const selectEl = document.getElementById('nrh-chapter-select');
+            if (selectEl) {
+                selectEl.innerHTML = '<option value="auto_next">正在同步章节清单...</option>';
+            }
             const data = await apiGet(`fanqie_publish_list?book=${encodeURIComponent(currentBook)}`);
             if (data && data.chapters) {
                 chaptersCatalog = data.chapters;
                 updateChapterSelect();
-                showToast(`已成功同步 ${chaptersCatalog.length} 个最新章节！`);
+                showToast(`已成功同步《${currentBook}》共 ${chaptersCatalog.length} 个最新章节！`);
+            } else {
+                chaptersCatalog = [];
+                updateChapterSelect();
             }
         } catch (e) {
             console.warn('[NRH Publisher] 获取章节列表失败:', e);
+            chaptersCatalog = [];
             updateChapterSelect();
         }
     }
@@ -870,7 +976,7 @@
         // 如果在七猫作品管理页，提示并自动进入上传页
         if (PLATFORM === 'qimao' && location.href.includes('book-manage')) {
             const bookId = getBookIdFromUrl();
-            const currentBook = detectPageBookName();
+            const currentBook = currentSelectedBook || detectPageBookName();
             if (bookId) {
                 showToast('正在为您打开七猫章节上传界面...');
                 window.location.href = `https://zuozhe.qimao.com/front/book-upload?id=${bookId}&title=${encodeURIComponent(currentBook)}`;
@@ -886,11 +992,11 @@
 
         const selectEl = document.getElementById('nrh-chapter-select');
         const selectedVal = selectEl ? selectEl.value : '';
-        const currentBook = detectPageBookName();
+        const currentBook = currentSelectedBook || detectPageBookName();
 
         if (selectedVal && selectedVal !== 'auto_next' && selectedVal !== 'clipboard') {
             try {
-                showToast('正在从智笔云枢获取章节发布数据...');
+                showToast(`正在从智笔云枢获取《${currentBook}》章节发布数据...`);
                 const pkg = await apiGet(`fanqie_publish_package?book=${encodeURIComponent(currentBook)}&file=${encodeURIComponent(selectedVal)}`);
                 if (pkg && pkg.ok) {
                     await executeFillChapter(pkg);
@@ -957,8 +1063,8 @@
 
     // ================= 核心业务：新书建档一键秒填 (书旗/七猫/番茄) =================
     async function fillBookCreationInfo() {
-        showToast('正在从智笔云枢调阅建档元数据...');
-        const currentBook = detectPageBookName();
+        const currentBook = currentSelectedBook || detectPageBookName();
+        showToast(`正在从智笔云枢调阅《${currentBook}》建档元数据...`);
         let meta = null;
         try {
             const res = await apiGet(`novel_synopsis?book=${encodeURIComponent(currentBook)}`);
@@ -969,27 +1075,15 @@
 
         if (!meta) {
             meta = {
-                title: '给政哥讲量子力学，他竟肉身硬抗二向箔',
-                short_title: '给政哥讲量子，他咋肉身硬抗向箔',
+                title: currentBook,
+                short_title: currentBook.slice(0, 15),
                 category: '玄幻脑洞',
                 target_reader: '男生',
-                tags: ['玄幻脑洞', '穿越', '系统', '大秦', '无敌'],
+                tags: ['玄幻脑洞', '穿越', '系统', '爽文', '无敌'],
                 roles: ['顾见微', '嬴政'],
                 status: '连载中',
                 contest: '不参加',
-                synopsis_condensed: `【纯爽无虐 + 爆笑发癫 + 硬核脑洞 + 科技修仙 + 宇宙争霸】
-咸阳宫大殿，老神棍徐福逼着刚穿越的顾见微试药。身为物理与文献双料博士的顾见微，反手一个动量守恒大逼兜打飞毒丹：“陛下！再嗑这玩意儿大秦要全剧终了！”
-生死一线，《太上量子混元造化经》轰然觉醒！
-“陛下！修仙的本质是微观粒子的负熵重组！”
-“引气入体？那是经络微波导管对暗能量的谐振富集！”
-“天劫玄雷？来人，架避雷针！给咸阳宫点个灯泡先！”
-从此大秦科技树被彻底掰弯，一路狂飙到银河系——
-政哥想长生？基因端粒酶靶向重组！
-政哥想御剑？加装微型霍尔推进矢量喷管，请出示大秦飞剑驾照！
-李斯完成微积分进修：“蒙恬将军开蒸汽动能装甲超速，按秦律当罚抄十遍薛定谔方程！”
-若干年后，外星神级文明带着【二向箔】企图对大秦降维打击。
-始皇踏出虚空，掌托黑洞，以高维肉身硬抗二向箔：“车同轨书同文，寡人的疆域，谁准你少算一维！”
-顾见微狂喊：“政哥慢点推图！超星系团高铁还没通车呢！！”`
+                synopsis_condensed: `【精品力作】\n《${currentBook}》精彩上线！世界观宏大，情节跌宕起伏，人物性格鲜明。扣人心弦的故事就此展开，邀您共赴传奇之旅！`
             };
         }
 
@@ -1008,11 +1102,11 @@
             }
         }
 
-        // 2. 勾选目标读者：男生
+        // 2. 勾选目标读者：男生 / 男频
         const radios = Array.from(document.querySelectorAll('input[type="radio"], label, .el-radio, span.radio'));
         for (const r of radios) {
             const txt = (r.innerText || r.textContent || '').trim();
-            if (txt.includes('男生') && !txt.includes('女生')) {
+            if ((txt.includes('男生') || txt.includes('男频')) && !txt.includes('女生') && !txt.includes('女频')) {
                 if (r.tagName === 'INPUT') {
                     r.checked = true;
                     r.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1054,7 +1148,21 @@
             }
         }
 
-        // 5. 填入作品简介 (自动使用422字精炼版，确保严格位于100~500字区间内)
+        // 5. 填入主角名 (番茄主角名1、主角名2输入框)
+        if (meta.roles && meta.roles.length > 0) {
+            for (const inp of allInputs) {
+                const ph = (inp.getAttribute('placeholder') || '').toLowerCase();
+                if ((ph.includes('主角名1') || ph.includes('主角1')) && meta.roles.length > 0) {
+                    fillInputValue(inp, meta.roles[0]);
+                    filledCount++;
+                } else if ((ph.includes('主角名2') || ph.includes('主角2')) && meta.roles.length > 1) {
+                    fillInputValue(inp, meta.roles[1]);
+                    filledCount++;
+                }
+            }
+        }
+
+        // 6. 填入作品简介 (自动使用精炼版，确保严格位于100~500字区间内)
         const textareas = Array.from(document.querySelectorAll('textarea:not(#nrh-floating-widget textarea)'));
         for (const ta of textareas) {
             const ph = (ta.getAttribute('placeholder') || '').toLowerCase();
@@ -1065,13 +1173,14 @@
             }
         }
 
-        // 6. 将主角名与标签复制到剪贴板，方便点选
+        // 7. 将主角名与标签复制到剪贴板，方便点选
         const copyInfo = `【主角名】：${(meta.roles || []).join('、')}\n【核心标签】：${(meta.tags || []).join('、')}\n【分类推荐】：${meta.category || '玄幻脑洞'}`;
         try {
             await navigator.clipboard.writeText(copyInfo);
         } catch (e) {}
 
-        showToast(`🎉 建档信息填入完毕！主角名【顾见微、嬴政】与标签【玄幻脑洞】已备好在剪贴板。`, 5000);
+        const rolesStr = (meta.roles || []).join('、');
+        showToast(`🎉 《${meta.title || currentBook}》建档信息填入完毕！主角【${rolesStr}】与分类【${meta.category || ''}】已同步！`, 5000);
     }
 
     // ================= 自动存草稿 =================
@@ -1140,7 +1249,7 @@
 
         const count = endNum - startNum + 1;
         const bookId = getBookIdFromUrl();
-        const currentBook = detectPageBookName();
+        const currentBook = currentSelectedBook || detectPageBookName();
 
         if (!confirm(`即将启动【${getPlatformDisplayName()}】全自动多章节存草稿流水线：\n\n• 作品：${currentBook}\n• 目标范围：第 ${startNum} 章 ~ 第 ${endNum} 章 (共 ${count} 篇草稿)\n• 流程：自动开辟新草稿 ➔ 注入正文/标题 ➔ 存草稿 ➔ 消解提示 ➔ 自动切入下一章\n• 终点：全部存入草稿箱后自动停靠\n\n确认立即启动？`)) {
             return;
@@ -1352,18 +1461,28 @@
 
             <!-- 展开后的主体操作区 -->
             <div class="nrh-body" id="nrh-widget-body">
-                <div class="nrh-info-banner">
-                    作品：<b>${displayBook}</b><br>
-                    平台：<span style="color:#60a5fa;">${getPlatformDisplayName()}</span><br>
-                    状态：<span style="color:#4ade80;">✓ 三平台智能对齐与排版自愈已就绪</span>
+                <div style="background:rgba(30, 41, 59, 0.85); border:1px solid rgba(234, 179, 8, 0.35); border-radius:8px; padding:8px 10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                        <label style="font-size:11px; color:#fef08a; font-weight:700; display:flex; align-items:center; gap:4px;">
+                            <span>📚</span> <span>发布目标作品：</span>
+                        </label>
+                        <span id="nrh-btn-refresh-books" style="font-size:10px; color:#93c5fd; cursor:pointer;" title="从智笔云枢重新获取所有书架作品">🔄 刷新作品</span>
+                    </div>
+                    <select id="nrh-book-select" class="nrh-select" style="font-weight:700; color:#fef08a; background:#0b1120; border-color:rgba(234,179,8,0.5);">
+                        <option value="${displayBook}">📖 ${displayBook}</option>
+                    </select>
+                    <div style="font-size:10px; color:#94a3b8; margin-top:5px; display:flex; justify-content:space-between;">
+                        <span>平台：<b style="color:#60a5fa;">${getPlatformDisplayName()}</b></span>
+                        <span style="color:#4ade80;">✓ 多书架实时协同就绪</span>
+                    </div>
                 </div>
 
                 ${onCreation ? `
                 <button id="nrh-btn-bookinfo" class="nrh-btn nrh-btn-gold" style="width:100%; font-size:13px; padding:9px 12px; box-shadow:0 0 15px rgba(234, 179, 8, 0.45);">
-                    ✨ 一键填入新书建档信息
+                    ✨ 一键填入所选新书建档信息
                 </button>
                 <div style="font-size:11px; color:#94a3b8; line-height:1.4;">
-                    提示：已自动加载全书简介、男生受众、连载状态与标签主角配置，点击上方按钮一键填入。
+                    提示：已自动联动上方所选作品的简介、主角、受众与核心标签，点击一键秒填建档表单。
                 </div>
                 ` : ''}
 
@@ -1410,11 +1529,34 @@
             GM_setValue('nrh_widget_hidden', false);
         });
 
-        // 按钮事件绑定
+        // 按钮与交互控件事件绑定
+        const bookSelect = document.getElementById('nrh-book-select');
+        if (bookSelect) {
+            bookSelect.addEventListener('change', async (e) => {
+                const selected = e.target.value;
+                if (!selected) return;
+                currentSelectedBook = selected;
+                CONFIG.bookName = selected;
+                GM_setValue('book_name', selected);
+                showToast(`已切换当前发布作品：《${selected}》`);
+                await loadChapters(selected);
+            });
+        }
+
+        const refreshBooksBtn = document.getElementById('nrh-btn-refresh-books');
+        if (refreshBooksBtn) {
+            refreshBooksBtn.addEventListener('click', async () => {
+                showToast('正在从智笔云枢同步全部书架作品...');
+                await loadBooksCatalog();
+                await loadChapters(currentSelectedBook);
+                showToast(`书架作品同步完毕！当前共加载 ${availableBooks.length} 本作品`);
+            });
+        }
+
         document.getElementById('nrh-btn-fill').addEventListener('click', fillCurrentSelected);
         document.getElementById('nrh-btn-save').addEventListener('click', saveDraftNow);
         document.getElementById('nrh-btn-batch').addEventListener('click', startBatchPipeline);
-        document.getElementById('nrh-btn-sync').addEventListener('click', loadChapters);
+        document.getElementById('nrh-btn-sync').addEventListener('click', () => loadChapters(currentSelectedBook));
         document.getElementById('nrh-btn-clip').addEventListener('click', fillFromClipboard);
 
         const bookInfoBtn = document.getElementById('nrh-btn-bookinfo');
@@ -1579,7 +1721,8 @@
         try {
             injectStyles();
             createFloatingWidget();
-            await loadChapters();
+            await loadBooksCatalog();
+            await loadChapters(currentSelectedBook);
 
             const batchState = getBatchState();
             if (batchState && batchState.active) {
