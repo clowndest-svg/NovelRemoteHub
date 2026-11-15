@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NovelRemoteHub ✕ 网文作家助手 · 全自动发布与批量存草稿 (番茄/七猫/书旗三平台多书架版)
 // @namespace    https://scientificexploration.art/novel
-// @version      2.3.0
-// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品自由切换与智能匹配、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、错别字拦截自愈与多章节全自动批量存草稿流水线！
+// @version      2.3.1
+// @description  自动将 NovelRemoteHub 智笔云枢创作的章节一键填入番茄小说、七猫作家中心与书旗作家平台，支持多作品自由切换与智能匹配、三平台智能适配、新书建档一键秒填、贴边吸附、单章秒填、作者有话说自动对齐、平台向导/弹窗自动消解、错别字拦截自愈与多章节全自动批量存草稿流水线！
 // @author       NovelRemoteHub
 // @match        *://fanqienovel.com/*
 // @match        *://*.fanqienovel.com/*
@@ -800,6 +800,42 @@
         return false;
     }
 
+    // 自动拦截与消解平台向导/气泡推荐 (如番茄“这里可以增加作家有话说，与读者端更多互动。 3/3 下一步”)
+    function autoDismissTourOrGuide() {
+        let dismissed = false;
+        const candidates = Array.from(document.querySelectorAll(
+            '.arco-popover, .arco-tour, .arco-tour-step, .arco-tooltip, ' +
+            '.byte-popover, .byte-tour, [role="tooltip"], [role="dialog"], ' +
+            'div[class*="guide"], div[class*="tour"], div[class*="popover"]'
+        )).filter(el => !el.closest('#nrh-floating-widget') && !el.closest('#nrh-batch-banner'));
+
+        for (const el of candidates) {
+            const text = (el.innerText || '').trim();
+            if (text.includes('作家有话说') || text.includes('下一步') || text.includes('知道了') || text.includes('跳过') || text.includes('完成') || text.includes('互动')) {
+                const btns = Array.from(el.querySelectorAll('button, a, span, .arco-btn, .byte-btn')).filter(b => {
+                    const bt = (b.innerText || '').trim();
+                    return bt === '下一步' || bt === '知道了' || bt === '我知道了' || bt === '跳过' || bt === '完成' || bt === '立即体验' || bt.includes('下一步');
+                });
+                if (btns.length > 0) {
+                    try {
+                        btns[0].click();
+                        dismissed = true;
+                    } catch (e) {}
+                }
+            }
+        }
+
+        const masks = Array.from(document.querySelectorAll('.arco-tour-mask, .byte-tour-mask, .driver-overlay'));
+        for (const m of masks) {
+            try {
+                m.remove();
+                dismissed = true;
+            } catch (e) {}
+        }
+
+        return dismissed;
+    }
+
     // ================= API 通信层与数据同步 =================
 
     function apiGet(endpoint) {
@@ -1192,10 +1228,11 @@
             return false;
         }
         btn.click();
-        showToast('正在保存草稿并监视风控弹窗...');
+        showToast('正在保存草稿并监视风控与引导弹窗...');
 
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 25; i++) {
             await new Promise(r => setTimeout(r, 200));
+            autoDismissTourOrGuide();
             if (autoDismissSpellcheckModal()) break;
         }
         showToast('✅ 草稿已安全存入后台！');
@@ -1211,12 +1248,20 @@
             banner.id = 'nrh-batch-banner';
             document.body.appendChild(banner);
         }
-        const progress = Math.round(((currentNum - (endNum - total + 1)) / total) * 100);
+        const start = endNum - total + 1;
+        const progress = Math.min(100, Math.max(0, Math.round(((currentNum - start) / total) * 100)));
         banner.innerHTML = `
             <span>🚀 智笔云枢 · 批量录入中 [${getPlatformDisplayName()}]：正在处理第 <b>${currentNum}</b> 章 / 目标第 <b>${endNum}</b> 章 (${progress}%)</span>
-            <button id="nrh-stop-batch-btn" class="nrh-btn nrh-btn-danger" style="padding:4px 10px; font-size:11px;">🛑 终止批量</button>
+            <div style="display:inline-flex; align-items:center; gap:8px; margin-left:14px;">
+                <button id="nrh-resume-batch-btn" style="padding:4px 10px; font-size:11px; background:#10b981; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">▶️ 立即录入本章</button>
+                <button id="nrh-stop-batch-btn" style="padding:4px 10px; font-size:11px; background:#ef4444; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600;">🛑 终止批量</button>
+            </div>
         `;
         document.getElementById('nrh-stop-batch-btn').onclick = stopBatchPipeline;
+        document.getElementById('nrh-resume-batch-btn').onclick = () => {
+            isBatchRunning = false;
+            executeBatchStep();
+        };
     }
 
     function removeBatchBanner() {
@@ -1270,7 +1315,7 @@
         isBatchRunning = true;
 
         if (PLATFORM === 'fanqie') {
-            if (location.href.includes('enter_from=newchapter') && !location.href.match(/\/publish\/\d+/)) {
+            if (location.href.includes('/publish')) {
                 await executeBatchStep();
             } else {
                 showToast('正在打开全新草稿编辑页...');
@@ -1305,9 +1350,13 @@
         isBatchRunning = true;
         showBatchBanner(state.currentNum, state.endNum, state.total);
 
+        // 持续消解新手引导、气泡向导
+        autoDismissTourOrGuide();
+
         showToast(`[${state.currentNum - state.startNum + 1}/${state.total}] 正在等待第 ${state.currentNum} 章编辑器就绪...`);
         let ready = false;
         for (let i = 0; i < 40; i++) {
+            autoDismissTourOrGuide();
             if (getBodyEditor() && getTitleInput()) {
                 ready = true;
                 break;
@@ -1318,16 +1367,22 @@
         if (!ready) {
             const hasTitle = !!getTitleInput();
             const hasBody = !!getBodyEditor();
-            alert(`等待编辑器就绪超时 (标题区: ${hasTitle ? '就绪' : '未找到'}, 正文区: ${hasBody ? '就绪' : '未找到'})，请确认当前处于章节编辑页面！流水线已暂停。`);
-            stopBatchPipeline();
+            showToast(`等待编辑器就绪超时 (标题区: ${hasTitle ? '就绪' : '未找到'}, 正文区: ${hasBody ? '就绪' : '未找到'})，可点击顶部【▶️ 立即录入本章】重试。`, 5000);
+            isBatchRunning = false;
             return;
         }
 
         await new Promise(r => setTimeout(r, 800));
+        autoDismissTourOrGuide();
 
         try {
             showToast(`正在从智笔云枢获取第 ${state.currentNum} 章发布数据...`);
             let pkg = null;
+
+            // 确保章节清单已缓存就绪
+            if (!chaptersCatalog || chaptersCatalog.length === 0) {
+                await loadChapters(state.bookName);
+            }
 
             const targetChap = chaptersCatalog.find(c => c.chapter_number === state.currentNum);
             const fileParam = targetChap ? targetChap.filename : `第${String(state.currentNum).padStart(3, '0')}章.md`;
@@ -1335,7 +1390,7 @@
             try {
                 pkg = await apiGet(`fanqie_publish_package?book=${encodeURIComponent(state.bookName)}&file=${encodeURIComponent(fileParam)}`);
             } catch (e) {
-                console.warn('[NRH Publisher] 无法通过接口获取，尝试剪贴板');
+                console.warn('[NRH Publisher] 无法通过接口获取，尝试备用查询', e);
             }
 
             if (!pkg || !pkg.ok) {
@@ -1345,6 +1400,7 @@
             // 填充数据
             await executeFillChapter(pkg);
             await new Promise(r => setTimeout(r, 1000));
+            autoDismissTourOrGuide();
 
             // 存草稿并消解弹窗
             await saveDraftNow();
@@ -1726,10 +1782,14 @@
 
             const batchState = getBatchState();
             if (batchState && batchState.active) {
-                if (PLATFORM === 'fanqie' && location.href.includes('enter_from=newchapter') && !location.href.match(/\/publish\/\d+/)) {
-                    await executeBatchStep();
-                } else if (PLATFORM === 'qimao' && location.href.includes('book-upload')) {
-                    await executeBatchStep();
+                const isFanqiePublish = PLATFORM === 'fanqie' && (location.href.includes('/publish') || location.href.includes('enter_from=newchapter') || location.href.includes('_batch_t='));
+                const isQimaoUpload = PLATFORM === 'qimao' && (location.href.includes('book-upload') || location.href.includes('book-manage'));
+                const isShuqiPublish = PLATFORM === 'shuqi';
+
+                if (isFanqiePublish || isQimaoUpload || isShuqiPublish) {
+                    if (!isBatchRunning) {
+                        await executeBatchStep();
+                    }
                 } else if (!isBatchRunning) {
                     showBatchBanner(batchState.currentNum, batchState.endNum, batchState.total);
                 }

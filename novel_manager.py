@@ -325,7 +325,18 @@ def chapter_files(book_path):
 def read_chapter(book_id, filename, root_dir=None):
     safe_component(filename)
     book_path, _ = get_book_path(book_id, root_dir)
-    matches = [path for path in chapter_files(book_path) if os.path.basename(path) == filename]
+    all_files = chapter_files(book_path)
+    matches = [path for path in all_files if os.path.basename(path) == filename]
+    if not matches:
+        # 兼容容错：若未完全精确匹配，尝试提取章节号模糊匹配 (如传入 '第004章.md' 自动匹配 '第004章_xxx.md')
+        m = re.search(r"第(\d+)章", filename)
+        if m:
+            target_num = int(m.group(1))
+            matches = [
+                path for path in all_files
+                if (re.search(r"第(\d+)章", os.path.basename(path)) and
+                    int(re.search(r"第(\d+)章", os.path.basename(path)).group(1)) == target_num)
+            ]
     if len(matches) != 1:
         raise FileNotFoundError("章节不存在或文件名重复，请检查分卷章节名称")
     with open(matches[0], encoding="utf-8") as stream:
@@ -954,11 +965,25 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
     包含：章节序号、章节纯标题、纯净且自动纠错后的正文、作者有话说与互动问题
     """
     bpath, btitle = get_book_path(book_id, root_dir)
-    raw_text = read_chapter(book_id, fname, root_dir)
-    cleaned = clean_for_tomato(raw_text, fname, auto_fix_typos=True)
+    all_files = chapter_files(bpath)
+    actual_fname = fname
+    if not any(os.path.basename(p) == fname for p in all_files):
+        m = re.search(r"第(\d+)章", fname)
+        if m:
+            target_num = int(m.group(1))
+            num_matches = [
+                os.path.basename(p) for p in all_files
+                if (re.search(r"第(\d+)章", os.path.basename(p)) and
+                    int(re.search(r"第(\d+)章", os.path.basename(p)).group(1)) == target_num)
+            ]
+            if len(num_matches) == 1:
+                actual_fname = num_matches[0]
+
+    raw_text = read_chapter(book_id, actual_fname, root_dir)
+    cleaned = clean_for_tomato(raw_text, actual_fname, auto_fix_typos=True)
 
     # 解析章节序号与纯标题
-    m_num = re.search(r"第(\d+)章", fname)
+    m_num = re.search(r"第(\d+)章", actual_fname)
     chapter_num = int(m_num.group(1)) if m_num else 1
 
     # 拆分纯标题（去除“第XXX章”前缀，供番茄后台单独填入标题框）
@@ -967,7 +992,7 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
     chapter_title = m_title.group(1).strip() if m_title and m_title.group(1).strip() else full_title
 
     # 调阅作者有话说与互动文案
-    extras = get_chapter_extras(book_id, fname, root_dir)
+    extras = get_chapter_extras(book_id, actual_fname, root_dir)
     meta = extras.get("meta") or {}
     author_note = meta.get("author_note", "")
     comments = meta.get("comments", [])
@@ -981,7 +1006,7 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
     return {
         "ok": True,
         "book": btitle,
-        "filename": fname,
+        "filename": actual_fname,
         "chapter_number": chapter_num,
         "chapter_title": chapter_title,
         "full_title": full_title,

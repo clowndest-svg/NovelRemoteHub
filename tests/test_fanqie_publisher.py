@@ -93,7 +93,9 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("@match        *://zuozhe.qimao.com/*", text)
         self.assertIn("@match        *://write.shuqi.com/*", text)
         self.assertIn("@grant        GM_deleteValue", text)
-        self.assertIn("2.3.0", text)
+        self.assertIn("2.3.1", text)
+        self.assertIn("autoDismissTourOrGuide", text)
+        self.assertIn("nrh-resume-batch-btn", text)
         self.assertIn("nrh_multi_platform_batch", text)
         self.assertIn("nrh-book-select", text)
         self.assertIn("loadBooksCatalog", text)
@@ -143,6 +145,25 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("救亡图存", meta["tags"])
         self.assertTrue(100 <= len(meta["synopsis_condensed"]) <= 500)
         self.assertIn("陈长生", meta["synopsis_condensed"])
+
+    def test_fuzzy_chapter_matching_in_publish_payload(self):
+        # 验证当传入 "第001章.md" 时，自动模糊匹配实际文件 "第001章_星际开篇.md"
+        book_dir = self.test_dir / "模糊匹配测试书"
+        vol_dir = book_dir / "01_正文" / "第一卷"
+        vol_dir.mkdir(parents=True, exist_ok=True)
+        chap_file = vol_dir / "第001章_星际开篇：降临新世界.md"
+        chap_file.write_text("第001章 星际开篇：降临新世界\n\n穿越到了浩瀚星河之中。\n", encoding="utf-8")
+
+        # 传入短名 "第001章.md"
+        payload = novel_manager.get_fanqie_publish_payload("模糊匹配测试书", "第001章.md", str(self.test_dir))
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["chapter_number"], 1)
+        self.assertEqual(payload["filename"], "第001章_星际开篇：降临新世界.md")
+        self.assertIn("穿越到了浩瀚星河之中", payload["content"])
+
+        # read_chapter 也支持模糊匹配
+        text = novel_manager.read_chapter("模糊匹配测试书", "第001章.md", str(self.test_dir))
+        self.assertIn("穿越到了浩瀚星河之中", text)
 
 if __name__ == "__main__":
     unittest.main()
