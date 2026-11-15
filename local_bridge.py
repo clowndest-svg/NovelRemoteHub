@@ -723,16 +723,67 @@ def run_bridge_loop():
                     display_title = extra_data.get("title") or book_id
                     genre = extra_data.get("genre", "科幻修真 / 网文")
                     concept = extra_data.get("concept", user_prompt)
+                    novel_type = extra_data.get("novel_type") or extra_data.get("scale_type") or "million_long"
                     book_root = os.path.join(BOOKS_ROOT, book_title)
 
                     report_progress(f"正在为全新作品《{book_title}》初始化工程目录结构...")
                     os.makedirs(os.path.join(book_root, "00_设定集"), exist_ok=True)
-                    os.makedirs(os.path.join(book_root, "01_正文", "第一卷_人界篇"), exist_ok=True)
-                    novel_manager.save_book_meta(book_title, {"title": display_title, "genre": genre}, BOOKS_ROOT, rename=False)
+                    if novel_type == "short_story":
+                        os.makedirs(os.path.join(book_root, "01_正文"), exist_ok=True)
+                    elif novel_type == "mid_short":
+                        os.makedirs(os.path.join(book_root, "01_正文", "第一卷_开端篇"), exist_ok=True)
+                    else:
+                        os.makedirs(os.path.join(book_root, "01_正文", "第一卷_人界篇"), exist_ok=True)
 
-                    prompt = f"""【全新小说架构与总谱工程创建指令 · 《{book_title}》】
+                    novel_manager.save_book_meta(book_title, {
+                        "title": display_title,
+                        "genre": genre,
+                        "novel_type": novel_type
+                    }, BOOKS_ROOT, rename=False)
+
+                    type_label = "百万长篇巨制 (1000+章)" if novel_type == "million_long" else ("中短篇精品 (几十万字)" if novel_type == "mid_short" else "爆款短故事 (极速反转)")
+
+                    if novel_type == "short_story":
+                        prompt = f"""【爆款短故事架构与设定工程创建指令 · 《{book_title}》】
 目标工程目录：`D:\\小说\\{book_title}`
 题材分类：{genre}
+创作体量模式：爆款短故事 / 极速反转脑洞（1~5万字 / 3~10章）
+核心设定与作者构思：
+\"\"\"
+{concept}
+\"\"\"
+
+你现在是白金级爆款短故事/脑洞剧本总架构师。请为《{book_title}》设计高能反转与强情绪张力的短篇架构，并调用 write_file 完整写入以下设定文件：
+1. `D:\\小说\\{book_title}\\00_设定集\\01_故事核心设定与爆款脑洞.md`（包含黄金三秒开篇冲突hook、核心高概念脑洞、极致情绪基调与受众爆爽点）；
+2. `D:\\小说\\{book_title}\\00_设定集\\02_人物小传与隐秘暗线.md`（包含主角隐匿身份、核心反派嘴脸动机、关键证物与反转钥匙）；
+3. `D:\\小说\\{book_title}\\00_设定集\\03_全篇高能反转细纲.md`（包含黄金开局、压抑铺垫、暗线试探、初次撕裂、惊天三重高能反转与终极反杀大结局的 3~10 章分章推进细纲）；
+4. `D:\\小说\\{book_title}\\00_设定集\\00_反转伏笔与关键线索清单.md`（包含关键证据链、言行疑点矩阵与终局反转回收清单）。
+
+请直接调用 write_file 将以上文档全部写入落盘，确保开局抓人、反转震撼、节奏紧凑、绝无废话！
+"""
+                    elif novel_type == "mid_short":
+                        prompt = f"""【中短篇精品小说架构与分卷总谱工程创建指令 · 《{book_title}》】
+目标工程目录：`D:\\小说\\{book_title}`
+题材分类：{genre}
+创作体量模式：中短篇精品连载（几十万字 / 50~200章 · 快节奏爽文）
+核心设定与作者构思：
+\"\"\"
+{concept}
+\"\"\"
+
+你现在是白金级网文总架构师。请为《{book_title}》构建紧凑高爽度、强闭环的中短篇小说架构，并调用 write_file 完整写入以下设定文件：
+1. `D:\\小说\\{book_title}\\00_设定集\\01_核心设定与爽点机制.md`（包含核心金手指/系统规则、能力升级路线、战力天花板控制与快节奏爽点设计）；
+2. `D:\\小说\\{book_title}\\00_设定集\\02_人物角色与冲突阵营.md`（包含主角核心动机、主要反派势力、盟友阵营与阶梯式冲突推进）；
+3. `D:\\小说\\{book_title}\\00_设定集\\03_全书紧凑大纲与首期细纲.md`（包含全书三幕式结构规划、分卷高潮闭环、前15章每章紧凑剧情推演与反转卡点）；
+4. `D:\\小说\\{book_title}\\00_设定集\\00_主线进展与核心伏笔账本.md`（包含核心人物初始属性、当前主线推进度与关键伏笔跟踪）。
+
+请直接调用 write_file 将以上文档全部写入落盘，确保主线单刀直入、节奏如离弦之箭、爽感密集！
+"""
+                    else:
+                        prompt = f"""【全新长篇小说架构与总谱工程创建指令 · 《{book_title}》】
+目标工程目录：`D:\\小说\\{book_title}`
+题材分类：{genre}
+创作体量模式：百万级长篇巨制（1000+章 / 200万字+ · 史诗世界观）
 核心设定与作者构思：
 \"\"\"
 {concept}
@@ -746,7 +797,7 @@ def run_bridge_loop():
 
 请直接调用 write_file 将以上文档全部写入落盘，确保内容详实充沛、设定自洽、爽点与悬念密集！
 """
-                    task_title = f"【手机遥控】新建作品架构《{book_title}》"
+                    task_title = f"【手机遥控】新建作品架构《{book_title}》（{type_label}）"
 
                 # C. 设定集演进 (新增、润色扩展、一致性排查)
                 elif action == "evolve_settings":

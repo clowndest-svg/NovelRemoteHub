@@ -44,6 +44,7 @@ def read_book_meta(bpath, book_id=None):
         "id": book_id,
         "title": book_id,
         "genre": "科幻修真 / 网文",
+        "novel_type": "million_long",
         "author": "作者",
         "description": "",
         "cover": "",
@@ -79,7 +80,7 @@ def save_book_meta(book_id, meta_data, root_dir=None, rename=True):
     bpath, _ = get_book_path(book_id, root_dir)
     current = read_book_meta(bpath, book_id)
     updated = dict(current)
-    for key in ("title", "genre", "author", "description", "tags"):
+    for key in ("title", "genre", "author", "description", "tags", "novel_type", "scale_type"):
         if key in meta_data:
             value = meta_data[key]
             if key == "tags":
@@ -260,6 +261,7 @@ def list_books(root_dir=None):
                 "id": entry.name,
                 "title": meta.get("title", entry.name),
                 "genre": meta.get("genre", "科幻修真 / 网文"),
+                "novel_type": meta.get("novel_type", "million_long"),
                 "author": meta.get("author", "作者"),
                 "tags": meta.get("tags", []),
                 "description": meta.get("description", ""),
@@ -1033,10 +1035,12 @@ def get_novel_creation_metadata(book_id, root_dir):
     if len(short_title) > 15:
         short_title = "给政哥讲量子，他咋肉身硬抗向箔"
 
+    meta = read_book_meta(bpath, book_id)
     return {
         "ok": True,
         "book": btitle,
         "title": btitle,
+        "novel_type": meta.get("novel_type", "million_long"),
         "short_title": short_title,
         "category": "玄幻脑洞",
         "target_reader": "男生",

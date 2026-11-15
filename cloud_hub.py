@@ -212,10 +212,10 @@ LOCAL_STATUS = {
 }
 
 APP_VERSION_INFO = {
-    "versionCode": 18,
-    "versionName": "1.11.2",
-    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.11.2",
-    "changelog": "固定写作和审稿两条会话，复用现有全书账本，合并审核与记忆更新，手机刷新恢复任务进度。",
+    "versionCode": 19,
+    "versionName": "1.12.0",
+    "apkUrl": "https://scientificexploration.art/novel/download/NovelRemoteHub.apk?v=1.12.0",
+    "changelog": "构思工坊支持百万长篇、中短篇精品与爆款短故事多体量架构；重构创作全流程SOP交互与移动端触控体验。",
     "forceUpdate": False
 }
 
@@ -431,9 +431,20 @@ def execute_deepseek_task_async(tid):
         action = task["action"]
         with WRITE_LOCK:
             book_path = within(BOOKS_DIR, book_id)
+            novel_type = extra.get("novel_type") or extra.get("scale_type") or "million_long"
             if action == "create_new_novel":
                 os.makedirs(os.path.join(book_path, "00_设定集"), exist_ok=True)
-                novel_manager.save_book_meta(book_id, {"title": extra.get("title", book_id), "genre": extra.get("genre", "")}, BOOKS_DIR, rename=False)
+                if novel_type == "short_story":
+                    os.makedirs(os.path.join(book_path, "01_正文"), exist_ok=True)
+                elif novel_type == "mid_short":
+                    os.makedirs(os.path.join(book_path, "01_正文", "第一卷_开端篇"), exist_ok=True)
+                else:
+                    os.makedirs(os.path.join(book_path, "01_正文", "第一卷_人界篇"), exist_ok=True)
+                novel_manager.save_book_meta(book_id, {
+                    "title": extra.get("title", book_id),
+                    "genre": extra.get("genre", ""),
+                    "novel_type": novel_type
+                }, BOOKS_DIR, rename=False)
             book_path, _ = novel_manager.get_book_path(book_id, BOOKS_DIR)
             before = book_snapshot(book_path)["revision"]
             existing_notes = None
@@ -455,7 +466,12 @@ def execute_deepseek_task_async(tid):
                 model, effort, DATA_DIR, report, write_lock=WRITE_LOCK, on_chapter=chapter_saved)
         else:
             if action == "create_new_novel":
-                prompt += "\n请完整输出本书世界观、人物小传、主要矛盾、能力边界、首卷分章细纲与伏笔规划。"
+                if novel_type == "short_story":
+                    prompt += "\n创作体量模式：爆款短故事 / 极速反转脑洞（1~5万字/3~10章）。请完整输出：黄金三秒开篇hook冲突、主角隐秘身份与反派暗面、三重高能反转与终极反杀细纲、关键证物与反转钥匙清单。"
+                elif novel_type == "mid_short":
+                    prompt += "\n创作体量模式：中短篇精品（几十万字/50~200章）。请完整输出：核心金手指运转机制、三幕式紧凑大纲、前15章每章剧情推演与反转卡点、主线进展与核心伏笔账本。"
+                else:
+                    prompt += "\n创作体量模式：百万级长篇巨制（1000+章）。请完整输出：世界观法则、人物小传阵营、首卷30章分章细纲、前情剧情与长线伏笔总账本。"
             if action == "generate_chapter_notes":
                 source = novel_manager.read_chapter(book_id, extra["chapter_file"], BOOKS_DIR)
                 prompt = source + '\n依据本章生成作者有话说及章评，严格返回 JSON 对象 {"author_note":"正文", "chapter_comments":["问题"]}。'
@@ -500,7 +516,10 @@ def execute_deepseek_task_async(tid):
                     files.append(target)
                 else:
                     name = extra.get("target_doc") if action == "evolve_settings" and task.get("sub_action") != "audit" else None
-                    name = safe_component(name) if name else ("世界观人物与首卷大纲.md" if action == "create_new_novel" else f"推演结果_{tid}.md")
+                    if not name and action == "create_new_novel":
+                        name = "爆款短故事架构与反转细纲.md" if novel_type == "short_story" else ("中短篇精品架构与首期大纲.md" if novel_type == "mid_short" else "世界观人物与首卷大纲.md")
+                    else:
+                        name = safe_component(name) if name else f"推演结果_{tid}.md"
                     if not name.endswith(".md"):
                         name += ".md"
                     destination = within(os.path.join(book_path, "00_设定集"), name)
