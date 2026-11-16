@@ -610,8 +610,7 @@ def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, 
             progress(message)
         if remaining:
             prefs = dict(BRIDGE_PREFERENCES)
-            if 'writing_context_chars' not in prefs:
-                prefs['writing_context_chars'] = 128000
+            prefs['writing_context_chars'] = max(prefs.get('writing_context_chars', 0), 192000)
             if auto_ensure_outline is not None:
                 prefs['auto_ensure_outline'] = auto_ensure_outline
             elif 'auto_ensure_outline' not in prefs:

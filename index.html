@@ -5973,10 +5973,8 @@
                         ? '⏳ 任务排队中，等待电脑端 Worker 调度…'
                         : `⚡ ${task.progress || '电脑端 Agent 正在全力创作…'}`;
                 }
-                if (ACTIVE_TASK_ID !== task.id) {
-                    ACTIVE_TASK_ID = task.id;
-                    fetchSingleBookTaskLogs(task.id);
-                }
+                ACTIVE_TASK_ID = task.id;
+                fetchSingleBookTaskLogs(task.id);
             } else {
                 if (cancelBtn) {
                     cancelBtn.style.display = "none";
@@ -5987,6 +5985,11 @@
                     btn.style.cursor = "pointer";
                     btn.title = "";
                     updateNextLabel();
+                }
+                if (ACTIVE_TASK_ID) {
+                    const lastTid = ACTIVE_TASK_ID;
+                    ACTIVE_TASK_ID = null;
+                    fetchSingleBookTaskLogs(lastTid);
                 }
             }
         }
@@ -6035,8 +6038,14 @@
                     term.innerText = data.progress_log.join("\n");
                     term.scrollTop = term.scrollHeight;
                 }
+                const statusText = document.getElementById("pipeline-status-text");
                 if (data && data.status === "completed") {
+                    if (statusText) statusText.innerText = "🎉 任务已成功完成！正文已自动保存并同步。";
                     await loadChapters();
+                    pollAllActiveTasks();
+                } else if (data && data.status === "failed") {
+                    const lastLog = (data.progress_log && data.progress_log.length) ? data.progress_log[data.progress_log.length - 1] : "执行异常中断";
+                    if (statusText) statusText.innerText = `❌ 任务未完成: ${lastLog}`;
                     pollAllActiveTasks();
                 }
             } catch (e) {}

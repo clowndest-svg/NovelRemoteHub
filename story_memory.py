@@ -300,9 +300,10 @@ def tokens(text):
         text[i:i + 2] for i in range(len(text) - 1) if '\u4e00' <= text[i] <= '\u9fff' and '\u4e00' <= text[i + 1] <= '\u9fff')
 
 
-def retrieve(documents, records, query, required, allowance, covered=None):
+def retrieve(documents, records, query, required, allowance, covered=None, recommended=None):
     covered = set(covered or ())
     required = set(required) - covered
+    recommended = set(recommended or ()) - covered - required
     candidates = []
     words = tokens(query)
     for record in records:
@@ -311,8 +312,10 @@ def retrieve(documents, records, query, required, allowance, covered=None):
             continue
         text = documents[name][offset:offset + CHUNK_SIZE]
         score = len(words & tokens(record['summary'] + '\n' + text))
+        if name in recommended:
+            score += 10
         candidates.append((score, name, offset, text))
-    candidates.sort(key=lambda item: (item[1] not in required, -item[0], item[1], item[2]))
+    candidates.sort(key=lambda item: (item[1] not in required, item[1] not in recommended, -item[0], item[1], item[2]))
     selected = []
     references = []
     remaining = allowance
@@ -321,7 +324,7 @@ def retrieve(documents, records, query, required, allowance, covered=None):
         explicit = name in required
         if name.startswith('00_设定集/') and name in selected_settings:
             continue
-        if not explicit and (score == 0 or len(references) >= 8):
+        if not explicit and name not in recommended and (score == 0 or len(references) >= 8):
             continue
         section = f'【原文 {name} 字符{offset + 1}–{offset + len(text)}】\n{text}\n'
         if len(section) > remaining:
@@ -406,19 +409,20 @@ def writing_context(root, documents, memory, number, user_prompt, preferences, e
         full, _ = novel_manager.full_writing_context(str(root))
         return base + '\n手动全文复核资料\n' + full, [{'source': name, 'offset': 0, 'length': len(text)} for name, text in documents.items()]
     query = user_prompt + '\n'.join(outline)
-    required = set(explicit or ())
+    mandatory = set(explicit or ())
+    recommended = set()
     for name, item in active['characters'].items():
         if name in query and item['source'] in documents:
-            required.add(item['source'])
+            recommended.add(item['source'])
     for chapter in re.findall(r'第0*(\d+)章', query):
         if int(chapter) < number:
-            required.update(name for name in documents if name.startswith('01_正文/') and re.search(rf'第0*{int(chapter)}章', name))
-    if not required.issubset(documents):
+            recommended.update(name for name in documents if name.startswith('01_正文/') and re.search(rf'第0*{int(chapter)}章', name))
+    if not (mandatory | recommended).issubset(documents):
         raise ValueError('历史来源引用超出当前作品')
     allowance = budget - len(base) - 10000
     if allowance < 0:
         raise ValueError('核心记忆、设定及上一章超出预算，请调整预算后重试')
-    originals, selected = retrieve(documents, memory['records'], query, required, allowance, covered)
+    originals, selected = retrieve(documents, memory['records'], query, mandatory, allowance, covered, recommended=recommended)
     return base + '\n历史溯源原文\n' + originals, refs + selected
 
 

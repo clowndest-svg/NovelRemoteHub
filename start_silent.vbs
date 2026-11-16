@@ -1,2 +1,3 @@
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "cmd /c ""D:\RuanJian\NovelRemoteHub\start_bridge.bat""", 0, False
+Set ws = CreateObject("Wscript.Shell")
+ws.CurrentDirectory = "D:\RuanJian\NovelRemoteHub"
+ws.Run "pythonw.exe ""D:\RuanJian\NovelRemoteHub\local_bridge.py""", 0, False
