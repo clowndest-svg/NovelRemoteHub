@@ -142,6 +142,19 @@ def read_receipt(path):
     return receipt
 
 
+SAFETY_FILTER_KEYWORDS = (
+    "blocked by gemini's filters",
+    "blocked by gemini’s filters",
+    "trigger by mistake on safe coding",
+    "safety policy",
+    "content policy violation",
+    "violates our safety guidelines",
+    "violates our content policy",
+    "i cannot fulfill this request due to safety",
+    "harmful content",
+)
+
+
 def wait_for_response(conversation_id, marker, progress=None, timeout=1200):
     """Read the final reply belonging to this stage, excluding earlier conversation turns."""
     deadline = time.monotonic() + timeout
@@ -170,7 +183,11 @@ def wait_for_response(conversation_id, marker, progress=None, timeout=1200):
                     raise RuntimeError('Antigravity 执行失败 ' + str(message)[:1000])
                 response = last.get('plannerResponse', {}).get('response')
                 if isinstance(response, str) and response.strip() and not last.get('plannerResponse', {}).get('toolCalls'):
-                    return response.strip()
+                    res_str = response.strip()
+                    lower = res_str.lower()
+                    if any(kw in lower for kw in SAFETY_FILTER_KEYWORDS):
+                        raise RuntimeError(f'Antigravity 生成被安全策略拦截: {res_str[:300]}')
+                    return res_str
                 raise RuntimeError('Antigravity 本阶段已结束，但未返回完整的正文或 JSON')
         if progress and time.monotonic() >= next_report:
             progress(f'Antigravity 会话 {conversation_id} 正在生成本阶段文本…')

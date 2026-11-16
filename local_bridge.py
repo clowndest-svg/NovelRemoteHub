@@ -517,6 +517,43 @@ def execute_agentapi(prompt, title="【手机遥控】任务执行", engine_mode
         return False, str(error)
 
 
+def reconcile_stage_filesystem_changes(root, before_sources, before_fp, progress=None):
+    """检查执行端在调用期间是否引起了工作区文件变更。
+    若已有历史正文或设定集被修改/删除，坚决熔断抛出 RuntimeError。
+    若已有文件完好，仅产生执行端违规提前写入的正文草稿文件，将其安全隔离，恢复干净工作区指纹，避免任务中断。
+    """
+    after_sources = story_memory.sources(root)
+    if story_memory.fingerprint(after_sources) == before_fp:
+        return True
+
+    # 1. 检查已有源文件是否被篡改或删除
+    for name, text in before_sources.items():
+        if name not in after_sources or story_memory.digest(after_sources[name]) != story_memory.digest(text):
+            raise RuntimeError('历史正文发生变化或设定被执行端修改，已停止任务')
+
+    # 2. 检查多出的新文件
+    new_files = [name for name in after_sources if name not in before_sources]
+    if new_files and all(name.startswith('01_正文/') for name in new_files):
+        quarantine_dir = Path(root) / '.story-memory' / 'quarantine'
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        for name in new_files:
+            src_p = Path(root) / name
+            dst_p = quarantine_dir / (src_p.name + '.' + uuid.uuid4().hex[:8] + '.bak')
+            try:
+                src_p.rename(dst_p)
+            except OSError:
+                try:
+                    src_p.unlink()
+                except OSError:
+                    pass
+        if story_memory.fingerprint(story_memory.sources(root)) == before_fp:
+            if progress:
+                progress('检测到执行端提前创建了章节文件，已自动移入隔离区并由系统接管合规发布流程')
+            return True
+
+    raise RuntimeError('历史正文发生变化或设定被执行端修改，已停止任务')
+
+
 def desktop_stage(root, book_id, prompt, engine, model, effort, progress, session=None):
     stage_title = '审稿' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else '写作'
     if session is not None:
@@ -525,36 +562,50 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessio
         session['book_root'] = str(Path(root).resolve())
     output = Path(root) / '.story-memory' / 'agent-results' / (uuid.uuid4().hex + '.txt')
     output.parent.mkdir(parents=True, exist_ok=True)
-    before = story_memory.fingerprint(story_memory.sources(root))
+    before_sources = story_memory.sources(root)
+    before = story_memory.fingerprint(before_sources)
     if canonical_engine(engine) == 'antigravity':
         marker = uuid.uuid4().hex
-        instruction = (prompt + f'\n【本次阶段编号 {marker}】\n'
-            '本阶段只需在最终回复中返回所要求的完整 JSON 对象或完整章节正文，不加代码围栏或完成说明。'
-            '软件负责保存回复、生成回执、检查来源和发布正文。无需调用工具、执行命令、写文件或统计精确字数。')
-        if session is not None and session.get('id'):
-            if session.get('receipt'):
-                desktop_agents.wait_for_receipt(session.pop('receipt'), session['id'], progress, engine)
-            conversation = desktop_agents.continue_conversation(session['id'], instruction, model, engine, effort)
-        else:
-            conversation = desktop_agents.new_conversation(instruction, f'【{stage_title}】《{book_id}》', model, engine, effort)
-            if session is not None:
-                session['id'] = conversation
-        progress(f'已在小说工作区连接 antigravity 会话 {conversation}，等待本阶段完整回复')
-        result = agent_client.wait_for_response(conversation, marker, progress)
+        instruction = (
+            "【系统铁律：本阶段为纯文本生成，严禁调用任何工具】\n"
+            "本阶段只需在最终回复中返回所要求的完整 JSON 对象或完整章节正文，不加代码围栏或完成说明。\n"
+            "软件负责保存回复、生成回执、检查来源和发布正文。严禁调用 write_file、edit_file、run_command 等任何工具修改本地文件或执行命令！\n"
+            "任何工具调用或擅自修改工作区文件的行为均会导致任务熔断失败。\n\n"
+            f"{prompt}\n\n"
+            f"【本次阶段编号 {marker}】\n"
+            "再次重申：直接在最终回复中输出正文或 JSON，无需调用工具、执行命令、写文件或统计精确字数。"
+        )
+        try:
+            if session is not None and session.get('id'):
+                if session.get('receipt'):
+                    desktop_agents.wait_for_receipt(session.pop('receipt'), session['id'], progress, engine)
+                conversation = desktop_agents.continue_conversation(session['id'], instruction, model, engine, effort)
+            else:
+                conversation = desktop_agents.new_conversation(instruction, f'【{stage_title}】《{book_id}》', model, engine, effort)
+                if session is not None:
+                    session['id'] = conversation
+            progress(f'已在小说工作区连接 antigravity 会话 {conversation}，等待本阶段完整回复')
+            result = agent_client.wait_for_response(conversation, marker, progress)
+        except Exception:
+            if session is not None and isinstance(session, dict):
+                session.clear()
+            raise
         atomic_write(output, result)
-        if story_memory.fingerprint(story_memory.sources(root)) != before:
-            raise RuntimeError('历史正文发生变化或设定被执行端修改，已停止任务')
+        reconcile_stage_filesystem_changes(root, before_sources, before, progress)
         return result
-    instruction = (prompt + f"\n当前作品根目录 `{root}`。本阶段完整输入已在消息中提供。"
-        f"\n本次为分阶段创作。只将本阶段要求的 JSON 或正文写入 `{output}`，然后返回完成回执。"
-        "输出与回执的父目录均已建立。直接使用一次脚本写入结果和本次新回执，再读取这两个文件校验。"
-        "两个文件校验通过后立即结束本阶段并回复完成。"
-        "文件访问范围限定为本次指定输出和新回执，其他阶段的暂存文件与旧回执均与本任务无关。"
-        "作品正式正文、设定与记忆索引由软件管理，保持这些文件原样。")
+    instruction = (
+        "【系统铁律：严禁调用非指定工具】\n"
+        f"当前作品根目录 `{root}`。本阶段完整输入已在消息中提供。\n"
+        f"本次为分阶段创作。只将本阶段要求的 JSON 或正文写入 `{output}`，然后返回完成回执。\n"
+        "输出与回执的父目录均已建立。直接使用一次脚本写入结果和本次新回执，再读取这两个文件校验。\n"
+        "两个文件校验通过后立即结束本阶段并回复完成。\n"
+        "文件访问范围限定为本次指定输出和新回执，其他阶段的暂存文件与旧回执均与本任务无关。\n"
+        "作品正式正文、设定与记忆索引由软件管理，保持这些文件原样。\n\n"
+        f"{prompt}"
+    )
     ok, result = execute_agentapi(instruction, title=f"【{stage_title}】《{book_id}》", engine_mode=engine,
         model_tier=model, reasoning_effort=effort, progress_cb=progress, session=session)
-    if story_memory.fingerprint(story_memory.sources(root)) != before:
-        raise RuntimeError('历史正文发生变化或设定被执行端修改，已停止任务')
+    reconcile_stage_filesystem_changes(root, before_sources, before, progress)
     if not ok:
         raise RuntimeError(result)
     if not output.is_file():
@@ -590,12 +641,18 @@ def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, 
         role = 'reviewer' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else 'writer'
         try:
             return desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessions[role])
+        except Exception:
+            if sessions and role in sessions and isinstance(sessions[role], dict):
+                sessions[role].clear()
+            raise
         finally:
             if checkpoint:
                 atomic_json(checkpoint, state)
     def saved(filename):
         nonlocal completed
         completed += 1
+        if checkpoint:
+            atomic_json(checkpoint, state)
         wait_for_cloud_sync(progress)
     try:
         if recovered:

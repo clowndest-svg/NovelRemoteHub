@@ -1082,6 +1082,40 @@ class SerialWritingTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn('历史正文发生变化', result)
 
+    def test_unauthorized_new_chapter_file_auto_quarantined_and_reconciled(self):
+        def execute_with_rogue_file(prompt, **kwargs):
+            if '【阶段 生成草稿】' in prompt:
+                # 模拟执行端擅自提前在正文目录写入未完成草稿
+                rogue = self.directory / '第002章_偷跑草稿.md'
+                atomic_write(rogue, '未经验收的偷跑内容')
+            return self.write_chapter(prompt, **kwargs)
+        with patch.object(self.bridge, 'execute_agentapi', side_effect=execute_with_rogue_file), \
+                patch.object(self.bridge, 'sync_all_books_to_cloud', return_value=(True, 0, 0)):
+            ok, result = self.run_serial(1)
+        self.assertTrue(ok, result)
+        # 验证隔离区存在备份
+        quarantine = self.directory.parent.parent / '.story-memory/quarantine'
+        self.assertTrue(quarantine.is_dir())
+        self.assertTrue(any('第002章_偷跑草稿' in p.name for p in quarantine.glob('*.bak')))
+        # 验证正规流程发布的章节存在
+        self.assertTrue((self.directory / '第002章_延续.md').is_file())
+
+    def test_gemini_safety_filter_blocked_raises_error(self):
+        import agent_client
+        with patch.object(agent_client, 'rpc', return_value={
+            'status': 'CASCADE_RUN_STATUS_IDLE',
+            'trajectory': {
+                'steps': [
+                    {'type': 'CORTEX_STEP_TYPE_USER_INPUT', 'userInput': {'items': [{'text': 'marker123'}]}},
+                    {'type': 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', 'plannerResponse': {
+                        'response': "This request was blocked by Gemini's filters. They can occasionally trigger by mistake on safe coding."
+                    }}
+                ]
+            }
+        }):
+            with self.assertRaisesRegex(RuntimeError, '安全策略拦截'):
+                agent_client.wait_for_response('fake_conv', 'marker123', timeout=1)
+
 
 
 class SyncBridgeTests(unittest.TestCase):

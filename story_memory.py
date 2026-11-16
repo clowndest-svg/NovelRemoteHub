@@ -110,6 +110,22 @@ def validate_record(record):
     return record
 
 
+def validate_chapter_content(text, chap_number):
+    if not isinstance(text, str):
+        return False, '章节内容必须为字符串', None, ''
+    clean = text.strip()
+    first, _, body = clean.partition('\n')
+    title = re.match(rf'^#*\s*第0*{chap_number}章[ _：:]+(.+)$', first.strip())
+    if not title:
+        return False, f'缺失有效章节标题（格式需为：第{chap_number:03d}章 标题）', None, ''
+    if len(body.strip()) < 500:
+        return False, f'章节正文字数过少（仅{len(body.strip())}字符，至少需500字）', title, body
+    lower = clean.lower()
+    if any(kw in lower for kw in ("blocked by gemini's filters", "blocked by gemini’s filters", "trigger by mistake on safe coding", "safety policy")):
+        return False, '生成内容触发安全策略拦截', title, body
+    return True, '', title, body
+
+
 def memory_response(root, key, generate, prompt, budget, progress):
     raw_path = root / '.story-memory' / 'raw' / (key + '.txt')
     if raw_path.is_file():
@@ -525,6 +541,15 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                     atomic_json(run, review)
                     progress(f'第{number:03d}章，已补充请求的历史原文，在原写作会话继续')
                     content = ask(generate, '生成草稿', base + '\n' + instructions, budget)
+                valid, reason, title, body = validate_chapter_content(content, number)
+                if not valid:
+                    progress(f'第{number:03d}章草稿未达标（{reason}），正在原写作会话重试生成…')
+                    content = ask(generate, '生成草稿', base + f'\n【前次生成未通过：{reason}。第一行必须为“第{number:03d}章 章节标题”，随后输出完整正文，禁止调用工具或输出系统报错】\n' + instructions, budget)
+                    valid, reason, title, body = validate_chapter_content(content, number)
+                    if not valid:
+                        draft = root / '.generation-drafts' / (run.stem + '.md')
+                        atomic_write(draft, content)
+                        raise RuntimeError(f'章节编号或内容无效（{reason}），生成稿已保留于 {draft}')
                 draft = root / '.generation-drafts' / (run.stem + '.md')
                 atomic_write(draft, content)
                 if fingerprint(sources(root)) != revision:
@@ -539,7 +564,10 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                     if attempt == 1:
                         raise RuntimeError(f'一致性审核未通过，草稿已保留于 {draft}')
                     content = ask(generate, '修订草稿', base + '\n原稿\n' + content + '\n审核问题\n' + encode(audit['issues']) + '\n修正后输出原标题与完整正文。', budget)
+                    valid, reason, title, body = validate_chapter_content(content, number)
                     atomic_write(draft, content)
+                    if not valid:
+                        raise RuntimeError(f'修订稿内容无效（{reason}），生成稿已保留于 {draft}')
                 first, _, body = content.strip().partition('\n')
                 title = re.match(rf'^#*\s*第0*{number}章[ _：:]+(.+)$', first.strip())
                 if not title or len(body.strip()) < 500:
