@@ -13,8 +13,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import sys
 from pathlib import Path
 from unittest.mock import patch
+
+if str(Path(__file__).parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent))
 
 os.environ['NOVEL_HUB_DATA_DIR'] = str(Path('.test-data/unittest').resolve())
 os.environ['NOVEL_HUB_DOWNLOAD_DIR'] = str(Path('.test-data/download').resolve())

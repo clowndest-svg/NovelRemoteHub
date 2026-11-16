@@ -38,6 +38,9 @@ from sync_protocol import content_fingerprint, book_snapshot, digest, cover_fing
 import library_sync
 import http.client
 
+# 确保工作目录锁定为当前项目根目录
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
 class SafeDaemonLogStream:
     def __init__(self, log_path, orig_stream=None):
@@ -536,16 +539,23 @@ def reconcile_stage_filesystem_changes(root, before_sources, before_fp, progress
     if new_files and all(name.startswith('01_正文/') for name in new_files):
         quarantine_dir = Path(root) / '.story-memory' / 'quarantine'
         quarantine_dir.mkdir(parents=True, exist_ok=True)
+        import gc
+        gc.collect()
         for name in new_files:
             src_p = Path(root) / name
             dst_p = quarantine_dir / (src_p.name + '.' + uuid.uuid4().hex[:8] + '.bak')
-            try:
-                src_p.rename(dst_p)
-            except OSError:
+            for attempt in range(8):
                 try:
-                    src_p.unlink()
+                    src_p.rename(dst_p)
+                    break
                 except OSError:
-                    pass
+                    time.sleep(0.15 * (attempt + 1))
+                    try:
+                        src_p.unlink()
+                        break
+                    except OSError:
+                        pass
+                    gc.collect()
         if story_memory.fingerprint(story_memory.sources(root)) == before_fp:
             if progress:
                 progress('检测到执行端提前创建了章节文件，已自动移入隔离区并由系统接管合规发布流程')
