@@ -284,6 +284,17 @@ class AuditRegressions(unittest.TestCase):
             self.assertIn('id="wf-tab-' + workflow + '"', html)
         self.assertEqual(len(re.findall(r'function showToast\(', html)), 1)
 
+    def test_apk_download_link_version_refresh_wired(self):
+        html = Path('index.html').read_text(encoding='utf-8')
+        self.assertNotIn('?v=1.11.2', html)
+        m = re.search(r'window\.addEventListener\("DOMContentLoaded".*?\n        \}\);', html, re.S)
+        self.assertIsNotNone(m, 'DOMContentLoaded 初始化块必须存在')
+        block = m.group(0)
+        self.assertIn('fetch(`${API}/version`)', block)
+        self.assertIn('btn-apk-header', block)
+        self.assertIn('versionName', block)
+        self.assertIn('a.href = a.href.split("?")[0]', block)
+
 
 if __name__ == '__main__':
     unittest.main()
