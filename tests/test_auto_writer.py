@@ -58,6 +58,34 @@ class AutoWriterTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
+    def test_disabled_fallback_probes_only_preferred_engine(self):
+        with patch.object(auto_writer, 'probe_engine_health', return_value=(False, 'offline', {})) as probe:
+            chosen, reports = auto_writer.evaluate_engine_ladder(['antigravity', 'codex'], False)
+        self.assertIsNone(chosen)
+        self.assertEqual(probe.call_count, 1)
+
+    def test_daily_completion_requires_actual_task_completion(self):
+        auto_writer.save_auto_write_status({'novel_reports': {'book': {'result': {'task_id': 'task'}}}}, self.test_dir)
+        manager = auto_writer.AutoWriterManager(self.test_dir, self.books_dir)
+        self.assertEqual(manager.get_status({'task': {'status': 'running'}})['status'], 'running')
+        self.assertEqual(manager.get_status({'task': {'status': 'completed'}})['status'], 'completed')
+
+    def test_daily_retry_dispatches_only_remaining_chapters(self):
+        novel_manager.save_user_settings({'auto_write_enabled': True, 'auto_write_chapters': 5}, self.test_dir)
+        auto_writer.save_auto_write_status({'last_run_date': time.strftime('%Y-%m-%d'), 'status': 'partial_failed',
+            'novel_reports': {self.book_id: {'result': {'task_id': 'old'}, 'task_status': 'failed',
+                'target_count': 5, 'completed_chapters': 2, 'attempts': 1, 'next_retry_at': 0}}}, self.test_dir)
+        dispatch = MagicMock(return_value=(True, {'task_id': 'retry'}))
+        manager = auto_writer.AutoWriterManager(self.test_dir, self.books_dir)
+        with patch.object(auto_writer, 'evaluate_engine_ladder', return_value=('antigravity', {})):
+            ok, _, report = manager.run_pipeline(dispatch_task_func=dispatch)
+        self.assertTrue(ok)
+        self.assertEqual(dispatch.call_args.kwargs['chapter_count'], 3)
+        self.assertEqual(report['novel_reports'][self.book_id]['previous_completed'], 2)
+        result = manager.get_status({'retry': {'status': 'completed', 'extra_data': {'chapter_count': 3}}})
+        self.assertEqual(result['novel_reports'][self.book_id]['completed_chapters'], 5)
+        self.assertEqual(result['status'], 'completed')
+
     def test_default_settings_disabled(self):
         """测试出厂设置下自动续写默认关闭，且章节数默认为 10"""
         s = novel_manager.get_user_settings(self.test_dir)
@@ -233,7 +261,7 @@ class AutoWriterTest(unittest.TestCase):
             direct_generate_func=mock_outline_gen
         )
         self.assertTrue(ok)
-        self.assertEqual(status["status"], "completed")
+        self.assertEqual(status["status"], "dispatched")
         self.assertEqual(status["active_engine"], "antigravity")
         self.assertEqual(len(dispatched_tasks), 1)
         self.assertEqual(dispatched_tasks[0]["book_id"], self.book_id)
@@ -242,6 +270,9 @@ class AutoWriterTest(unittest.TestCase):
     def test_cloud_hub_dispatch_auto_task(self):
         """测试 cloud_hub.dispatch_auto_task 任务创建、防重入互斥与参数完整性"""
         cloud_hub.TASKS.clear()
+        catalog = {'engines': [{'id': 'antigravity', 'available': True, 'models': [
+            {'id': 'test', 'default_effort': 'high', 'efforts': [{'id': 'high'}]}]}]}
+        Path(self.test_dir, 'agents.json').write_text(json.dumps(catalog), encoding='utf-8')
         ok, res = cloud_hub.dispatch_auto_task(
             book_id=self.book_id,
             workflow="serial",
@@ -268,8 +299,7 @@ class AutoWriterTest(unittest.TestCase):
             chapter_count=10
         )
         self.assertTrue(ok2)
-        self.assertTrue(res2.get("reused"))
-        self.assertEqual(res2["task_id"], tid)
+        self.assertNotEqual(res2["task_id"], tid)
 
     def test_auto_ensure_outline_in_write_chapters(self):
         """测试在写新章节前，若缺少细纲，story_memory.write_chapters 自动先行补全大纲写回设定集再写正文"""

@@ -187,6 +187,7 @@ class AuditRegressions(unittest.TestCase):
         self.assertNotEqual(before, manager.list_books(str(self.books))[0]['cover_version'])
 
     def test_deepseek_full_context_generic_genre_and_max_chapter_number(self):
+        manager.save_user_settings({'default_chapter_words': '500-1000'}, str(self.root))
         def generate(prompt, *args, **kwargs):
             self.assertIn('文档末尾约束', prompt)
             self.assertIn('第004章', prompt)

@@ -12,12 +12,14 @@ import os
 import re
 import json
 import time
+import threading
 import glob
 from pathlib import Path
 from storage import atomic_json, atomic_write
 import novel_manager
 
 STATUS_FILE_NAME = "auto_write_status.json"
+PIPELINE_LOCK = threading.Lock()
 
 
 def get_status_file_path(data_dir=None):
@@ -105,7 +107,7 @@ def evaluate_engine_ladder(order=None, fallback_enabled=True, config_dir=None, l
     probe_reports = {}
     chosen_engine = None
 
-    for eng in order:
+    for eng in (order if fallback_enabled else order[:1]):
         eng_clean = eng.strip().lower()
         ok, msg, details = probe_engine_health(eng_clean, config_dir, local_status)
         probe_reports[eng_clean] = {
@@ -193,7 +195,7 @@ def generate_and_append_outlines(book_root, book_id, missing_chapters, generate_
         try:
             t = f.read_text(encoding="utf-8-sig").strip()
             if t:
-                existing_materials.append(f"【设定文档 {f.name}】\n{t[:4000]}")
+                existing_materials.append(f"【设定文档 {f.name}】\n{t}")
         except Exception:
             continue
 
@@ -246,6 +248,15 @@ def generate_and_append_outlines(book_root, book_id, missing_chapters, generate_
         return False, f"写入新细纲到设定集失败: {str(err)}"
 
 
+def completed_chapters(task):
+    count = task.get('extra_data', {}).get('chapter_count', 1)
+    if task.get('status') == 'completed':
+        return count
+    values = [int(match.group(1)) for line in task.get('progress_log', [])
+              for match in re.finditer(r'(?:续写进度|已完成)\s*(\d+)/(?:\d+)', line)]
+    return min(count, max(values, default=0))
+
+
 class AutoWriterManager:
     """
     全自动每日续写与巡检调度中枢管理器
@@ -255,10 +266,26 @@ class AutoWriterManager:
         self.data_dir = data_dir or os.path.dirname(__file__)
         self.books_dir = books_dir or os.path.join(self.data_dir, "books")
 
-    def get_status(self):
+    def get_status(self, tasks=None):
         settings = novel_manager.get_user_settings(self.data_dir)
         status = load_auto_write_status(self.data_dir)
         status["enabled"] = bool(settings.get("auto_write_enabled", False))
+        if tasks is not None and status.get('novel_reports'):
+            states = []
+            for report in status['novel_reports'].values():
+                task = tasks.get((report.get('result') or {}).get('task_id'))
+                if task:
+                    report['task_status'] = task['status']
+                    report['completed_chapters'] = report.get('previous_completed', 0) + completed_chapters(task)
+                    report['cancel_requested'] = bool(task.get('cancel_requested'))
+                    report['latest_log'] = (task.get('progress_log') or [''])[-1]
+                    states.append(task['status'])
+                else:
+                    states.append('failed')
+            status['status'] = ('completed' if all(item == 'completed' for item in states)
+                                else 'running' if any(item in ('pending', 'assigned', 'running') for item in states)
+                                else 'partial_failed')
+            save_auto_write_status(status, self.data_dir)
         status["settings"] = {
             "auto_write_enabled": settings.get("auto_write_enabled", False),
             "auto_write_chapters": settings.get("auto_write_chapters", 10),
@@ -269,6 +296,14 @@ class AutoWriterManager:
         return status
 
     def run_pipeline(self, trigger_type="scheduled", force=False, local_status=None, dispatch_task_func=None, direct_generate_func=None):
+        if not PIPELINE_LOCK.acquire(blocking=False):
+            return False, '自动连更调度正在执行，请查看当前进度', self.get_status()
+        try:
+            return self._run_pipeline(trigger_type, force, local_status, dispatch_task_func, direct_generate_func)
+        finally:
+            PIPELINE_LOCK.release()
+
+    def _run_pipeline(self, trigger_type="scheduled", force=False, local_status=None, dispatch_task_func=None, direct_generate_func=None):
         """
         执行每日自动化巡检连更完整流水线
         """
@@ -288,6 +323,9 @@ class AutoWriterManager:
         # 2. 幂等防重检查 (当日已跑过且非强制重跑)
         if not force and status.get("last_run_date") == today_str and status.get("status") == "completed":
             return True, f"今日 ({today_str}) 自动化续写已完成，无需重复执行", status
+
+        if not force and status.get('last_run_date') == today_str and status.get('status') in ('running', 'dispatched'):
+            return True, '今日任务已有记录，请查看执行结果并恢复失败任务', status
 
         # 3. 引擎优先级梯队健康探测
         order = settings.get("auto_write_engine_order", ["antigravity", "codex", "deepseek"])
@@ -320,11 +358,24 @@ class AutoWriterManager:
 
         # 4. 遍历所有小说进行大纲自愈核验与连更任务下发
         books = novel_manager.list_books(self.books_dir)
+        previous_reports = status.get('novel_reports', {}) if status.get('last_run_date') == today_str else {}
         novel_reports = {}
         all_success = True
 
         for b in books:
             b_id = b["id"]
+            prior = previous_reports.get(b_id, {})
+            target = prior.get('target_count', target_chapters_per_book)
+            done = min(target, prior.get('completed_chapters', 0))
+            remaining = target - done
+            attempts = prior.get('attempts', 0)
+            if prior and (not remaining or prior.get('task_status') in ('pending', 'assigned', 'running')):
+                novel_reports[b_id] = prior
+                continue
+            if prior and not force and (prior.get('cancel_requested') or attempts >= 3 or time.time() < prior.get('next_retry_at', 0)):
+                novel_reports[b_id] = prior
+                all_success = False
+                continue
             b_path, _ = novel_manager.get_book_path(b_id, self.books_dir)
             c_files = novel_manager.chapter_files(b_path)
             current_max = 0
@@ -335,10 +386,10 @@ class AutoWriterManager:
 
             start_chap = current_max + 1
             # 检查大纲完备性
-            outline_check = inspect_book_outlines(b_path, start_chap, target_chapters_per_book)
+            outline_check = inspect_book_outlines(b_path, start_chap, remaining)
 
             # 4.A 缺细纲 -> 先调用 AI 补全新细纲
-            if not outline_check["ready"]:
+            if not outline_check["ready"] and not dispatch_task_func:
                 if direct_generate_func:
                     gen_ok, gen_msg = generate_and_append_outlines(b_path, b_id, outline_check["missing_chapters"], direct_generate_func)
                     if not gen_ok:
@@ -348,26 +399,63 @@ class AutoWriterManager:
                 else:
                     # 若无法直接同步生成，且有 dispatch 派发通道，则作为推演任务派发
                     if dispatch_task_func:
-                        dispatch_task_func(b_id, "outline", f"自动推演第 {start_chap}~{start_chap + target_chapters_per_book - 1} 章细纲", chosen_engine, extra={"auto_pipeline": True})
+                        dispatch_task_func(b_id, "outline", f"自动推演第 {start_chap}~{start_chap + remaining - 1} 章细纲", chosen_engine, extra={"auto_pipeline": True})
                     novel_reports[b_id] = {"ok": True, "step": "outline_dispatched", "message": f"已派发第 {start_chap} 章起的大纲推演任务"}
                     continue
 
-            # 4.B 细纲齐备 -> 下发批量正文续写任务
+            # 4.B 细纲齐备 -> 下发批量正文续写任务（与手动操控台创作SOP规范100%完全对齐）
             if dispatch_task_func:
-                user_p = f"严格遵循《{b_id}》设定集与最新分章细纲，保持单主线高燃推进，逐章创作全新正文，每章紧扣末尾高能反转断章钩子。"
+                b_meta = novel_manager.read_book_meta(b_path, b_id)
+                novel_type = b_meta.get("novel_type") or b_meta.get("scale_type") or "million_long"
+                title_name = b_meta.get("title", b_id)
+                if novel_type == "short_story":
+                    words_range = "2000-3000"
+                    user_p = (
+                        f"请严格遵循《{title_name}》爆款短故事脑洞架构，开篇即黄金冲突，拉满情绪压迫感！"
+                        "围绕隐秘线索与反转钥匙推进剧情，核对前章线索与反转大纲，逐章创作正文（2000-3000字，"
+                        "高频反转，冷峻张力，中文全角双引号“”，章末留生死存亡或真相反转钩子）。"
+                    )
+                elif novel_type == "mid_short":
+                    words_range = "2500-3500"
+                    user_p = (
+                        f"请严格遵循《{title_name}》中短篇紧凑主线与大纲设定，保持单主线高速推进，绝不注水拖沓！"
+                        "每章紧扣核心爽点与危机反转，逐章创作正文（2500-3500字，对话紧凑，段落精炼，"
+                        "中文全角双引号“”，章末卡在情节最高压或致命悬念节点）。"
+                    )
+                else:
+                    words_range = settings.get("default_chapter_words") or "4000-5000"
+                    user_p = (
+                        f"请严格遵循《{title_name}》大纲设定与剧情发展边界，每轮更新剧情记忆、人物状态及伏笔，"
+                        f"核对本章细纲、上一章全文及相关历史原文，草稿审核通过后保存，逐章创作正文（{words_range}字，"
+                        "番茄短段落黄金排版，中文全角双引号“”，戏带设定，章末设置强力吸睛断章钩子）。"
+                    )
                 t_ok, t_res = dispatch_task_func(
                     book_id=b_id,
                     workflow="serial",
                     prompt=user_p,
                     engine_mode=chosen_engine,
-                    chapter_count=target_chapters_per_book,
-                    extra={"auto_pipeline": True, "daily_auto": True}
+                    chapter_count=remaining,
+                    extra={
+                        "auto_pipeline": True,
+                        "daily_auto": True,
+                        "auto_ensure_outline": True,
+                        "novel_type": novel_type,
+                        "scale_type": novel_type,
+                        "default_chapter_words": words_range,
+                        "daily_request_id": f'daily_{today_str}_{b_id}_{attempts + 1}'
+                    }
                 )
                 novel_reports[b_id] = {
                     "ok": t_ok,
                     "step": "writing_dispatched",
-                    "chapter_range": f"第{start_chap}至{start_chap + target_chapters_per_book - 1}章",
-                    "result": t_res
+                    "chapter_range": f"第{start_chap}至{start_chap + remaining - 1}章",
+                    "result": t_res,
+                    "target_count": target,
+                    "previous_completed": done,
+                    "completed_chapters": done,
+                    "attempts": attempts + 1,
+                    "next_retry_at": time.time() + min(60 * 2 ** attempts, 900),
+                    "task_status": "pending" if t_ok else "failed"
                 }
                 if not t_ok:
                     all_success = False
@@ -375,12 +463,12 @@ class AutoWriterManager:
                 novel_reports[b_id] = {
                     "ok": True,
                     "step": "ready",
-                    "chapter_range": f"第{start_chap}至{start_chap + target_chapters_per_book - 1}章"
+                    "chapter_range": f"第{start_chap}至{start_chap + remaining - 1}章"
                 }
 
         # 5. 完成记录与状态更新
         status.update(
-            status="completed" if all_success else "partial_failed",
+            status=("dispatched" if dispatch_task_func else "ready") if all_success else "partial_failed",
             last_run_date=today_str,
             last_run_time=time.time(),
             novel_reports=novel_reports,

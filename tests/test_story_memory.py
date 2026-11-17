@@ -1,8 +1,12 @@
 import json
 import tempfile
 import unittest
+import sys
 from pathlib import Path
 from unittest.mock import patch
+
+if str(Path(__file__).parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent))
 
 import novel_manager
 import story_memory as memory
@@ -40,6 +44,51 @@ class StoryMemoryTests(unittest.TestCase):
         self.assertEqual(len(reviews), 2)
         self.assertTrue(all(json.loads(path.read_text(encoding='utf-8'))['status'] == 'published' for path in reviews))
         self.assertTrue(memory.status(self.root)['last_review']['references'])
+
+    def test_commit_recovers_after_index_write_failure(self):
+        original = memory.atomic_json
+        failed = False
+        def fail_index(path, value):
+            nonlocal failed
+            if Path(path).name == 'index.json' and len(novel_manager.chapter_files(self.root)) == 2 and not failed:
+                failed = True
+                raise OSError('模拟磁盘暂时失败')
+            return original(path, value)
+        with patch.object(memory, 'atomic_json', side_effect=fail_index), self.assertRaises(OSError):
+            self.write()
+        memory.recover_commits(self.root)
+        memory.recover_commits(self.root)
+        self.assertEqual(len(novel_manager.chapter_files(self.root)), 2)
+        self.assertTrue(memory.status(self.root)['ready'])
+        self.assertTrue(all(json.loads(p.read_text(encoding='utf-8'))['status'] == 'committed'
+                            for p in (self.root / '.story-memory/commits').glob('*.json')))
+
+    def test_commit_recovers_after_exit_before_chapter_creation(self):
+        with patch.object(memory, 'atomic_create', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            self.write()
+        self.assertEqual(len(novel_manager.chapter_files(self.root)), 1)
+        memory.recover_commits(self.root)
+        self.assertEqual(len(novel_manager.chapter_files(self.root)), 2)
+        self.assertTrue(memory.status(self.root)['ready'])
+
+    def test_commit_recovery_preserves_new_author_edit(self):
+        with patch.object(memory, 'atomic_create', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            self.write()
+        atomic_write(self.root / '00_设定集/规则.md', '作者新修订')
+        with self.assertRaisesRegex(RuntimeError, '已变化'):
+            memory.recover_commits(self.root)
+        self.assertEqual(len(novel_manager.chapter_files(self.root)), 1)
+
+    def test_target_word_count_includes_punctuation_and_excludes_whitespace(self):
+        text = '# 第002章 标题\n\n' + '中。\n' * 300
+        self.assertTrue(memory.validate_chapter_content(text, 2, '500-700')[0])
+        self.assertFalse(memory.validate_chapter_content(text, 2, '700-800')[0])
+        self.assertFalse(memory.validate_chapter_content(text, 2, '500-550')[0])
+
+    def test_invalid_word_ranges_are_rejected(self):
+        for value in ('1000-500', '100-200', '500-60000'):
+            with self.assertRaises(ValueError):
+                novel_manager.chapter_word_bounds(value)
 
     def test_ten_chapters_share_one_batch_and_audit_automatically(self):
         self.write(10)
@@ -334,6 +383,26 @@ class StoryMemoryTests(unittest.TestCase):
         for data in ({'writing_context_chars': True}, {'writing_context_chars': 1}, {'writing_context_mode': 'unknown'}):
             with self.assertRaises(ValueError):
                 novel_manager.save_user_settings(data, str(self.root))
+
+    def test_thousand_chapter_pyramid_scale(self):
+        # 模拟生成 50 章正文文件，验证千章金字塔架构高速缓存与紧凑目录
+        for i in range(2, 51):
+            atomic_write(self.root / f'01_正文/第一卷/第{i:03d}章.md', f'# 第{i:03d}章 剧情{i}\n\n正文内容{i}')
+        # 1. 验证 sources 缓存提速与指纹稳定性
+        docs1 = memory.sources(self.root)
+        self.assertEqual(len(docs1), 51)
+        fp1 = memory.fingerprint(docs1)
+        docs2 = memory.sources(self.root)
+        self.assertEqual(memory.fingerprint(docs2), fp1)
+        # 2. 验证超多章节下 writing_context 自动精简文件目录并提供金字塔脉络
+        dummy_mem = {
+            'state': memory.empty_state(),
+            'records': [{'source': '01_正文/第一卷/第001章 起点.md', 'offset': 0, 'summary': f'这是第{i}章的摘要总结'} for i in range(1, 51)]
+        }
+        base, refs = memory.writing_context(self.root, docs1, dummy_mem, 51, '继续创作', self.preferences)
+        self.assertIn('作品总规模已达', base)
+        self.assertIn('千章金字塔历史脉络', base)
+        self.assertLess(len(base), 64000)
 
 
 if __name__ == '__main__':

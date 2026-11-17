@@ -30,15 +30,31 @@ def digest(value):
     return hashlib.sha256(value.encode('utf-8')).hexdigest()
 
 
+_SOURCE_CACHE = {}
+_SOURCE_CACHE_LOCK = threading.Lock()
+
+
 def sources(root):
     root = Path(root).resolve()
     paths = sorted((root / '00_设定集').glob('*.md'))
     paths += [Path(p) for p in novel_manager.chapter_files(str(root))]
     result = {}
-    for path in paths:
-        if not path.resolve().is_relative_to(root):
-            raise ValueError('创作资料超出作品目录')
-        result[path.relative_to(root).as_posix()] = path.read_text(encoding='utf-8-sig')
+    with _SOURCE_CACHE_LOCK:
+        for path in paths:
+            if not path.resolve().is_relative_to(root):
+                raise ValueError('创作资料超出作品目录')
+            try:
+                st = path.stat()
+                cache_key = (str(path.resolve()), st.st_mtime_ns, st.st_size)
+            except OSError:
+                cache_key = None
+            if cache_key and cache_key in _SOURCE_CACHE:
+                result[path.relative_to(root).as_posix()] = _SOURCE_CACHE[cache_key]
+            else:
+                text = path.read_text(encoding='utf-8-sig')
+                if cache_key:
+                    _SOURCE_CACHE[cache_key] = text
+                result[path.relative_to(root).as_posix()] = text
     return result
 
 
@@ -110,7 +126,7 @@ def validate_record(record):
     return record
 
 
-def validate_chapter_content(text, chap_number):
+def validate_chapter_content(text, chap_number, word_range=None, relaxed=False):
     if not isinstance(text, str):
         return False, '章节内容必须为字符串', None, ''
     clean = text.strip()
@@ -120,6 +136,19 @@ def validate_chapter_content(text, chap_number):
         return False, f'缺失有效章节标题（格式需为：第{chap_number:03d}章 标题）', None, ''
     if len(body.strip()) < 500:
         return False, f'章节正文字数过少（仅{len(body.strip())}字符，至少需500字）', title, body
+    if word_range:
+        lower, upper = novel_manager.chapter_word_bounds(word_range)
+        actual = len(re.sub(r'\s', '', body))
+        if relaxed:
+            min_allowed = max(500, int(lower * 0.75))
+            max_allowed = max(int(upper * 2.5), 15000)
+            if actual < min_allowed:
+                return False, f'正文字数过少（实际{actual}字，目标范围{lower}-{upper}，至少需{min_allowed}字）', title, body
+            if actual > max_allowed:
+                return False, f'正文字数严重超标失控（实际{actual}字，安全上限为{max_allowed}字）', title, body
+        else:
+            if not lower <= actual <= upper:
+                return False, f'正文字数为{actual}，目标为{lower}至{upper}（含标点，不含空白）', title, body
     lower = clean.lower()
     if any(kw in lower for kw in ("blocked by gemini's filters", "blocked by gemini’s filters", "trigger by mistake on safe coding", "safety policy")):
         return False, '生成内容触发安全策略拦截', title, body
@@ -265,13 +294,13 @@ def memory_index(root, documents, state, previous=None, chapter_summary=None):
         'open_threads': sum(thread['status'] == 'open' for thread in state['threads'].values())}
 
 
-def ensure_memory(root, documents, generate, budget, progress, expected=None, publish=True):
+def ensure_memory(root, documents, generate, budget, progress, expected=None, publish=True, prefer_ledger=True):
     root = Path(root)
     previous = load_json(root / '.story-memory/index.json', {})
     if previous.get('pipeline') == 2 and previous.get('revision') == fingerprint(documents):
         return previous
     chapters = [name for name in documents if name.startswith('01_正文/')]
-    ledgers = [name for name in documents if name.startswith('00_设定集/') and ('账本' in name or '长期记忆' in name)]
+    ledgers = [name for name in documents if prefer_ledger and name.startswith('00_设定集/') and ('账本' in name or '长期记忆' in name)]
     prior_state = previous.get('state', empty_state()) if previous.get('pipeline') == 2 else empty_state()
     old_hashes = previous.get('source_hashes', {})
     changed = [name for name, text in documents.items() if old_hashes and old_hashes.get(name) != digest(text)]
@@ -395,7 +424,7 @@ def writing_context(root, documents, memory, number, user_prompt, preferences, e
     active = {**state, 'threads': {key: item for key, item in state['threads'].items() if item['status'] == 'open'}}
     files = novel_manager.chapter_files(str(root))
     latest = Path(files[-1]).relative_to(root).as_posix() if files else None
-    previous = documents[latest] if latest else '（首章）'
+    previous = documents[latest] if latest and preferences.get('auto_read_previous', True) else ''
     core, outline, refs, setting_index = [], [], [], []
     covered = {latest} if latest else set()
     settings = [(name, text) for name, text in documents.items() if name.startswith('00_设定集/')]
@@ -415,11 +444,32 @@ def writing_context(root, documents, memory, number, user_prompt, preferences, e
             core.append(f'【本章细纲 {name}】\n{section}')
             covered.add(name)
             refs.append({'source': name, 'offset': match.start(), 'length': end - match.start()})
+    # 针对超长千章小说的金字塔目录精简与分卷脉络归纳
+    doc_keys = list(documents.keys())
+    if len(doc_keys) > 30:
+        recent_chaps = [k for k in doc_keys if k.startswith('01_正文/')][-10:]
+        doc_catalog_text = f"作品总规模已达 {len(files)} 章（第1章至第{len(files)}章）。最近10章：\n" + "\n".join(recent_chaps)
+    else:
+        doc_catalog_text = "\n".join(doc_keys)
+
+    pyramid_history = []
+    if memory.get('records'):
+        records = memory['records']
+        if len(records) > 15:
+            pyramid_history.append(f"【千章金字塔历史脉络：前{len(records)-5}章剧情已收敛沉淀，近期剧情摘要如下】")
+            for r in records[-5:]:
+                pyramid_history.append(f"- {r.get('source', '')}: {r.get('summary', '')[:120]}")
+        else:
+            for r in records[-5:]:
+                pyramid_history.append(f"- {r.get('source', '')}: {r.get('summary', '')[:150]}")
+    history_overview = "\n".join(pyramid_history)
+
     base = (f'本轮只创作第{number:03d}章。\n作者要求\n{user_prompt}\n'
         f'全书当前剧情、人物位置与认知、未回收伏笔\n{encode(active)}\n'
-        f'上一章完整正文 {latest}\n{previous}\n核心设定与本章细纲\n' + '\n'.join(core)
-        + '\n全部设定目录\n' + '\n'.join(setting_index) + '\n本书资料文件目录\n' + '\n'.join(documents))
-    if latest:
+        + (f'近期核心剧情脉络\n{history_overview}\n' if history_overview else '')
+        + f'上一章完整正文 {latest}\n{previous}\n核心设定与本章细纲\n' + '\n'.join(core)
+        + '\n全部设定目录\n' + '\n'.join(setting_index) + '\n本书资料文件目录\n' + doc_catalog_text)
+    if latest and previous:
         refs.append({'source': latest, 'offset': 0, 'length': len(previous)})
     if preferences.get('writing_context_mode') == 'full':
         full, _ = novel_manager.full_writing_context(str(root))
@@ -469,6 +519,35 @@ def audit_response(generate, base, content, budget, progress, current_state=None
         return validate(ask(generate, '修复审核格式', repair, budget))
 
 
+def recover_commits(root):
+    """Finish durable chapter commits before any subsequent generation reads the book."""
+    root = Path(root).resolve()
+    with book_lock(root):
+        for journal_path in sorted((root / '.story-memory/commits').glob('*.json')):
+            journal = load_json(journal_path, {})
+            if journal.get('status') == 'committed':
+                continue
+            target = (root / journal['target']).resolve()
+            review_path = (root / journal['review_path']).resolve()
+            if (not target.is_relative_to(root / '01_正文')
+                    or not review_path.is_relative_to(root / '.story-memory/reviews')):
+                raise ValueError('提交恢复路径超出本书范围')
+            text = journal['text']
+            if digest(text) != journal['review']['target_hash']:
+                raise ValueError('提交恢复正文摘要不一致')
+            current = fingerprint(sources(root))
+            if current == journal['before'] and not target.exists():
+                atomic_create(target, text)
+                current = fingerprint(sources(root))
+            if current != journal['after'] or not target.is_file() or digest(target.read_text(encoding='utf-8-sig')) != digest(text):
+                raise RuntimeError('待恢复提交的来源或正文已变化，请核对原稿')
+            if journal['memory'].get('revision') != current:
+                raise ValueError('提交恢复记忆版本不一致')
+            atomic_json(root / '.story-memory/index.json', journal['memory'])
+            atomic_json(review_path, {**journal['review'], 'status': 'published'})
+            atomic_json(journal_path, {**journal, 'status': 'committed'})
+
+
 def write_chapters(root, count, user_prompt, preferences, generate, progress, write_lock=None, on_chapter=None, batch_id=None, batch_count=None):
     count = novel_manager.validate_chapter_count(count)
     root = Path(root).resolve()
@@ -477,6 +556,8 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
     completed, last_added = 0, None
     batch_id = batch_id or uuid.uuid4().hex
     with book_lock(root):
+        with guard:
+            recover_commits(root)
         # 0. 前置大纲完备性校验：写新章节前，核验是否有将要写的全部新章节的标题纲要等文案；没有则先自动推演补全大纲写回设定集
         with guard:
             files_initial = novel_manager.chapter_files(str(root))
@@ -495,9 +576,9 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                     if gen_ok:
                         progress(f"【大纲前置完成】已成功为第 {min_c}~{max_c} 章推演新细纲并追加写回设定集！准备按流程创作正文...")
                     else:
-                        progress(f"【大纲前置提示】{gen_msg}，将继续遵循已有设定推进正文创作")
+                        raise RuntimeError(gen_msg)
             except Exception as outline_err:
-                progress(f"【大纲前置校验提示】{str(outline_err)}")
+                raise RuntimeError(f'大纲前置校验失败 {outline_err}') from outline_err
 
         for _ in range(count):
             with guard:
@@ -509,7 +590,7 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                 raise ValueError('全文复核资料超出预算，请调整预算后重试')
             run = root / '.story-memory/reviews' / (str(time.time_ns()) + '-' + uuid.uuid4().hex + '.json')
             with tracked_review(run, number, batch_id, batch_count or count):
-                memory = ensure_memory(root, documents, generate, budget, progress)
+                memory = ensure_memory(root, documents, generate, budget, progress, prefer_ledger=preferences.get('auto_check_ledger', True))
                 base, references = writing_context(root, documents, memory, number, user_prompt, preferences)
                 review = {**load_json(run, {}), 'source_revision': revision, 'references': references, 'status': 'drafting'}
                 atomic_json(run, review)
@@ -541,11 +622,11 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                     atomic_json(run, review)
                     progress(f'第{number:03d}章，已补充请求的历史原文，在原写作会话继续')
                     content = ask(generate, '生成草稿', base + '\n' + instructions, budget)
-                valid, reason, title, body = validate_chapter_content(content, number)
+                valid, reason, title, body = validate_chapter_content(content, number, preferences.get('default_chapter_words'), relaxed=True)
                 if not valid:
                     progress(f'第{number:03d}章草稿未达标（{reason}），正在原写作会话重试生成…')
                     content = ask(generate, '生成草稿', base + f'\n【前次生成未通过：{reason}。第一行必须为“第{number:03d}章 章节标题”，随后输出完整正文，禁止调用工具或输出系统报错】\n' + instructions, budget)
-                    valid, reason, title, body = validate_chapter_content(content, number)
+                    valid, reason, title, body = validate_chapter_content(content, number, preferences.get('default_chapter_words'), relaxed=True)
                     if not valid:
                         draft = root / '.generation-drafts' / (run.stem + '.md')
                         atomic_write(draft, content)
@@ -564,7 +645,7 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                     if attempt == 1:
                         raise RuntimeError(f'一致性审核未通过，草稿已保留于 {draft}')
                     content = ask(generate, '修订草稿', base + '\n原稿\n' + content + '\n审核问题\n' + encode(audit['issues']) + '\n修正后输出原标题与完整正文。', budget)
-                    valid, reason, title, body = validate_chapter_content(content, number)
+                    valid, reason, title, body = validate_chapter_content(content, number, preferences.get('default_chapter_words'), relaxed=True)
                     atomic_write(draft, content)
                     if not valid:
                         raise RuntimeError(f'修订稿内容无效（{reason}），生成稿已保留于 {draft}')
@@ -590,15 +671,22 @@ def write_chapters(root, count, user_prompt, preferences, generate, progress, wr
                 prospective = {**documents, target_name: final_text}
                 next_state = fold_state(memory['state'], update, target_name)
                 next_memory = memory_index(root, prospective, next_state, memory, (target_name, update['summary']))
+                progress(f'第{number:03d}章审核已通过，正在确认任务并保存正文')
                 with guard:
                     if fingerprint(sources(root)) != revision:
                         raise RuntimeError(f'历史正文发生变化或设定已修改，生成稿已保留于 {draft}')
                     review.update(status='approved', target=str(target), target_hash=digest(final_text), memory_update=update)
+                    journal_path = root / '.story-memory/commits' / (run.stem + '.json')
+                    journal = {'status': 'prepared', 'before': revision, 'after': next_memory['revision'],
+                               'target': target_name, 'text': final_text, 'review_path': run.relative_to(root).as_posix(),
+                               'review': review, 'memory': next_memory}
+                    atomic_json(journal_path, journal)
                     atomic_json(run, review)
                     atomic_create(target, final_text)
                     atomic_json(root / '.story-memory/index.json', next_memory)
                     review.update(status='published')
                     atomic_json(run, review)
+                    atomic_json(journal_path, {**journal, 'status': 'committed'})
                     completed += 1
                     last_added = str(target)
                     if on_chapter:
@@ -616,7 +704,7 @@ def instruction_material(root, query, preferences, generate, progress):
             raise ValueError('全文复核资料超出预算，请调整预算后重试')
         return material
     with book_lock(root):
-        memory = ensure_memory(root, documents, generate, budget, progress)
+        memory = ensure_memory(root, documents, generate, budget, progress, prefer_ledger=preferences.get('auto_check_ledger', True))
     base = '全书剧情、人物状态与伏笔\n' + encode(memory['state'])
     files = novel_manager.chapter_files(str(root))
     if files:

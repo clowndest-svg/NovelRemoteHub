@@ -537,14 +537,19 @@
 
         /* 桌面端宽屏辅助操作栏 */
         #reading-desktop-tools {
+            position: relative;
+            z-index: 100;
+            pointer-events: auto;
+            background: var(--paper);
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-wrap: wrap;
             gap: 10px;
-            padding-bottom: 14px;
+            padding: 10px 16px;
             border-bottom: 1px solid var(--card-border);
-            margin-bottom: 24px;
+            margin-bottom: 0px;
+            box-sizing: border-box;
         }
         .tool-group {
             display: flex;
@@ -567,13 +572,14 @@
         .tool-btn:hover { border-color: var(--accent); color: var(--accent); }
 
         .chapter-heading-area {
-            margin-bottom: 26px;
-            padding-bottom: 16px;
+            margin-bottom: 24px;
+            padding: 0 28px 16px 28px;
             border-bottom: 1px dashed var(--card-border);
+            box-sizing: border-box;
         }
         .chapter-heading-title {
             font-family: var(--font-family);
-            font-size: clamp(24px, 4vw, 32px);
+            font-size: clamp(22px, 3.5vw, 30px);
             font-weight: 800;
             line-height: 1.4;
             margin: 0 0 10px;
@@ -587,7 +593,7 @@
             flex-wrap: wrap;
         }
 
-        /* 正文段落 (番茄同款黄金排版) */
+        /* 正文段落 (番茄同款黄金排版，两侧严密留白，杜绝切字) */
         #text {
             white-space: pre-wrap;
             overflow-wrap: anywhere;
@@ -597,16 +603,21 @@
             letter-spacing: .03em;
             color: var(--ink);
             user-select: text;
+            box-sizing: border-box;
         }
         #text p {
             margin: 0 0 1.25em 0;
+            padding: 0 28px;
             text-indent: 2em;
             text-align: justify;
+            box-sizing: border-box;
+            word-break: break-all;
+            overflow-wrap: break-word;
         }
 
         /* 番茄小说作者有话说互动卡片 */
         .author-note-box {
-            margin-top: 40px;
+            margin: 30px 28px;
             padding: 18px 22px;
             background: var(--surface);
             border: 1px solid var(--card-border);
@@ -616,6 +627,7 @@
             font-size: 14px;
             line-height: 1.75;
             color: var(--ink);
+            box-sizing: border-box;
         }
         .author-note-header {
             font-weight: 800;
@@ -922,12 +934,248 @@
             .chapter-row { padding: 12px 14px; }
             .btn-nav { padding: 10px 8px; font-size: 13px; }
             #reading-desktop-tools { display: none; } /* 移动端隐藏冗余横条，由番茄悬浮菜单接管 */
-            .author-note-box { padding: 14px 16px; margin-top: 25px; }
+            #text p { padding: 0 16px; }
+            .chapter-heading-area { padding: 0 16px 14px 16px; }
+            .author-note-box { margin: 20px 16px; padding: 14px 16px; }
         }
+
+        /* 读者登录弹窗 */
+        .reader-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(8px);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .reader-login-card {
+            background: var(--surface);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 26px 24px;
+            max-width: 380px;
+            width: 100%;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+            color: var(--ink);
+        }
+        .reader-login-input {
+            width: 100%;
+            padding: 11px 14px;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            background: var(--paper);
+            color: var(--ink);
+            font-size: 14px;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+            outline: none;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .reader-login-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 12px rgba(226, 183, 64, 0.35);
+        }
+        .reader-login-input::placeholder {
+            color: var(--muted);
+            opacity: 0.75;
+            font-size: 13px;
+        }
+        .reader-login-submit {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: var(--accent);
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+        .reader-login-submit:hover { background: var(--accent-hover); }
+
+        /* 翻页模式 Pill 按钮 */
+        .mode-pill {
+            padding: 5px 12px;
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            background: var(--surface);
+            color: var(--ink);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .mode-pill.active {
+            background: var(--accent);
+            color: #ffffff;
+            border-color: var(--accent);
+        }
+
+        /* 确保 hidden 属性拥有最高特异性，防止未进入阅读时遮挡书架 */
+        [hidden],
+        #reading[hidden] {
+            display: none !important;
+        }
+
+        /* 分页阅读容器 (仿真与平移模式) */
+        #reading.mode-paged {
+            position: fixed;
+            inset: 0;
+            background: var(--paper);
+            z-index: 50;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            max-width: none;
+            margin: 0;
+            padding: 0;
+        }
+        #reading.mode-scroll {
+            position: relative;
+            max-width: 820px;
+            margin: auto;
+            padding-bottom: 40px;
+        }
+        #reading.mode-scroll .paged-hud,
+        #reading.mode-scroll .tap-zone {
+            display: none !important;
+        }
+
+        .paged-hud {
+            height: 38px;
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            font-size: 12px;
+            color: var(--muted);
+            opacity: 0.85;
+            user-select: none;
+            z-index: 45;
+        }
+        .paged-top-hud {
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        [data-theme="dark"] .paged-top-hud {
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .paged-bottom-hud {
+            border-top: 1px solid rgba(0,0,0,0.05);
+        }
+        [data-theme="dark"] .paged-bottom-hud {
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .hud-right-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .paged-viewport {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            width: 100%;
+            max-width: 820px;
+            margin: 0 auto;
+            box-sizing: border-box;
+        }
+        .mode-scroll .paged-viewport {
+            overflow: visible;
+            max-width: 100%;
+        }
+
+        .paged-track {
+            height: 100%;
+            width: 100%;
+            box-sizing: border-box;
+            column-fill: auto;
+            column-gap: 0px;
+            padding: 16px 0 10px 0;
+            font-family: var(--font-family);
+            font-size: var(--reader-size);
+            line-height: var(--reader-line-height);
+            color: var(--ink);
+            will-change: transform;
+        }
+        .mode-scroll .paged-track {
+            height: auto;
+            column-count: 1;
+            column-width: auto;
+            padding: 0;
+            transform: none !important;
+        }
+        .mode-scroll .scroll-only-nav {
+            display: flex !important;
+        }
+        .mode-paged .scroll-only-nav {
+            display: none !important;
+        }
+
+        /* 3D 仿真翻卷动画 (严密无晃动的数学模型，消除回弹与闪烁) */
+        .flip-anim-next {
+            animation: tomatoFlipNext 0.28s cubic-bezier(0.25, 1, 0.5, 1);
+            transform-origin: left center;
+        }
+        .flip-anim-prev {
+            animation: tomatoFlipPrev 0.28s cubic-bezier(0.25, 1, 0.5, 1);
+            transform-origin: right center;
+        }
+        @keyframes tomatoFlipNext {
+            0% { transform: translateX(calc(-1 * (var(--cur-page) - 2) * var(--page-step))) perspective(1400px) rotateY(0deg); box-shadow: none; }
+            50% { transform: translateX(calc(-1 * (var(--cur-page) - 1.5) * var(--page-step))) perspective(1400px) rotateY(-8deg); box-shadow: -18px 0 30px rgba(0,0,0,0.22); filter: brightness(0.95); }
+            100% { transform: translateX(calc(-1 * (var(--cur-page) - 1) * var(--page-step))) perspective(1400px) rotateY(0deg); box-shadow: none; filter: brightness(1); }
+        }
+        @keyframes tomatoFlipPrev {
+            0% { transform: translateX(calc(-1 * var(--cur-page) * var(--page-step))) perspective(1400px) rotateY(0deg); box-shadow: none; }
+            50% { transform: translateX(calc(-1 * (var(--cur-page) - 0.5) * var(--page-step))) perspective(1400px) rotateY(8deg); box-shadow: 18px 0 30px rgba(0,0,0,0.22); filter: brightness(0.95); }
+            100% { transform: translateX(calc(-1 * (var(--cur-page) - 1) * var(--page-step))) perspective(1400px) rotateY(0deg); box-shadow: none; filter: brightness(1); }
+        }
+
+        /* 三段式交互热区 (置于视口内部，顶部工具栏与底部HUD零干扰) */
+        .tap-zone {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            z-index: 30;
+            cursor: pointer;
+        }
+        .tap-left { left: 0; width: 30%; }
+        .tap-center { left: 30%; width: 40%; }
+        .tap-right { right: 0; width: 30%; }
     </style>
 </head>
 <body>
     <div id="read-progress-bar"></div>
+
+    <!-- 读者/作者登录弹窗 -->
+    <div id="reader-login-modal" class="reader-modal-overlay" style="display:none;" onclick="closeReaderLoginModal(event)">
+        <form class="reader-login-card" onsubmit="submitReaderLogin(event)" onclick="event.stopPropagation()">
+            <div style="text-align:center; margin-bottom:16px;">
+                <span style="font-size:36px;">🍅</span>
+                <h2 style="margin:8px 0 4px; font-size:20px; font-weight:800; color:var(--ink);">智笔云枢 · 读者登录</h2>
+                <p style="margin:0; font-size:12px; color:var(--muted);">输入账号与密码，解锁全本作品海量章节畅读</p>
+            </div>
+            <div>
+                <label style="display:block; font-size:12px; margin-bottom:4px; font-weight:600; color:var(--ink);">读者 / 管理员账号</label>
+                <input id="reader-login-user" type="text" class="reader-login-input" placeholder="请输入账号 (默认: admin)" value="admin" required>
+                <label style="display:block; font-size:12px; margin:10px 0 4px; font-weight:600; color:var(--ink);">登录密码</label>
+                <input id="reader-login-pwd" type="password" class="reader-login-input" placeholder="请输入登录密码" required>
+            </div>
+            <p id="reader-login-error" style="color:#ef4444; font-size:12px; min-height:18px; margin:8px 0;"></p>
+            <button id="reader-login-btn" type="submit" class="reader-login-submit">登 录 并 畅 读</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; font-size:11px; color:var(--muted);">
+                <span>登录个人账号独立同步续读进度</span>
+                <button type="button" onclick="closeReaderLoginModal()" style="background:transparent; border:none; color:var(--accent); cursor:pointer; font-size:11px;">暂不登录</button>
+            </div>
+        </form>
+    </div>
 
     <!-- 全局常规头部导航 (在书架与目录视图常驻显示) -->
     <header id="global-header">
@@ -943,8 +1191,7 @@
                     <button class="theme-pill pill-dark" onclick="setTheme('dark')" title="夜间静谧 (暗黑护眼)"></button>
                     <button class="theme-pill pill-white" onclick="setTheme('white')" title="明亮雪白"></button>
                 </div>
-                <button class="btn-copy-share" onclick="copyCurrentShareLink()" title="复制本分享阅读链接给好友">🔗 分享</button>
-                <span id="expiry"></span>
+                <button class="btn-copy-share" onclick="openReaderLoginModal()" id="btn-header-auth" title="登录或切换账号">👤 登录</button>
             </div>
         </div>
     </header>
@@ -956,7 +1203,6 @@
         </button>
         <div id="imm-title-label" class="imm-center-title">《小说》正文阅读</div>
         <div class="imm-right-actions">
-            <button class="btn-copy-share" onclick="copyCurrentShareLink()" title="复制分享链接">🔗 分享</button>
             <button class="btn-copy-share" onclick="openCatalogDrawer()" title="打开章节目录抽屉">📑 目录</button>
             <button class="btn-copy-share" onclick="navigate()" title="返回书架大厅">📚 书架</button>
         </div>
@@ -968,6 +1214,13 @@
             <button id="imm-prev-btn" class="imm-slider-btn" onclick="goToPrevChapter()">◀ 上一章</button>
             <div id="imm-progress-label" class="imm-progress-label">第 1 / 1 章 (100%)</div>
             <button id="imm-next-btn" class="imm-slider-btn" onclick="goToNextChapter()">下一章 ▶</button>
+        </div>
+        <!-- 翻页模式选择条 (仿真 / 平移 / 上下滚动) -->
+        <div class="imm-mode-row" style="display:flex; justify-content:center; align-items:center; gap:8px; margin:8px 0; padding:2px 0;">
+            <span style="font-size:12px; color:var(--muted); margin-right:2px;">翻页模式:</span>
+            <button class="mode-pill pill-simulation" onclick="setFlipMode('simulation')">📖 仿真翻页</button>
+            <button class="mode-pill pill-slide" onclick="setFlipMode('slide')">📑 左右平移</button>
+            <button class="mode-pill pill-scroll" onclick="setFlipMode('scroll')">📜 上下滚动</button>
         </div>
         <div class="imm-controls-grid">
             <button class="imm-ctrl-btn" onclick="openCatalogDrawer()">
@@ -985,6 +1238,14 @@
             <button class="imm-ctrl-btn" onclick="cycleLineHeight()">
                 <span style="font-size:16px;">📏</span>
                 <span id="imm-lh-label">行距 2.1</span>
+            </button>
+            <button class="imm-ctrl-btn" onclick="toggleVolumeKey()">
+                <span id="imm-vol-icon" style="font-size:16px;">🔊</span>
+                <span id="imm-vol-label">音量翻页: 开</span>
+            </button>
+            <button class="imm-ctrl-btn" onclick="openReaderLoginModal()">
+                <span style="font-size:16px;">👤</span>
+                <span id="imm-auth-label">读者账号</span>
             </button>
         </div>
     </div>
@@ -1024,47 +1285,80 @@
         <section id="list" aria-label="小说与章节"></section>
 
         <!-- 正文阅读区域 -->
-        <article id="reading" hidden>
-            <!-- 屏幕中央轻触检测区域 (唤出/收起沉浸菜单) -->
-            <div id="reading-tap-zone" onclick="toggleImmersiveMenu()"></div>
+        <article id="reading" class="mode-paged mode-simulation" hidden>
+            <!-- 顶部轻量 HUD (书名 + 章节名) -->
+            <div id="paged-top-hud" class="paged-hud paged-top-hud">
+                <span id="paged-hud-book-title" class="hud-book-name">《小说》</span>
+                <span id="paged-hud-chapter-title" class="hud-chap-name">正文阅读</span>
+            </div>
 
-            <!-- 桌面端宽屏辅助操作栏 -->
+            <!-- 桌面端宽屏辅助操作栏 (置于顶层，独立操作) -->
             <div id="reading-desktop-tools">
                 <div class="tool-group">
-                    <button class="tool-btn" style="color:var(--accent); font-weight:700;" onclick="backToCatalog()">◀ 返回目录</button>
-                    <button class="tool-btn" onclick="openCatalogDrawer()">📑 章节目录</button>
+                    <button type="button" class="tool-btn" style="color:var(--accent); font-weight:700;" onclick="event.stopPropagation(); backToCatalog()">◀ 返回目录</button>
+                    <button type="button" class="tool-btn" onclick="event.stopPropagation(); openCatalogDrawer()">📑 章节目录</button>
+                </div>
+                <div class="tool-group">
+                    <span>模式：</span>
+                    <button type="button" class="tool-btn btn-mode-pill mode-simulation" onclick="event.stopPropagation(); setFlipMode('simulation')">📖 仿真</button>
+                    <button type="button" class="tool-btn btn-mode-pill mode-slide" onclick="event.stopPropagation(); setFlipMode('slide')">📑 平移</button>
+                    <button type="button" class="tool-btn btn-mode-pill mode-scroll" onclick="event.stopPropagation(); setFlipMode('scroll')">📜 滚动</button>
+                    <button type="button" class="tool-btn" id="desk-vol-btn" onclick="event.stopPropagation(); toggleVolumeKey()">🔊 音量翻页: 开</button>
                 </div>
                 <div class="tool-group">
                     <span>字号：</span>
-                    <button id="smaller" class="tool-btn" onclick="setFontDelta(-2)">A−</button>
+                    <button type="button" id="smaller" class="tool-btn" onclick="event.stopPropagation(); setFontDelta(-2)">A−</button>
                     <span id="size-indicator" style="font-weight:700; min-width:32px; text-align:center;">20px</span>
-                    <button id="larger" class="tool-btn" onclick="setFontDelta(2)">A＋</button>
-                    <button class="tool-btn" onclick="toggleFont()">宋体 / 黑体</button>
-                    <button class="tool-btn" onclick="cycleLineHeight()">行距</button>
+                    <button type="button" id="larger" class="tool-btn" onclick="event.stopPropagation(); setFontDelta(2)">A＋</button>
+                    <button type="button" class="tool-btn" onclick="event.stopPropagation(); toggleFont()">宋体 / 黑体</button>
+                    <button type="button" class="tool-btn" onclick="event.stopPropagation(); cycleLineHeight()">行距</button>
                 </div>
             </div>
 
-            <div class="chapter-heading-area">
-                <h2 id="chapter-title" class="chapter-heading-title"></h2>
-                <div id="chapter-info" class="chapter-heading-info"></div>
+            <!-- 分页内容视口与轨道 (热区置于内部，与工具栏物理隔离) -->
+            <div id="paged-viewport" class="paged-viewport">
+                <!-- 三段式交互热区 (左30%上一页，中40%沉浸菜单，右30%下一页) -->
+                <div id="tap-zone-left" class="tap-zone tap-left" onclick="onTapLeft(event)" title="上一页"></div>
+                <div id="tap-zone-center" class="tap-zone tap-center" onclick="onTapCenter(event)" title="呼出菜单"></div>
+                <div id="tap-zone-right" class="tap-zone tap-right" onclick="onTapRight(event)" title="下一页"></div>
+
+                <div id="paged-track" class="paged-track">
+                    <div class="chapter-heading-area">
+                        <h2 id="chapter-title" class="chapter-heading-title"></h2>
+                        <div id="chapter-info" class="chapter-heading-info"></div>
+                    </div>
+
+                    <div id="text"></div>
+                    <div id="author-note-container"></div>
+
+                    <nav id="chapter-nav" class="scroll-only-nav" aria-label="章节翻页">
+                        <button id="previous" class="btn-nav">← 上一章</button>
+                        <button id="catalog" class="btn-nav" onclick="backToCatalog()">📑 返回目录</button>
+                        <button id="next" class="btn-nav">下一章 →</button>
+                    </nav>
+                </div>
             </div>
 
-            <div id="text"></div>
-            <div id="author-note-container"></div>
-
-            <nav id="chapter-nav" aria-label="章节翻页">
-                <button id="previous" class="btn-nav">← 上一章</button>
-                <button id="catalog" class="btn-nav" onclick="backToCatalog()">📑 返回目录</button>
-                <button id="next" class="btn-nav">下一章 →</button>
-            </nav>
+            <!-- 底部极简 HUD (页码进度 + 电量 + 时钟) -->
+            <div id="paged-bottom-hud" class="paged-hud paged-bottom-hud">
+                <span id="paged-hud-progress" class="hud-page-count">第 1 / 1 页 · 100%</span>
+                <div class="hud-right-info">
+                    <span id="paged-hud-battery"></span>
+                    <span id="paged-hud-clock">00:00</span>
+                </div>
+            </div>
         </article>
     </main>
 
     <script>
-        // 核心 Token 保持完全无损解析 (保证分享链接永久稳定)
-        const token = location.hash.slice(1);
-        const expiry = Number(token.split('.')[1]) * 1000;
+        // 核心 Token 保持完全无损解析 (保证分享链接与账号登录双通)
+        let readingToken = location.hash.startsWith('#reader.') ? location.hash.slice(1) : '';
+        let readingExpiry = readingToken ? Number(readingToken.split('.')[1]) * 1000 : 0;
+        let authToken = localStorage.getItem('novel_token') || '';
+        let authUser = localStorage.getItem('novel_username') || 'admin';
+        function activeToken() { return readingToken || authToken || ''; }
         const api = `${location.origin}/novel/api/read/`;
+        const authApi = `${location.origin}/novel/api/`;
         const element = id => document.getElementById(id);
 
         let books = [];
@@ -1079,16 +1373,204 @@
         let expired = false;
         let isImmersiveOpen = false;
 
-        // 番茄个性化偏好记忆
-        let fontSize = Number(localStorage.getItem('novel_reader_size')) || 20;
-        let currentTheme = localStorage.getItem('novel_reader_theme') || 'sepia';
-        let currentFont = localStorage.getItem('novel_reader_font') || 'serif';
-        let currentLineHeight = Number(localStorage.getItem('novel_reader_lh')) || 2.1;
+        // 用户独立阅读缓存与个性化偏好隔离系统 (User-Scoped Storage)
+        function getUserStorageKey(key) {
+            const user = (authUser || 'guest').trim().toLowerCase();
+            return `u_${user}_${key}`;
+        }
+        function getUserStorage(key, fallback = null) {
+            const scopedKey = getUserStorageKey(key);
+            const val = localStorage.getItem(scopedKey);
+            if (val !== null && val !== undefined) return val;
+            return localStorage.getItem(key) ?? fallback;
+        }
+        function setUserStorage(key, value) {
+            const scopedKey = getUserStorageKey(key);
+            localStorage.setItem(scopedKey, String(value));
+        }
+        function removeUserStorage(key) {
+            const scopedKey = getUserStorageKey(key);
+            localStorage.removeItem(scopedKey);
+        }
+
+        // 番茄个性化偏好记忆 (翻页模式、音量键、主题、字体、行距)
+        let flipMode = getUserStorage('novel_reader_flip_mode', 'simulation');
+        let volumeKeyEnabled = getUserStorage('novel_reader_vol_key', 'true') !== 'false';
+        let currentPage = 1;
+        let totalPages = 1;
+        let pageStep = 0;
+        let isFlipping = false;
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
+        let isSwiping = false;
+        let batteryInfo = '';
+
+        let fontSize = Number(getUserStorage('novel_reader_size', 20)) || 20;
+        let currentTheme = getUserStorage('novel_reader_theme', 'sepia');
+        let currentFont = getUserStorage('novel_reader_font', 'serif');
+        let currentLineHeight = Number(getUserStorage('novel_reader_lh', 2.1)) || 2.1;
+
+        function reloadUserPreferences() {
+            flipMode = getUserStorage('novel_reader_flip_mode', 'simulation');
+            volumeKeyEnabled = getUserStorage('novel_reader_vol_key', 'true') !== 'false';
+            fontSize = Number(getUserStorage('novel_reader_size', 20)) || 20;
+            currentTheme = getUserStorage('novel_reader_theme', 'sepia');
+            currentFont = getUserStorage('novel_reader_font', 'serif');
+            currentLineHeight = Number(getUserStorage('novel_reader_lh', 2.1)) || 2.1;
+
+            setFlipMode(flipMode);
+            setTheme(currentTheme);
+            document.documentElement.setAttribute('data-font', currentFont);
+            document.documentElement.style.setProperty('--reader-size', `${fontSize}px`);
+            document.documentElement.style.setProperty('--reader-line-height', String(currentLineHeight));
+            const indicator = element('size-indicator');
+            if (indicator) indicator.textContent = `${fontSize}px`;
+            const immSize = element('imm-size-label');
+            if (immSize) immSize.textContent = `字号 ${fontSize}`;
+            const immLh = element('imm-lh-label');
+            if (immLh) immLh.textContent = `行距 ${currentLineHeight}`;
+            updateVolumeKeyUI();
+            updateAuthUI();
+        }
+
+        // 读者登录弹窗控制
+        function openReaderLoginModal() {
+            element('reader-login-user').value = authUser || 'admin';
+            element('reader-login-pwd').value = '';
+            element('reader-login-error').textContent = '';
+            element('reader-login-modal').style.display = 'flex';
+            setTimeout(() => element('reader-login-pwd').focus(), 100);
+        }
+
+        function closeReaderLoginModal(e) {
+            if (e && e.target && e.target !== element('reader-login-modal')) return;
+            element('reader-login-modal').style.display = 'none';
+        }
+
+        async function submitReaderLogin(event) {
+            event.preventDefault();
+            const btn = element('reader-login-btn');
+            const errEl = element('reader-login-error');
+            const userIn = element('reader-login-user');
+            const pwdIn = element('reader-login-pwd');
+            const username = (userIn ? userIn.value : 'admin').trim() || 'admin';
+            const password = pwdIn.value;
+            if (!password) { errEl.textContent = '请输入登录密码'; return; }
+
+            btn.disabled = true;
+            btn.textContent = '正在登录…';
+            errEl.textContent = '';
+            try {
+                const res = await fetch(`${authApi}login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'same-origin'
+                });
+                const payload = await res.json();
+                if (!res.ok || !payload.ok) {
+                    errEl.textContent = payload.error || '账号或密码错误';
+                    return;
+                }
+                authToken = payload.token;
+                authUser = payload.username || username || 'admin';
+                localStorage.setItem('novel_token', authToken);
+                localStorage.setItem('novel_username', authUser);
+                reloadUserPreferences();
+                updateAuthUI();
+                closeReaderLoginModal();
+                alert(`✓ 欢迎您，${authUser}！已成功解锁全本精彩书卷。`);
+                render();
+            } catch (err) {
+                errEl.textContent = err.message || '网络连接超时';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '登 录 并 畅 读';
+            }
+        }
+
+        async function readerLogout() {
+            if (!confirm('确定要退出当前读者账号吗？')) return;
+            try {
+                await fetch(`${authApi}logout`, { method: 'POST', credentials: 'same-origin' });
+            } catch (e) {}
+            authToken = '';
+            localStorage.removeItem('novel_token');
+            localStorage.removeItem('novel_username');
+            updateAuthUI();
+            openReaderLoginModal();
+        }
+
+        function updateAuthUI() {
+            const authLbl = element('imm-auth-label');
+            if (authLbl) authLbl.textContent = authUser ? `读者:${authUser}` : '账号登录';
+            const headAuth = element('btn-header-auth');
+            if (headAuth) headAuth.textContent = authUser ? `👤 ${authUser}` : '👤 登录';
+        }
+
+        async function checkAuthSession() {
+            try {
+                const res = await fetch(`${authApi}auth_status`, {
+                    headers: authToken ? { 'X-Novel-Token': authToken } : {},
+                    credentials: 'same-origin'
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.authenticated) {
+                        const oldUser = authUser;
+                        authUser = data.username || 'admin';
+                        localStorage.setItem('novel_username', authUser);
+                        if (oldUser !== authUser) {
+                            reloadUserPreferences();
+                        }
+                        updateAuthUI();
+                        return true;
+                    }
+                }
+            } catch (e) {}
+            return false;
+        }
+
+        // 翻页模式设置
+        function setFlipMode(mode) {
+            flipMode = mode;
+            setUserStorage('novel_reader_flip_mode', mode);
+            document.querySelectorAll('.mode-pill, .btn-mode-pill').forEach(pill => {
+                pill.classList.toggle('active', pill.classList.contains(`pill-${mode}`) || pill.classList.contains(`mode-${mode}`));
+            });
+            const readingEl = element('reading');
+            if (readingEl) {
+                readingEl.className = mode === 'scroll' ? 'mode-scroll' : `mode-paged mode-${mode}`;
+                if (!readingEl.hidden) {
+                    readingEl.style.display = mode === 'scroll' ? 'block' : 'flex';
+                }
+            }
+            if (mode !== 'scroll') {
+                recalcPages();
+            }
+        }
+
+        function toggleVolumeKey() {
+            volumeKeyEnabled = !volumeKeyEnabled;
+            setUserStorage('novel_reader_vol_key', String(volumeKeyEnabled));
+            updateVolumeKeyUI();
+            alert(volumeKeyEnabled ? '✓ 已开启手机音量键翻页！\n按音量加键/减键即可上下翻页。' : '已关闭手机音量键翻页。');
+        }
+
+        function updateVolumeKeyUI() {
+            const deskBtn = element('desk-vol-btn');
+            if (deskBtn) deskBtn.textContent = volumeKeyEnabled ? '🔊 音量翻页: 开' : '🔇 音量翻页: 关';
+            const immIcon = element('imm-vol-icon');
+            if (immIcon) immIcon.textContent = volumeKeyEnabled ? '🔊' : '🔇';
+            const immLbl = element('imm-vol-label');
+            if (immLbl) immLbl.textContent = volumeKeyEnabled ? '音量翻页: 开' : '音量翻页: 关';
+        }
 
         function setTheme(theme) {
             currentTheme = theme;
             document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('novel_reader_theme', theme);
+            setUserStorage('novel_reader_theme', theme);
             document.querySelectorAll('.theme-pill').forEach(el => {
                 el.classList.toggle('active', el.classList.contains(`pill-${theme}`));
             });
@@ -1106,26 +1588,28 @@
         function toggleFont() {
             currentFont = (currentFont === 'serif') ? 'sans' : 'serif';
             document.documentElement.setAttribute('data-font', currentFont);
-            localStorage.setItem('novel_reader_font', currentFont);
+            setUserStorage('novel_reader_font', currentFont);
         }
 
         function setFontDelta(delta) {
             fontSize = Math.max(16, Math.min(32, fontSize + delta));
             document.documentElement.style.setProperty('--reader-size', `${fontSize}px`);
-            localStorage.setItem('novel_reader_size', String(fontSize));
+            setUserStorage('novel_reader_size', String(fontSize));
             const indicator = element('size-indicator');
             if (indicator) indicator.textContent = `${fontSize}px`;
             const immSize = element('imm-size-label');
             if (immSize) immSize.textContent = `字号 ${fontSize}`;
+            if (flipMode !== 'scroll') recalcPages();
         }
 
         function cycleLineHeight() {
             const list = [1.8, 2.1, 2.4];
             currentLineHeight = list[(list.indexOf(currentLineHeight) + 1) % list.length];
             document.documentElement.style.setProperty('--reader-line-height', String(currentLineHeight));
-            localStorage.setItem('novel_reader_lh', String(currentLineHeight));
+            setUserStorage('novel_reader_lh', String(currentLineHeight));
             const immLh = element('imm-lh-label');
             if (immLh) immLh.textContent = `行距 ${currentLineHeight}`;
+            if (flipMode !== 'scroll') recalcPages();
         }
 
         function toggleImmersiveMenu() {
@@ -1140,12 +1624,13 @@
             element('immersive-bottom-bar').classList.remove('show');
         }
 
-        // 明确的层级返回逻辑（彻底解决浏览器返回死循环）
+        // 明确的层级返回逻辑（彻底返回当前小说的目录主页）
         function backToCatalog() {
             hideImmersiveMenu();
             closeCatalogDrawer();
-            if (currentBook) {
-                navigate(currentBook, '', false);
+            const book = currentBook || (currentBookInfo ? currentBookInfo.id : '');
+            if (book) {
+                navigate(book, '', false);
             } else {
                 navigate('', '', false);
             }
@@ -1176,7 +1661,7 @@
             element('reading').hidden = true;
             element('search').hidden = true;
             element('retry').hidden = true;
-            element('message').textContent = '请向作者索取新生成的阅读链接。每个链接自生成起有效期为一周。';
+            element('message').textContent = '请向作者索取新生成的阅读链接，或输入账号密码登录。';
             element('expiry').textContent = '链接已失效';
             element('read-progress-bar').style.width = '0%';
             element('reading-hud-bar').style.display = 'none';
@@ -1187,14 +1672,28 @@
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 15000);
             try {
+                const headers = {};
+                if (readingToken) headers['X-Reading-Token'] = readingToken;
+                if (authToken) headers['X-Novel-Token'] = authToken;
                 const response = await fetch(api + resource, {
-                    headers: { 'X-Reading-Token': token },
+                    headers: headers,
                     signal: controller.signal,
                     cache: 'no-store',
-                    credentials: 'omit'
+                    credentials: 'same-origin'
                 });
                 const data = await response.json();
-                if (response.status === 403) { expire(); throw Error(data.error); }
+                if (response.status === 403 || response.status === 401) {
+                    if (data && data.need_login) {
+                        openReaderLoginModal();
+                        throw Error("请先登录账号后再品阅");
+                    }
+                    if (!authToken && !readingToken) {
+                        openReaderLoginModal();
+                        throw Error("未登录或阅读链接已失效");
+                    }
+                    expire();
+                    throw Error(data.error || '访问受限');
+                }
                 if (!response.ok) throw Error(data.error || '读取失败，请重试');
                 return data;
             } finally { clearTimeout(timer); }
@@ -1254,10 +1753,10 @@
                     coverImg.className = 'book-cover-img';
                     coverImg.alt = b.title;
                     coverImg.loading = 'lazy';
-                    const coverUrl = b.cover_url || `${location.origin}/novel/api/read/cover?book=${encodeURIComponent(b.id)}&token=${encodeURIComponent(token)}`;
+                    const coverUrl = b.cover_url || `${location.origin}/novel/api/read/cover?book=${encodeURIComponent(b.id)}&token=${encodeURIComponent(activeToken())}`;
                     coverImg.src = coverUrl;
                     coverImg.onerror = () => {
-                        coverImg.src = `${location.origin}/novel/api/read/cover?book=${encodeURIComponent(b.id)}&token=${encodeURIComponent(token)}`;
+                        coverImg.src = `${location.origin}/novel/api/read/cover?book=${encodeURIComponent(b.id)}&token=${encodeURIComponent(activeToken())}`;
                     };
                     coverWrap.appendChild(coverImg);
 
@@ -1297,8 +1796,8 @@
                     openBtn.onclick = (e) => { e.stopPropagation(); navigate(b.id, '', false); };
                     actionsBox.appendChild(openBtn);
 
-                    const lastFile = localStorage.getItem(`novel_reader_last_${b.id}`);
-                    const lastTitle = localStorage.getItem(`novel_reader_last_title_${b.id}`);
+                    const lastFile = getUserStorage(`novel_reader_last_${b.id}`);
+                    const lastTitle = getUserStorage(`novel_reader_last_title_${b.id}`);
                     if (lastFile) {
                         const resumeBtn = document.createElement('button');
                         resumeBtn.className = 'btn-card-resume';
@@ -1317,7 +1816,7 @@
                 // 章节目录视图
                 listing.className = 'chapters';
                 const filtered = chapters.filter(c => c.title.toLowerCase().includes(query) || (c.filename && c.filename.toLowerCase().includes(query)));
-                const lastRead = localStorage.getItem(`novel_reader_last_${currentBook}`);
+                const lastRead = getUserStorage(`novel_reader_last_${currentBook}`);
 
                 for (const item of filtered) {
                     const row = document.createElement('button');
@@ -1362,13 +1861,13 @@
             }
             hero.style.display = 'flex';
 
-            const coverUrl = bookInfo.cover_url || `${location.origin}/novel/api/read/cover?book=${encodeURIComponent(bookInfo.id)}&token=${encodeURIComponent(token)}`;
-            const lastFile = localStorage.getItem(`novel_reader_last_${bookInfo.id}`);
-            const lastTitle = localStorage.getItem(`novel_reader_last_title_${bookInfo.id}`);
+            const coverUrl = bookInfo.cover_url || `${location.origin}/novel/api/read/cover?book=${encodeURIComponent(bookInfo.id)}&token=${encodeURIComponent(activeToken())}`;
+            const lastFile = getUserStorage(`novel_reader_last_${bookInfo.id}`);
+            const lastTitle = getUserStorage(`novel_reader_last_title_${bookInfo.id}`);
 
             hero.innerHTML = `
                 <div class="hero-cover-wrap">
-                    <img class="hero-cover-img" src="${coverUrl}" alt="${bookInfo.title}" onerror="this.src='${location.origin}/novel/api/read/cover?book=${encodeURIComponent(bookInfo.id)}&token=${encodeURIComponent(token)}'">
+                    <img class="hero-cover-img" src="${coverUrl}" alt="${bookInfo.title}" onerror="this.src='${location.origin}/novel/api/read/cover?book=${encodeURIComponent(bookInfo.id)}&token=${encodeURIComponent(activeToken())}'">
                 </div>
                 <div class="hero-info-wrap">
                     <div>
@@ -1411,12 +1910,23 @@
             if (btn) btn.textContent = isExp ? '收起简介 ▲' : '展开完整简介 ▼';
         };
 
-        // 侧边目录抽屉
+        // 侧边目录抽屉 (平滑滑出，自动聚焦当前章节)
         function openCatalogDrawer() {
             element('catalog-drawer-overlay').classList.add('open');
             element('catalog-drawer').classList.add('open');
             element('drawer-book-title').textContent = catalogTitle || currentBook || '章节目录';
+            const sInput = element('drawer-search');
+            if (sInput) sInput.value = '';
             renderDrawerChapters(chapters);
+            setTimeout(() => {
+                const cont = element('drawer-chapters-container');
+                if (cont) {
+                    const activeEl = cont.querySelector('.drawer-chapter-item.active');
+                    if (activeEl) {
+                        activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    }
+                }
+            }, 80);
         }
 
         function closeCatalogDrawer() {
@@ -1464,26 +1974,145 @@
         // 实时时钟更新
         function updateHudClock() {
             const el = element('hud-clock-time');
-            if (!el) return;
+            const pagedClock = element('paged-hud-clock');
             const now = new Date();
             const h = String(now.getHours()).padStart(2, '0');
             const m = String(now.getMinutes()).padStart(2, '0');
-            el.textContent = `${h}:${m}`;
+            const timeStr = `${h}:${m}`;
+            if (el) el.textContent = timeStr;
+            if (pagedClock) pagedClock.textContent = timeStr;
         }
         setInterval(updateHudClock, 10000);
         updateHudClock();
 
-        async function render() {
-            if (expired || !token.startsWith('reader.') || !Number.isFinite(expiry) || Date.now() >= expiry) {
-                expire();
+        // 精确单页分页与零累积误差计算 (彻底解决断字、列错位腰斩问题)
+        function recalcPages() {
+            if (element('reading').hidden || flipMode === 'scroll') return;
+            const viewport = element('paged-viewport');
+            const track = element('paged-track');
+            if (!viewport || !track) return;
+            
+            const w = viewport.clientWidth;
+            if (w <= 0) return;
+
+            pageStep = w;
+            track.style.width = '100%';
+            track.style.columnWidth = `${w}px`;
+            track.style.columnGap = '0px';
+            track.style.setProperty('--page-step', `${pageStep}px`);
+            
+            requestAnimationFrame(() => {
+                const totalW = track.scrollWidth;
+                totalPages = Math.max(1, Math.round(totalW / w));
+                currentPage = Math.max(1, Math.min(currentPage, totalPages));
+                updatePagePosition(false);
+            });
+        }
+
+        function updatePagePosition(animate = true, direction = 'next') {
+            const track = element('paged-track');
+            if (!track) return;
+            track.style.setProperty('--cur-page', String(currentPage));
+            track.style.setProperty('--page-step', `${pageStep}px`);
+            const targetX = -1 * (currentPage - 1) * pageStep;
+            
+            if (animate && flipMode === 'simulation') {
+                track.classList.remove('flip-anim-next', 'flip-anim-prev');
+                void track.offsetWidth;
+                track.classList.add(direction === 'next' ? 'flip-anim-next' : 'flip-anim-prev');
+                setTimeout(() => {
+                    track.style.transform = `translateX(${targetX}px)`;
+                    track.classList.remove('flip-anim-next', 'flip-anim-prev');
+                }, 280);
+            } else if (animate && flipMode === 'slide') {
+                track.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
+                track.style.transform = `translateX(${targetX}px)`;
+            } else {
+                track.style.transition = 'none';
+                track.style.transform = `translateX(${targetX}px)`;
+            }
+
+            const pct = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 100;
+            const progEl = element('paged-hud-progress');
+            if (progEl) progEl.textContent = `第 ${currentPage} / ${totalPages} 页 · ${pct}%`;
+            const immProgEl = element('imm-progress-label');
+            if (immProgEl) {
+                const chapIdx = chapters.findIndex(c => c.filename === currentFile);
+                immProgEl.textContent = `第 ${chapIdx + 1} / ${chapters.length} 章 · 本章第 ${currentPage}/${totalPages} 页 (${pct}%)`;
+            }
+        }
+
+        function flipNext() {
+            if (element('reading').hidden) return;
+            if (flipMode === 'scroll') {
+                window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' });
                 return;
             }
+            if (isFlipping) return;
+            if (currentPage < totalPages) {
+                isFlipping = true;
+                currentPage++;
+                updatePagePosition(true, 'next');
+                setTimeout(() => { isFlipping = false; }, 300);
+            } else {
+                goToNextChapter();
+            }
+        }
+
+        function flipPrev() {
+            if (element('reading').hidden) return;
+            if (flipMode === 'scroll') {
+                window.scrollBy({ top: -window.innerHeight * 0.8, behavior: 'smooth' });
+                return;
+            }
+            if (isFlipping) return;
+            if (currentPage > 1) {
+                isFlipping = true;
+                currentPage--;
+                updatePagePosition(true, 'prev');
+                setTimeout(() => { isFlipping = false; }, 300);
+            } else {
+                goToPrevChapter();
+            }
+        }
+
+        function onTapLeft(e) {
+            e.stopPropagation();
+            flipPrev();
+        }
+
+        function onTapRight(e) {
+            e.stopPropagation();
+            flipNext();
+        }
+
+        function onTapCenter(e) {
+            e.stopPropagation();
+            toggleImmersiveMenu();
+        }
+
+        async function render() {
+            const hasValidLink = readingToken && readingToken.startsWith('reader.') && Number.isFinite(readingExpiry) && Date.now() < readingExpiry;
+            let isAuthed = !!authToken;
+            if (!hasValidLink && !isAuthed) {
+                const cookieOk = await checkAuthSession();
+                if (cookieOk) {
+                    isAuthed = true;
+                    authToken = localStorage.getItem('novel_token') || 'cookie_session';
+                } else {
+                    openReaderLoginModal();
+                    element('message').textContent = '请先输入读者或管理员账号登录，或通过作者生成的专属分享链接访问。';
+                    return;
+                }
+            }
+
             const requestId = ++sequence;
             const params = new URLSearchParams(location.search);
             currentBook = params.get('book') || '';
             currentFile = params.get('file') || '';
 
             element('reading').hidden = true;
+            element('reading').style.display = 'none';
             element('text').textContent = '';
             element('author-note-container').replaceChildren();
             element('list').replaceChildren();
@@ -1531,15 +2160,17 @@
 
                     if (filename && chapter) {
                         // 3. 正文沉浸阅读页
-                        element('global-header').style.display = 'none'; // 移动端番茄小说沉浸式全屏
+                        element('global-header').style.display = 'none'; // 沉浸式全屏
                         element('title').textContent = '';
                         element('summary').textContent = '';
                         element('chapter-title').textContent = chapter.title;
                         element('imm-title-label').textContent = `${catalogTitle} · ${chapter.title}`;
+                        element('paged-hud-book-title').textContent = `《${catalogTitle}》`;
+                        element('paged-hud-chapter-title').textContent = chapter.title;
                         
-                        // 记忆阅读进度
-                        localStorage.setItem(`novel_reader_last_${book}`, filename);
-                        localStorage.setItem(`novel_reader_last_title_${book}`, chapter.title);
+                        // 记忆阅读进度 (用户隔离)
+                        setUserStorage(`novel_reader_last_${book}`, filename);
+                        setUserStorage(`novel_reader_last_title_${book}`, chapter.title);
 
                         const index = chapters.findIndex(item => item.filename === filename);
                         const progressPct = chapters.length > 0 ? Math.round(((index + 1) / chapters.length) * 100) : 0;
@@ -1595,6 +2226,7 @@
                         }
 
                         element('reading').hidden = false;
+                        element('reading').style.display = flipMode === 'scroll' ? 'block' : 'flex';
                         element('message').textContent = '';
 
                         // 翻页控制
@@ -1608,6 +2240,9 @@
                         };
                         element('catalog').onclick = () => backToCatalog();
 
+                        // 翻页模式应用与重排
+                        currentPage = 1;
+                        setFlipMode(flipMode);
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                         return;
                     }
@@ -1629,19 +2264,94 @@
             }
         }
 
-        // 快捷键监听 (键盘左右键翻页，Esc关闭目录)
-        document.addEventListener('keydown', (e) => {
+        // 触控滑动手势
+        const readingEl = element('reading');
+        if (readingEl) {
+            readingEl.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    touchStartTime = Date.now();
+                    isSwiping = false;
+                }
+            }, { passive: true });
+
+            readingEl.addEventListener('touchmove', (e) => {
+                if (flipMode !== 'scroll' && e.touches.length === 1) {
+                    const dx = e.touches[0].clientX - touchStartX;
+                    const dy = e.touches[0].clientY - touchStartY;
+                    if (Math.abs(dx) > Math.abs(dy) * 1.3 && Math.abs(dx) > 10) {
+                        isSwiping = true;
+                    }
+                }
+            }, { passive: true });
+
+            readingEl.addEventListener('touchend', (e) => {
+                if (e.changedTouches.length === 1 && flipMode !== 'scroll') {
+                    const dx = e.changedTouches[0].clientX - touchStartX;
+                    const dy = e.changedTouches[0].clientY - touchStartY;
+                    const dt = Date.now() - touchStartTime;
+                    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.2 && dt < 600) {
+                        isSwiping = true;
+                        if (dx < 0) flipNext();
+                        else flipPrev();
+                    }
+                }
+            }, { passive: true });
+        }
+
+        // 快捷键 & 手机物理音量键翻页
+        window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 closeCatalogDrawer();
                 hideImmersiveMenu();
                 return;
             }
             if (element('reading').hidden) return;
-            if (e.key === 'ArrowLeft' && !element('previous').disabled) {
-                element('previous').click();
-            } else if (e.key === 'ArrowRight' && !element('next').disabled) {
-                element('next').click();
+
+            // 物理音量键翻页
+            if (e.key === 'VolumeDown' || e.key === 'AudioVolumeDown' || e.code === 'AudioVolumeDown') {
+                if (volumeKeyEnabled) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    flipNext();
+                    return;
+                }
             }
+            if (e.key === 'VolumeUp' || e.key === 'AudioVolumeUp' || e.code === 'AudioVolumeUp') {
+                if (volumeKeyEnabled) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    flipPrev();
+                    return;
+                }
+            }
+
+            // 键盘翻页
+            if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+                e.preventDefault();
+                flipNext();
+            } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+                e.preventDefault();
+                flipPrev();
+            }
+        }, { passive: false });
+
+        // 电池电量指示器
+        if ('getBattery' in navigator) {
+            navigator.getBattery().then(battery => {
+                const updateBatt = () => {
+                    batteryInfo = `🔋${Math.round(battery.level * 100)}%`;
+                    const bEl = element('paged-hud-battery');
+                    if (bEl) bEl.textContent = batteryInfo;
+                };
+                updateBatt();
+                battery.addEventListener('levelchange', updateBatt);
+            }).catch(() => {});
+        }
+
+        window.addEventListener('resize', () => {
+            if (flipMode !== 'scroll') recalcPages();
         });
 
         element('search').oninput = showList;
@@ -1650,18 +2360,20 @@
         window.addEventListener('popstate', render);
         window.addEventListener('hashchange', () => location.reload());
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && Date.now() >= expiry) expire();
+            if (!document.hidden && readingExpiry && Date.now() >= readingExpiry && !authToken) expire();
         });
 
-        if (Number.isFinite(expiry) && expiry > Date.now()) {
-            element('expiry').textContent = `有效至 ${new Date(expiry).toLocaleString('zh-CN', { hour12: false })}`;
-            setTimeout(expire, Math.min(expiry - Date.now(), 2147483647));
+        if (Number.isFinite(readingExpiry) && readingExpiry > Date.now()) {
+            element('expiry').textContent = `有效至 ${new Date(readingExpiry).toLocaleString('zh-CN', { hour12: false })}`;
+            setTimeout(expire, Math.min(readingExpiry - Date.now(), 2147483647));
         }
 
         // 初始化视觉状态与偏好
         setTheme(currentTheme);
         document.documentElement.setAttribute('data-font', currentFont);
         setFontDelta(0);
+        updateAuthUI();
+        updateVolumeKeyUI();
         render();
     </script>
 </body>

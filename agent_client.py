@@ -154,16 +154,66 @@ SAFETY_FILTER_KEYWORDS = (
     "harmful content",
 )
 
+NETWORK_AND_SERVER_ERROR_KEYWORDS = (
+    "user location is not supported",
+    "503 service unavailable",
+    "502 bad gateway",
+    "504 gateway timeout",
+    "500 internal server error",
+    "connection refused",
+    "connection reset",
+    "socket hang up",
+    "proxy error",
+    "network error",
+    "failed to connect",
+    "econnrefused",
+    "econnreset",
+    "etimedout",
+    "ehostunreach",
+    "resource has been exhausted",
+    "quota exceeded",
+    "rate limit exceeded",
+    "an internal error has occurred",
+    "error communicating with",
+    "无法连接到服务器",
+    "代理网络连接失败",
+    "网络请求超时",
+    "套接字操作",
+)
+
+
+def wait_for_idle(conversation_id, progress=None, timeout=1200):
+    """Wait for the pre-restart turn before resending a checkpointed stage."""
+    deadline = time.monotonic() + timeout
+    next_report = 0
+    while time.monotonic() < deadline:
+        trajectory = rpc('GetCascadeTrajectory', {'cascadeId': conversation_id}, timeout=10)
+        if trajectory.get('status') == 'CASCADE_RUN_STATUS_IDLE':
+            return
+        if progress and time.monotonic() >= next_report:
+            progress(f'正在恢复会话 {conversation_id}，等待重启前的生成结束后续接')
+            next_report = time.monotonic() + 15
+        time.sleep(2)
+    raise TimeoutError('重启前的 Antigravity 会话仍在运行，请核对桌面端进度')
+
 
 def wait_for_response(conversation_id, marker, progress=None, timeout=1200):
     """Read the final reply belonging to this stage, excluding earlier conversation turns."""
     deadline = time.monotonic() + timeout
     next_report = 0
     last_activity = None
+    disconnected_since = None
+    connection_error = None
     while time.monotonic() < deadline:
         try:
             trajectory = rpc('GetCascadeTrajectory', {'cascadeId': conversation_id}, timeout=10)
-        except (OSError, RuntimeError, ValueError):
+            disconnected_since = None
+            connection_error = None
+        except (OSError, RuntimeError, ValueError) as error:
+            disconnected_since = disconnected_since if disconnected_since is not None else time.monotonic()
+            connection_error = str(error)
+            if time.monotonic() - disconnected_since >= 60:
+                raise RuntimeError(f'Antigravity 本地接口持续无法连接，已停止本阶段。{error}') from error
             trajectory = {}
         steps = trajectory.get('trajectory', {}).get('steps', [])
         boundary = next((i for i in range(len(steps) - 1, -1, -1)
@@ -187,10 +237,13 @@ def wait_for_response(conversation_id, marker, progress=None, timeout=1200):
                     lower = res_str.lower()
                     if any(kw in lower for kw in SAFETY_FILTER_KEYWORDS):
                         raise RuntimeError(f'Antigravity 生成被安全策略拦截: {res_str[:300]}')
+                    if len(res_str) < 500 and any(kw in lower for kw in NETWORK_AND_SERVER_ERROR_KEYWORDS):
+                        raise RuntimeError(f'Antigravity 上游接口或网络代理临时错误: {res_str[:300]}')
                     return res_str
                 raise RuntimeError('Antigravity 本阶段已结束，但未返回完整的正文或 JSON')
         if progress and time.monotonic() >= next_report:
-            progress(f'Antigravity 会话 {conversation_id} 正在生成本阶段文本…')
+            progress(f'Antigravity 本地接口连接中断，正在重连。{connection_error[:300]}' if connection_error else
+                     f'Antigravity 会话 {conversation_id} 正在生成本阶段文本…')
             next_report = time.monotonic() + 15
         time.sleep(2)
     raise TimeoutError(f'Antigravity 阶段长时间未返回新进展，会话 {conversation_id}')

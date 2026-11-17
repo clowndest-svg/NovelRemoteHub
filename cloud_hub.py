@@ -121,11 +121,71 @@ else:
 SESSION_SECONDS = 7 * 24 * 60 * 60
 
 
-def issue_session():
+USERS_FILE = os.path.join(DATA_DIR, "auth_users.json")
+
+
+def hash_password(password, salt=None):
+    if salt is None:
+        salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+    return f"pbkdf2_sha256${salt}${h}"
+
+
+def verify_password(password, stored_hash):
+    try:
+        if not stored_hash or not isinstance(stored_hash, str):
+            return False
+        algorithm, salt, h = stored_hash.split('$')
+        if algorithm != 'pbkdf2_sha256':
+            return False
+        computed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+        return hmac.compare_digest(h, computed)
+    except Exception:
+        return False
+
+
+def get_users_dict():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict) and 'users' in data:
+                    return data
+        except Exception:
+            pass
+    default_pwd = PASSWORD if PASSWORD and len(PASSWORD) < 30 else 'admin888'
+    initial_data = {
+        "users": {
+            "admin": {
+                "password_hash": hash_password(default_pwd),
+                "role": "admin",
+                "created_at": time.time()
+            }
+        }
+    }
+    atomic_json(USERS_FILE, initial_data)
+    return initial_data
+
+
+def save_users_dict(data):
+    atomic_json(USERS_FILE, data)
+
+
+def issue_session(username='admin'):
     expires_at = int(time.time()) + SESSION_SECONDS
-    payload = f"session.{expires_at}.{secrets.token_urlsafe(24)}"
+    version = get_users_dict().get('users', {}).get(username, {}).get('session_version', 0)
+    payload = f"session.{expires_at}.{username}.v{version}~{secrets.token_urlsafe(24)}"
     signature = hmac.new(AUTH_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return {"ok": True, "token": payload + "." + signature, "expires_at": expires_at, "expires_in": SESSION_SECONDS}
+    return {"ok": True, "token": payload + "." + signature, "username": username, "expires_at": expires_at, "expires_in": SESSION_SECONDS}
+
+
+def extract_token_username(token):
+    if not isinstance(token, str):
+        return None
+    parts = token.split('.')
+    if len(parts) == 5 and parts[0] == 'session':
+        return parts[2]
+    return 'admin'
 
 
 def valid_access_token(token):
@@ -134,16 +194,76 @@ def valid_access_token(token):
     if hmac.compare_digest(token.encode(), AUTH_TOKEN.encode()):
         return True
     parts = token.split('.')
-    if len(parts) != 4 or parts[0] != 'session':
+    if parts[0] != 'session':
         return False
-    try:
-        if int(parts[1]) <= time.time():
+    if len(parts) == 4:
+        try:
+            if int(parts[1]) <= time.time():
+                return False
+        except ValueError:
             return False
-    except ValueError:
-        return False
-    expected = hmac.new(AUTH_TOKEN.encode(), '.'.join(parts[:3]).encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(parts[3].encode(), expected.encode())
+        expected = hmac.new(AUTH_TOKEN.encode(), '.'.join(parts[:3]).encode(), hashlib.sha256).hexdigest()
+        return (hmac.compare_digest(parts[3].encode(), expected.encode())
+                and session_is_current(token, 'admin', None))
+    elif len(parts) == 5:
+        try:
+            if int(parts[1]) <= time.time():
+                return False
+        except ValueError:
+            return False
+        expected = hmac.new(AUTH_TOKEN.encode(), '.'.join(parts[:4]).encode(), hashlib.sha256).hexdigest()
+        return (hmac.compare_digest(parts[4].encode(), expected.encode())
+                and session_is_current(token, parts[2], parts[3]))
+    return False
 
+
+
+def session_is_current(token, username, nonce):
+    user = get_users_dict().get('users', {}).get(username)
+    if not user:
+        return False
+    version = 0
+    if nonce and re.match(r'^v\d+~', nonce):
+        version = int(nonce[1:].split('~', 1)[0])
+    if version != user.get('session_version', 0):
+        return False
+    revoked = load_json_file(os.path.join(DATA_DIR, 'revoked_sessions.json'), {})
+    return hashlib.sha256(token.encode()).hexdigest() not in revoked
+
+
+def public_settings(settings):
+    return {**settings, 'deepseek_api_key': '********' if settings.get('deepseek_api_key') else ''}
+
+
+def issue_publish_token(book='*'):
+    expires = int(time.time()) + SESSION_SECONDS
+    identifier = secrets.token_urlsafe(18)
+    payload = f'publisher.{expires}.{identifier}'
+    signature = hmac.new(AUTH_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    path = os.path.join(DATA_DIR, 'publish_authorizations.json')
+    grants = {key: value for key, value in load_json_file(path, {}).items() if value.get('expires_at', 0) > time.time()}
+    grants[identifier] = {'book': book, 'expires_at': expires, 'created_at': time.time()}
+    atomic_json(path, grants)
+    return payload + '.' + signature
+
+
+def publishing_grant(token):
+    if not isinstance(token, str):
+        return None
+    parts = token.split('.')
+    if len(parts) != 4 or parts[0] != 'publisher':
+        return None
+    try:
+        expires = int(parts[1])
+    except ValueError:
+        return None
+    expected = hmac.new(AUTH_TOKEN.encode(), '.'.join(parts[:3]).encode(), hashlib.sha256).hexdigest()
+    if expires <= time.time() or not hmac.compare_digest(parts[3], expected):
+        return None
+    grant = load_json_file(os.path.join(DATA_DIR, 'publish_authorizations.json'), {}).get(parts[2])
+    if not grant or grant.get('revoked') or grant.get('expires_at') != expires:
+        return None
+    return grant
 
 def issue_reading_link():
     expires_at = int(time.time()) + SESSION_SECONDS
@@ -172,6 +292,7 @@ def chapter_catalog(book_id):
     """Reuse unchanged chapter metadata even when another chapter was updated."""
     book_path, title = novel_manager.get_book_path(book_id, BOOKS_DIR)
     chapters = []
+    identities = novel_manager.chapter_identities(book_path)
     for filename in novel_manager.chapter_files(book_path):
         stat = os.stat(filename)
         identity = hashlib.sha256(filename.encode()).hexdigest()
@@ -184,7 +305,7 @@ def chapter_catalog(book_id):
                         "raw_title": os.path.basename(filename)[:-3], "char_count": cleaned["char_count"],
                         "size": stat.st_size, "mtime": stat.st_mtime}
             set_cached(key, metadata, ttl=86400)
-        chapters.append(metadata)
+        chapters.append({**metadata, **identities[filename]})
     return {"book_title": title, "chapters": chapters}
 
 
@@ -211,6 +332,43 @@ LOCAL_STATUS = {
     "last_seen": 0,
     "current_task": None
 }
+
+
+def task_execution_state(task):
+    now = time.time()
+    last_seen = LOCAL_STATUS.get('last_seen', 0)
+    online = bool(last_seen and now - last_seen <= 25)
+    waiting = []
+    if task['status'] == 'pending':
+        for other in TASKS.values():
+            if other['id'] == task['id']:
+                break
+            if other.get('book_id') == task.get('book_id') and other['status'] in ('pending', 'assigned', 'running'):
+                waiting.append(other)
+        if not waiting:
+            busy = [other for other in TASKS.values() if other['status'] in ('assigned', 'running')
+                    and other.get('engine_mode') != 'deepseek']
+            if task.get('engine_mode') != 'deepseek' and len(busy) >= LOCAL_STATUS.get('capacity', 4):
+                waiting = busy
+    message = ''
+    if task.get('cancel_requested') and task['status'] in ('pending', 'assigned', 'running'):
+        message = '已请求终止，等待执行端确认停止'
+    elif task['status'] in ('pending', 'assigned', 'running'):
+        if task.get('engine_mode') != 'deepseek' and not online:
+            message = '电脑端桥接器离线，等待连接恢复后继续。请在电脑运行 start_silent.vbs'
+        elif task['status'] == 'pending':
+            message = '等待前序任务完成后继续' if waiting else '电脑端在线，等待领取任务'
+            health = LOCAL_STATUS.get('health', {})
+            if health.get('phase') == 'ready' and now - health.get('scheduler_at', now) > 120:
+                message = '电脑端调度暂未推进，监督进程正在检查恢复'
+        elif task['status'] == 'assigned':
+            message = '电脑端已领取任务，正在启动执行'
+    return {'bridge_online': online, 'bridge_last_seen_ago': int(now - last_seen) if last_seen else -1,
+            'wait_message': message, 'queue_position': len(waiting),
+            'waiting_for': [{'id': item['id'], 'action': item['action'],
+                'chapter_count': item.get('extra_data', {}).get('chapter_count', 1),
+                'progress': next((line for line in reversed(item.get('progress_log', [])) if '续写进度' in line),
+                                 (item.get('progress_log') or ['等待电脑领取'])[-1])} for item in waiting]}
 
 APP_VERSION_INFO = {
     "versionCode": 21,
@@ -417,6 +575,8 @@ def execute_deepseek_task_async(tid):
         save_json_file(tasks_file, TASKS)
     def report(message):
         with WRITE_LOCK:
+            if task.get('cancel_requested') and task['status'] in ('assigned', 'running'):
+                raise RuntimeError('任务已按用户请求终止')
             task["progress_log"] = (task.get("progress_log", []) + [str(message)[:4000]])[-200:]
             task["heartbeat_at"] = time.time()
             save_json_file(tasks_file, TASKS)
@@ -465,7 +625,7 @@ def execute_deepseek_task_async(tid):
                 invalidate_cache("novel:cache:books")
             _, summary, _ = deepseek_client.write_serial_chapters(book_path, book_id, extra.get("chapter_count", 1), prompt,
                 model, effort, DATA_DIR, report, write_lock=WRITE_LOCK, on_chapter=chapter_saved,
-                auto_ensure_outline=extra.get("auto_ensure_outline", False))
+                auto_ensure_outline=extra.get("auto_ensure_outline", False), preferences_snapshot=task.get("preferences"))
         else:
             if action == "create_new_novel":
                 if novel_type == "short_story":
@@ -503,7 +663,9 @@ def execute_deepseek_task_async(tid):
                     if meta.get("revision") != existing_notes.get("revision"):
                         raise ValueError("互动文案已被作者修改，请重新生成")
                     directory = os.path.join(book_path, "02_插图", extras["chap_dir"])
-                    meta.update(chapter_filename=extra["chapter_file"], chapter_code=extras["chap_dir"], author_note=note, chapter_comments=comments, revision=uuid.uuid4().hex)
+                    identity = novel_manager.chapter_identity(book_id, extra['chapter_file'], BOOKS_DIR)
+                    meta.update(chapter_filename=extra["chapter_file"], chapter_code=extras["chap_dir"], author_note=note, chapter_comments=comments, revision=uuid.uuid4().hex,
+                        note_source_sha256=identity['chapter_revision'], chapter_id=identity['chapter_id'])
                     atomic_write(os.path.join(directory, "作者有话说.md"), note)
                     atomic_write(os.path.join(directory, "章节评论.md"), "\n\n".join(comments))
                     save_json_file(os.path.join(directory, "meta.json"), meta)
@@ -531,6 +693,8 @@ def execute_deepseek_task_async(tid):
                     files.append(destination)
                 summary = "创作结果已保存，可在对应正文、设定或章节素材中查看"
         with WRITE_LOCK:
+            if task.get('cancel_requested'):
+                raise RuntimeError('任务已按用户请求终止')
             task.update(status="completed", completed_at=time.time(), result={"summary": summary, "files": files})
             report(summary)
     except Exception as error:
@@ -572,6 +736,11 @@ def dispatch_auto_task(book_id, action_or_workflow="creative_instruction", promp
             **(extra or {}),
             **(kw.get("extra") or {})
         }
+        request_id = extra_data.get('daily_request_id')
+        if request_id:
+            for existing in TASKS.values():
+                if existing.get('request_id') == request_id:
+                    return True, {'task_id': existing['id'], 'reused': True}
         catalog = load_json_file(os.path.join(DATA_DIR, "agents.json"), {"engines": []})
         agent = next((entry for entry in catalog.get("engines", []) if entry.get("id") == engine_mode), {})
         if engine_mode == "deepseek":
@@ -581,18 +750,18 @@ def dispatch_auto_task(book_id, action_or_workflow="creative_instruction", promp
             model, effort = selected_model(agent, extra_data.get("model_tier"), extra_data.get("reasoning_effort"))
             extra_data["model_tier"] = model.get("effort_models", {}).get(effort, model.get("id"))
             extra_data["reasoning_effort"] = effort
-        except Exception:
-            extra_data.setdefault("model_tier", "default")
-            extra_data.setdefault("reasoning_effort", "高")
+        except (ValueError, RuntimeError) as error:
+            return False, {"error": str(error)}
 
         for existing in TASKS.values():
-            if existing.get("book_id") == book_id and existing.get("status") in ("pending", "assigned", "running"):
+            if (existing.get("book_id") == book_id and existing.get("status") in ("pending", "assigned", "running")
+                    and existing.get("action") == action and existing.get("extra_data", {}) == extra_data):
                 return True, {"task_id": existing["id"], "reused": True}
 
         tid = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
         task = {
             "id": tid,
-            "request_id": f"auto_{int(time.time())}_{book_id}",
+            "request_id": request_id or f"auto_{int(time.time())}_{book_id}",
             "action": action,
             "sub_action": "",
             "prompt": prompt,
@@ -603,6 +772,7 @@ def dispatch_auto_task(book_id, action_or_workflow="creative_instruction", promp
             "project_id": agent.get("project_id"),
             "permission_mode": "full-access",
             "extra_data": extra_data,
+            "preferences": novel_manager.writing_preferences(DATA_DIR),
             "status": "pending",
             "progress_log": [f"[{time.strftime('%H:%M:%S')}] 每日全自动连更任务已创建，等待调度..."],
             "created_at": time.time(),
@@ -625,12 +795,12 @@ def direct_generate_outline(prompt):
             ok, msg = deepseek_client.test_api_key(ds_cfg.get("api_key"), ds_cfg.get("base_url"))
             if ok:
                 success, output = deepseek_client.execute_instruction(
-                    book_path=BOOKS_DIR,
+                    book_root=BOOKS_DIR,
                     book_id="大纲推演",
-                    prompt=prompt,
-                    model_tier="deepseek-flash",
-                    reasoning_effort="high",
-                    data_dir=DATA_DIR
+                    user_prompt=prompt,
+                    model="deepseek-flash",
+                    effort="high",
+                    config_dir=DATA_DIR
                 )
                 if success and output:
                     return output
@@ -659,8 +829,8 @@ def auto_writer_scheduler_loop():
             now_time = time.strftime("%H:%M")
             today_date = time.strftime("%Y-%m-%d")
 
-            status = auto_writer.load_auto_write_status(DATA_DIR)
-            if status.get("last_run_date") == today_date and status.get("status") == "completed":
+            status = get_auto_writer_manager(DATA_DIR, BOOKS_DIR).get_status(TASKS)
+            if status.get("last_run_date") == today_date and status.get("status") in ('completed', 'running', 'dispatched'):
                 continue
 
             if now_time >= target_time:
@@ -725,11 +895,14 @@ class HubHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
-    def send_json(self, data, code=200):
+    def send_json(self, data, code=200, headers=None):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
+        if headers:
+            for k, v in headers.items():
+                self.send_header(k, v)
         
         # 针对 >512 字节的数据自动启用 Gzip 压缩
         accept_enc = self.headers.get("Accept-Encoding", "")
@@ -756,7 +929,7 @@ class HubHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def check_auth(self):
+    def get_token_from_request(self):
         token = self.headers.get("X-Novel-Token")
         if not token:
             auth_header = self.headers.get("Authorization", "")
@@ -775,7 +948,23 @@ class HubHandler(BaseHTTPRequestHandler):
                 item = item.strip()
                 if item.startswith("novel_token="):
                     token = item[len("novel_token="):]
+        return token
+
+    def check_auth(self):
+        token = self.get_token_from_request()
         return valid_access_token(token)
+
+    def is_admin(self):
+        if not self.check_auth():
+            return False
+        username = self.get_current_username()
+        return username == 'admin' or get_users_dict().get('users', {}).get(username, {}).get('role') == 'admin'
+
+    def get_current_username(self):
+        token = self.get_token_from_request()
+        if valid_access_token(token):
+            return extract_token_username(token)
+        return None
 
     def get_json_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -795,7 +984,7 @@ class HubHandler(BaseHTTPRequestHandler):
             if query.get("file"):
                 safe_component(query["file"][0])
             if self.path.split("?")[0].rstrip("/").endswith((
-                    "/pending_task", "/task_status", "/books", "/chapters", "/chapter", "/library",
+                    "/pending_task", "/task_status", "/active_tasks", "/books", "/chapters", "/chapter", "/library",
                     "/settings", "/setting", "/tomato_clean", "/chapter_extras", "/app_settings", "/sync_manifest", "/sync_document",
                     "/fanqie_publish_package", "/fanqie_publish_list", "/fanqie_publisher.user.js", "/auto_write_status", "/outline_check")):
                 with WRITE_LOCK:
@@ -815,11 +1004,17 @@ class HubHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = urlparse(self.path).path.rstrip("/")
-            if path not in ("/api/login", "/novel/api/login") and not self.check_auth():
+            if path not in ("/api/login", "/novel/api/login", "/api/logout", "/novel/api/logout") and not self.check_auth():
                 self.send_json({"error": "Unauthorized", "need_login": True}, 401)
                 return
-            with WRITE_LOCK:
+            if path.rsplit('/', 1)[-1] not in ('login', 'logout', 'change_password') and not self.is_admin():
+                self.send_json({'error': '此操作需要管理员权限'}, 403)
+                return
+            if path.rsplit('/', 1)[-1] in ('trigger_auto_write', 'test_deepseek'):
                 self.handle_post()
+            else:
+                with WRITE_LOCK:
+                    self.handle_post()
         except (ValueError, KeyError, TypeError, UnicodeError) as error:
             self.send_json({"error": str(error)}, 400)
         except FileNotFoundError as error:
@@ -842,8 +1037,9 @@ class HubHandler(BaseHTTPRequestHandler):
 
         if path.startswith(("/api/read/", "/novel/api/read/")):
             read_token = self.headers.get("X-Reading-Token") or qs.get("token", [""])[0]
-            if not valid_reading_token(read_token):
-                self.send_json({"error": "阅读链接已失效，请向作者索取新链接"}, 403)
+            is_authed = self.check_auth()
+            if not is_authed and not valid_reading_token(read_token):
+                self.send_json({"error": "阅读链接已失效或未登录，请先登录或向作者索取新链接", "need_login": True}, 403)
                 return
             resource = path.rsplit("/", 1)[-1]
             if resource == "books":
@@ -994,6 +1190,41 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(APP_VERSION_INFO)
             return
 
+        # 身份状态鉴权检查接口 (支持多端无缝鉴权探测)
+        if path in ("/api/auth_status", "/novel/api/auth_status"):
+            is_authed = self.check_auth()
+            username = self.get_current_username() if is_authed else None
+            role = "admin"
+            if is_authed and username:
+                users_info = get_users_dict()
+                user_record = users_info.get("users", {}).get(username, {})
+                role = user_record.get("role", "admin" if username == "admin" else "reader")
+            self.send_json({"ok": True, "authenticated": is_authed, "username": username or "admin", "role": role})
+            return
+
+        # 获取系统用户列表 (仅 admin 允许)
+        if path in ("/api/users", "/novel/api/users"):
+            if not self.check_auth():
+                self.send_json({"ok": False, "error": "请先登录"}, 401)
+                return
+            current_user = self.get_current_username() or "admin"
+            users_info = get_users_dict()
+            users = users_info.get("users", {})
+            current_record = users.get(current_user, {})
+            if current_user != "admin" and current_record.get("role") != "admin":
+                self.send_json({"ok": False, "error": "仅系统管理员 admin 允许查看用户列表"}, 403)
+                return
+            user_list = [
+                {
+                    "username": u,
+                    "role": info.get("role", "reader"),
+                    "created_at": info.get("created_at", 0)
+                }
+                for u, info in users.items()
+            ]
+            self.send_json({"ok": True, "users": user_list})
+            return
+
         # Authenticated versioned display thumbnails and original downloads.
         if path in ("/api/cover", "/novel/api/cover"):
             read_token = self.headers.get("X-Reading-Token") or qs.get("token", [""])[0]
@@ -1078,34 +1309,44 @@ class HubHandler(BaseHTTPRequestHandler):
 
         # 调阅/下载番茄小说作家后台油猴发布脚本 (.user.js) - 免登录拦截，支持动态注入当前站点地址与授权 Token
         if path.endswith("/fanqie_publisher.user.js"):
+            if not self.is_admin():
+                self.send_json({'error': '安装发布脚本需要管理员授权'}, 403)
+                return
             script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fanqie_publisher.user.js")
             if os.path.exists(script_path):
                 with open(script_path, "r", encoding="utf-8") as fp:
                     script_text = fp.read()
                 host_url = f"https://{self.headers.get('Host', '124.220.54.64')}/novel"
-                current_token = qs.get("token", [""])[0]
-                if not current_token:
-                    cookie_header = self.headers.get("Cookie", "")
-                    for item in cookie_header.split(";"):
-                        item = item.strip()
-                        if item.startswith("novel_token="):
-                            current_token = item[len("novel_token="):]
-                if not current_token and AUTH_TOKEN:
-                    current_token = AUTH_TOKEN
-                if current_token:
-                    script_text = script_text.replace("token: GM_getValue('hub_token', '')", f"token: GM_getValue('hub_token', '{current_token}')")
+                scope = qs.get('book', ['*'])[0]
+                if scope != '*':
+                    book_path, _ = novel_manager.get_book_path(scope, BOOKS_DIR)
+                    scope = Path(book_path).name
+                current_token = issue_publish_token(scope)
+                script_text = script_text.replace("token: GM_getValue('hub_token', '')", f"token: '{current_token}'")
                 script_text = script_text.replace("https://124.220.54.64/novel", host_url)
                 script_bytes = script_text.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
                 self.send_header("Content-Disposition", 'inline; filename="fanqie_publisher.user.js"')
                 self.send_header("Content-Length", str(len(script_bytes)))
-                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(script_bytes)
             else:
                 self.send_json({"error": "Script file not found"}, 404)
             return
+
+        protected = ('fanqie_publish_package', 'fanqie_publish_list', 'novel_synopsis', 'fanqie_books', 'publish_books')
+        publish_grant = publishing_grant(self.get_token_from_request())
+        if path.rsplit('/', 1)[-1] in protected:
+            if not self.is_admin() and not publish_grant:
+                self.send_json({'error': '发布授权已失效，请重新安装发布脚本', 'need_login': not self.check_auth()}, 403)
+                return
+            if publish_grant and publish_grant['book'] != '*' and path.rsplit('/', 1)[-1] not in ('fanqie_books', 'publish_books'):
+                requested = qs.get('book', ['给政哥讲量子力学，他竟肉身硬抗二向箔'])[0]
+                if requested != publish_grant['book']:
+                    self.send_json({'error': '发布授权限定为指定作品'}, 403)
+                    return
 
         # 网文发布包接口：一键获取章节序号、纯标题、纯净正文与作者有话说 (供跨平台油猴脚本免拦截调阅)
         if path in ["/api/fanqie_publish_package", "/novel/api/fanqie_publish_package"]:
@@ -1151,18 +1392,26 @@ class HubHandler(BaseHTTPRequestHandler):
         if path in ["/api/fanqie_books", "/novel/api/fanqie_books", "/api/publish_books", "/novel/api/publish_books"]:
             cache_key = "novel:cache:books"
             cached = get_cached(cache_key)
-            if cached:
+            if cached and (not publish_grant or publish_grant['book'] == '*'):
                 self.send_json(cached)
                 return
             books = novel_manager.list_books(BOOKS_DIR)
+            if publish_grant and publish_grant['book'] != '*':
+                books = [book for book in books if book['id'] == publish_grant['book']]
             res = {"ok": True, "books": books}
-            set_cached(cache_key, res, ttl=180)
+            if not publish_grant or publish_grant['book'] == '*':
+                set_cached(cache_key, res, ttl=180)
             self.send_json(res)
             return
 
         # 以下需认证
         if not self.check_auth() and not path.endswith("/api/login"):
             self.send_json({"error": "Unauthorized", "need_login": True}, 401)
+            return
+
+        if not self.is_admin() and path.rsplit('/', 1)[-1] not in (
+                'books', 'chapters', 'chapter', 'library', 'settings', 'setting', 'chapter_extras', 'illustration'):
+            self.send_json({'error': '此接口需要管理员权限'}, 403)
             return
 
         if path in ("/api/writing_memory", "/novel/api/writing_memory"):
@@ -1187,14 +1436,17 @@ class HubHandler(BaseHTTPRequestHandler):
 
         # 获取系统全局个性化设置
         if path in ("/api/app_settings", "/novel/api/app_settings"):
+            if not self.is_admin():
+                self.send_json({'error': '系统设置需要管理员权限'}, 403)
+                return
             settings = novel_manager.get_user_settings(DATA_DIR)
-            self.send_json({"ok": True, "settings": settings})
+            self.send_json({"ok": True, "settings": public_settings(settings)})
             return
 
         # 获取每日全自动续写与智能巡检状态
         if path in ("/api/auto_write_status", "/novel/api/auto_write_status"):
             mgr = get_auto_writer_manager(DATA_DIR, BOOKS_DIR)
-            status = mgr.get_status()
+            status = mgr.get_status(TASKS)
             status["local_online"] = bool(LOCAL_STATUS.get("online", False))
             status["local_last_seen"] = LOCAL_STATUS.get("last_seen", 0)
             self.send_json(status)
@@ -1476,6 +1728,7 @@ class HubHandler(BaseHTTPRequestHandler):
                         continue
                     t["status"] = "assigned"
                     t["assigned_at"] = now
+                    t["heartbeat_at"] = now
                     save_json_file(os.path.join(DATA_DIR, "tasks.json"), TASKS)
                     self.send_json({"task": t, "refresh_agents": refresh_agents})
                     return
@@ -1501,7 +1754,9 @@ class HubHandler(BaseHTTPRequestHandler):
                         "progress": clean_prog,
                         "latest_log": logs[-1] if logs else "",
                         "created_at": t.get("created_at"),
-                        "heartbeat_at": t.get("heartbeat_at")
+                        "heartbeat_at": t.get("heartbeat_at"),
+                        "cancel_requested": bool(t.get('cancel_requested')),
+                        **task_execution_state(t)
                     }
                     active_list.append(info)
                     if b_id and (b_id not in by_book or t.get("status") == "running"):
@@ -1518,23 +1773,17 @@ class HubHandler(BaseHTTPRequestHandler):
                     and task.get("status") in ("running", "assigned", "pending")
                     and task.get("action") in ("creative_instruction", "repair_chapter", "evolve_settings", "create_new_novel")]
                 candidates.sort(key=lambda task: (task["status"] == "pending", task.get("created_at", 0)))
+                if not candidates and qs.get('latest') == ['1']:
+                    candidates = sorted((task for task in TASKS.values() if task.get('book_id') == book
+                        and task.get('action') in ('creative_instruction', 'repair_chapter', 'evolve_settings', 'create_new_novel')),
+                        key=lambda task: task.get('created_at', 0), reverse=True)[:1]
                 if not candidates:
                     self.send_json({"task": None})
                     return
                 tid = candidates[0]["id"]
             if tid in TASKS:
                 task = TASKS[tid]
-                ahead = []
-                if task['status'] == 'pending':
-                    for key, item in TASKS.items():
-                        if key == tid:
-                            break
-                        if item['status'] in ('pending', 'assigned', 'running'):
-                            ahead.append(item)
-                self.send_json({**task, 'queue_position': len(ahead),
-                    'waiting_for': [{'id': item['id'], 'action': item['action'],
-                        'chapter_count': item.get('extra_data', {}).get('chapter_count', 1),
-                        'progress': next((line for line in reversed(item.get('progress_log', [])) if '续写进度' in line), (item.get('progress_log') or ['等待电脑领取'])[-1])} for item in ahead]})
+                self.send_json({**task, **task_execution_state(task)})
             else:
                 self.send_json({"error": "Task not found"}, 404)
             return
@@ -1546,13 +1795,148 @@ class HubHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
         body = self.get_json_body()
 
-        # 登录认证
+        # 登录认证 (支持账号密码登录与旧版口令登录)
         if path == "/api/login" or path == "/novel/api/login":
+            username = body.get("username", "").strip() if isinstance(body.get("username"), str) else ""
             pwd = body.get("password", "")
-            if isinstance(pwd, str) and hmac.compare_digest(pwd.encode(), PASSWORD.encode()):
-                self.send_json(issue_session())
+            users_info = get_users_dict()
+            users = users_info.get("users", {})
+            authenticated = False
+            login_user = "admin"
+
+            if username:
+                user_record = users.get(username)
+                if user_record and verify_password(pwd, user_record.get("password_hash")):
+                    authenticated = True
+                    login_user = username
+                elif username == "admin" and not (user_record or {}).get('updated_at') and isinstance(pwd, str) and hmac.compare_digest(pwd.encode(), PASSWORD.encode()):
+                    authenticated = True
+                    login_user = "admin"
             else:
-                self.send_json({"ok": False, "error": "口令错误，请重新输入"}, 401)
+                admin_record = users.get("admin")
+                if admin_record and verify_password(pwd, admin_record.get("password_hash")):
+                    authenticated = True
+                    login_user = "admin"
+                elif not (admin_record or {}).get('updated_at') and isinstance(pwd, str) and hmac.compare_digest(pwd.encode(), PASSWORD.encode()):
+                    authenticated = True
+                    login_user = "admin"
+
+            if authenticated:
+                session_info = issue_session(login_user)
+                token = session_info["token"]
+                cookie_header = f"novel_token={token}; Path=/; Max-Age={SESSION_SECONDS}; SameSite=Lax"
+                self.send_json(session_info, headers={"Set-Cookie": cookie_header})
+            else:
+                self.send_json({"ok": False, "error": "账号或密码错误，请核对后重新输入"}, 401)
+            return
+
+        # 退出登录
+        if path in ("/api/logout", "/novel/api/logout"):
+            token = self.get_token_from_request()
+            if token and token.startswith('session.') and valid_access_token(token):
+                revoked_path = os.path.join(DATA_DIR, 'revoked_sessions.json')
+                revoked = {key: expiry for key, expiry in load_json_file(revoked_path, {}).items() if expiry > time.time()}
+                revoked[hashlib.sha256(token.encode()).hexdigest()] = int(token.split('.')[1])
+                atomic_json(revoked_path, revoked)
+            self.send_json({"ok": True, "message": "已成功退出登录"}, headers={"Set-Cookie": "novel_token=; Path=/; Max-Age=0; SameSite=Lax"})
+            return
+
+        # 修改密码
+        if path in ("/api/change_password", "/novel/api/change_password"):
+            if not self.check_auth():
+                self.send_json({"error": "Unauthorized", "detail": "请先登录"}, 401)
+                return
+            username = self.get_current_username() or "admin"
+            old_password = body.get("old_password", "")
+            new_password = body.get("new_password", "")
+            if not new_password or len(new_password) < 4:
+                self.send_json({"ok": False, "error": "新密码长度至少需要4位字符"}, 400)
+                return
+            users_info = get_users_dict()
+            users = users_info.get("users", {})
+            user_record = users.get(username)
+            if not user_record:
+                user_record = {"password_hash": hash_password(PASSWORD), "role": "admin", "created_at": time.time()}
+                users[username] = user_record
+
+            if not verify_password(old_password, user_record.get("password_hash")) and not (not (user_record or {}).get('updated_at') and isinstance(old_password, str) and hmac.compare_digest(old_password.encode(), PASSWORD.encode())):
+                self.send_json({"ok": False, "error": "原密码不正确"}, 400)
+                return
+
+            user_record["password_hash"] = hash_password(new_password)
+            user_record["updated_at"] = time.time()
+            user_record['session_version'] = user_record.get('session_version', 0) + 1
+            users[username] = user_record
+            save_users_dict(users_info)
+            self.send_json({"ok": True, "message": "密码修改成功，请牢记新密码"})
+            return
+
+        # 管理员专用注册/新建读者账号接口 (仅 admin 允许调用，其他用户一律不许)
+        if path in ("/api/register_user", "/novel/api/register_user"):
+            if not self.check_auth():
+                self.send_json({"ok": False, "error": "请先登录后操作"}, 401)
+                return
+            current_user = self.get_current_username() or "admin"
+            users_info = get_users_dict()
+            users = users_info.get("users", {})
+            current_record = users.get(current_user, {})
+            if current_user != "admin" and current_record.get("role") != "admin":
+                self.send_json({"ok": False, "error": "权限拒绝：仅系统超级管理员 admin 拥有注册与创建新账号权限，其他用户一律不允许。"}, 403)
+                return
+
+            new_username = body.get("username", "").strip() if isinstance(body.get("username"), str) else ""
+            new_password = body.get("password", "")
+            if not new_username:
+                self.send_json({"ok": False, "error": "注册用户名不能为空"}, 400)
+                return
+            if len(new_username) < 2 or len(new_username) > 32:
+                self.send_json({"ok": False, "error": "用户名长度需在 2 到 32 个字符之间"}, 400)
+                return
+            if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fa5]+$', new_username):
+                self.send_json({"ok": False, "error": "用户名仅支持中文字符、英文字母、数字及下划线"}, 400)
+                return
+            if new_username in users:
+                self.send_json({"ok": False, "error": f"账号「{new_username}」已存在，不能重复注册"}, 400)
+                return
+            if not new_password or len(new_password) < 4:
+                self.send_json({"ok": False, "error": "密码长度至少需要4位字符"}, 400)
+                return
+
+            users[new_username] = {
+                "password_hash": hash_password(new_password),
+                "role": "reader",
+                "created_at": time.time(),
+                "created_by": current_user
+            }
+            save_users_dict(users_info)
+            self.send_json({
+                "ok": True,
+                "message": f"账号「{new_username}」注册成功！",
+                "user": {"username": new_username, "role": "reader", "created_at": time.time()}
+            })
+            return
+
+        # 获取系统用户列表 (仅 admin 允许)
+        if path in ("/api/users", "/novel/api/users"):
+            if not self.check_auth():
+                self.send_json({"ok": False, "error": "请先登录"}, 401)
+                return
+            current_user = self.get_current_username() or "admin"
+            users_info = get_users_dict()
+            users = users_info.get("users", {})
+            current_record = users.get(current_user, {})
+            if current_user != "admin" and current_record.get("role") != "admin":
+                self.send_json({"ok": False, "error": "仅系统管理员 admin 允许查看用户列表"}, 403)
+                return
+            user_list = [
+                {
+                    "username": u,
+                    "role": info.get("role", "reader"),
+                    "created_at": info.get("created_at", 0)
+                }
+                for u, info in users.items()
+            ]
+            self.send_json({"ok": True, "users": user_list})
             return
 
         if path in ("/api/reading_link", "/novel/api/reading_link"):
@@ -1585,10 +1969,21 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json(result)
             return
 
+        if path in ('/api/revoke_publish_authorizations', '/novel/api/revoke_publish_authorizations'):
+            grants_path = os.path.join(DATA_DIR, 'publish_authorizations.json')
+            grants = load_json_file(grants_path, {})
+            for value in grants.values():
+                value['revoked'] = True
+            atomic_json(grants_path, grants)
+            self.send_json({'ok': True, 'message': '发布脚本授权已撤销，重新安装脚本后可继续使用'})
+            return
+
         # 保存系统个性化设置
         if path in ("/api/app_settings", "/novel/api/app_settings"):
+            if body.get('deepseek_api_key') == '********':
+                body.pop('deepseek_api_key')
             new_settings = novel_manager.save_user_settings(body, DATA_DIR)
-            self.send_json({"ok": True, "settings": new_settings})
+            self.send_json({"ok": True, "settings": public_settings(new_settings)})
             return
 
         # 手动立即触发每日全自动巡检与连更流水线
@@ -1682,6 +2077,8 @@ class HubHandler(BaseHTTPRequestHandler):
         # DeepSeek API 连通性测试接口
         if path in ("/api/test_deepseek", "/novel/api/test_deepseek"):
             api_key = str(body.get("api_key") or "").strip()
+            if body.get('use_saved_key'):
+                api_key = novel_manager.get_user_settings(DATA_DIR).get('deepseek_api_key', '')
             base_url = str(body.get("base_url") or "").strip()
             import deepseek_client
             ok, msg = deepseek_client.test_api_key(api_key, base_url)
@@ -1737,6 +2134,13 @@ class HubHandler(BaseHTTPRequestHandler):
 
         if path in ("/api/heartbeat", "/novel/api/heartbeat"):
             LOCAL_STATUS.update(online=True, last_seen=time.time())
+            health = body.get('health')
+            if (isinstance(health, dict) and health.get('phase') in ('initial_sync', 'ready')
+                    and isinstance(health.get('scheduler_at'), (int, float))):
+                LOCAL_STATUS['health'] = {key: health.get(key) for key in ('phase', 'scheduler_at', 'active_count')}
+            capacity = body.get('capacity')
+            if isinstance(capacity, int) and not isinstance(capacity, bool) and 1 <= capacity <= 32:
+                LOCAL_STATUS['capacity'] = capacity
             now = time.time()
             tids = body.get("ids", [])
             if not isinstance(tids, list):
@@ -1749,6 +2153,23 @@ class HubHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "sync_requested_at": LOCAL_STATUS.get("sync_requested_at", 0)})
             return
 
+        if path in ('/api/confirm_chapter_extras', '/novel/api/confirm_chapter_extras'):
+            book = body.get('book')
+            filename = safe_component(body.get('file'))
+            extras = novel_manager.get_chapter_extras(book, filename, BOOKS_DIR)
+            meta = extras.get('meta')
+            if not meta:
+                raise ValueError('本章暂无可复核素材')
+            if body.get('revision') != meta.get('revision') or body.get('chapter_revision') != extras['chapter_revision']:
+                self.send_json({'error': '正文或素材已更新，请刷新后复核'}, 409)
+                return
+            meta.update(reviewed_revision=extras['chapter_revision'], reviewed_at=time.time(),
+                        reviewed_by=self.get_current_username(), revision=uuid.uuid4().hex)
+            book_path, _ = novel_manager.get_book_path(book, BOOKS_DIR)
+            atomic_json(within(book_path, '02_插图', extras['chap_dir'], 'meta.json'), meta)
+            self.send_json({'ok': True})
+            return
+
         if path in ("/api/save_chapter_notes", "/novel/api/save_chapter_notes"):
             book = body.get("book")
             filename = safe_component(body.get("file"))
@@ -1758,6 +2179,10 @@ class HubHandler(BaseHTTPRequestHandler):
             if body.get("revision", "") != meta.get("revision", ""):
                 self.send_json({"error": "文案已在其他页面更新，请重新载入后保存"}, 409)
                 return
+            identity = novel_manager.chapter_identity(book, filename, BOOKS_DIR)
+            if body.get('chapter_revision') and body['chapter_revision'] != identity['chapter_revision']:
+                self.send_json({'error': '正文已更新，请重新核对文案后保存'}, 409)
+                return
             note = body.get("author_note", "")
             comments = body.get("chapter_comments", [])
             if not isinstance(note, str) or len(note) > 20000 or not isinstance(comments, list):
@@ -1765,7 +2190,8 @@ class HubHandler(BaseHTTPRequestHandler):
             if len(comments) > 20 or any(not isinstance(c, str) or len(c) > 5000 for c in comments):
                 raise ValueError("章评格式或长度无效")
             meta.update(chapter_filename=filename, chapter_code=extras["chap_dir"],
-                        author_note=note, chapter_comments=comments, revision=uuid.uuid4().hex)
+                        author_note=note, chapter_comments=comments, revision=uuid.uuid4().hex,
+                        note_source_sha256=identity['chapter_revision'], chapter_id=identity['chapter_id'])
             directory = within(bpath, "02_插图", extras["chap_dir"])
             atomic_write(os.path.join(directory, "作者有话说.md"), note)
             atomic_write(os.path.join(directory, "章节评论.md"), "\n\n".join(comments))
@@ -2015,6 +2441,7 @@ class HubHandler(BaseHTTPRequestHandler):
                 "project_id": agent.get("project_id"),
                 "permission_mode": "full-access",
                 "extra_data": extra_data,
+            "preferences": novel_manager.writing_preferences(DATA_DIR),
                 "status": "pending",
                 "progress_log": [f"[{time.strftime('%H:%M:%S')}] 任务已建立，等待公司电脑接收..."],
                 "created_at": time.time(),
@@ -2027,6 +2454,22 @@ class HubHandler(BaseHTTPRequestHandler):
                 task["progress_log"] = [f"[{time.strftime('%H:%M:%S')}] 任务已建立，DeepSeek 官方 API 直连创作引擎正在启动..."]
                 start_ready_cloud_tasks()
             self.send_json({"ok": True, "task_id": tid, "task": task})
+            return
+
+        if path in ('/api/cancel_task', '/novel/api/cancel_task'):
+            task = TASKS.get(body.get('id'))
+            if task is None:
+                self.send_json({'error': 'Task not found'}, 404)
+                return
+            if task['status'] in ('pending', 'assigned', 'running') and not task.get('cancel_requested'):
+                task['cancel_requested'] = True
+                task.setdefault('progress_log', []).append('用户请求终止任务，等待执行端确认停止')
+                if task['status'] == 'pending':
+                    task.update(status='failed', completed_at=time.time())
+                    task['progress_log'][-1] = '排队任务已按用户请求取消'
+                save_json_file(os.path.join(DATA_DIR, 'tasks.json'), TASKS)
+                start_ready_cloud_tasks()
+            self.send_json({'ok': True, 'task': {**task, **task_execution_state(task)}})
             return
 
         # 本地桥接器回报任务进度与流式结果
@@ -2042,6 +2485,13 @@ class HubHandler(BaseHTTPRequestHandler):
                 if t["status"] in ("completed", "failed"):
                     self.send_json({"ok": True, "terminal": True})
                     return
+                if t.get('cancel_requested'):
+                    if new_status == 'running':
+                        t['heartbeat_at'] = time.time()
+                        self.send_json({'ok': True, 'cancel_requested': True})
+                        return
+                    new_status = 'failed'
+                    body['log'] = '任务已按用户请求终止。' + str(body.get('log', ''))[:3000]
                 event_id = body.get('event_id')
                 if event_id and event_id in t.get('progress_events', []):
                     self.send_json({'ok': True, 'deduplicated': True})
@@ -2070,6 +2520,13 @@ class HubHandler(BaseHTTPRequestHandler):
         self.send_json({"error": "Not Found", "path": path}, 404)
 
 if __name__ == "__main__":
+    import story_memory
+    for book in Path(BOOKS_DIR).iterdir():
+        if book.is_dir() and not book.name.startswith('.'):
+            try:
+                story_memory.recover_commits(book)
+            except (OSError, ValueError, RuntimeError, KeyError) as error:
+                print(f'作品提交恢复等待核对 {book.name} {error}', flush=True)
     # 加载任务历史
     tasks_file = os.path.join(DATA_DIR, "tasks.json")
     if os.path.exists(tasks_file):

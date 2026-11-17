@@ -175,6 +175,17 @@ class CodexClient:
         if not caller:
             threads = self.request('thread/list', {'cwd': WORKSPACE_ROOT, 'limit': 1, 'currentAccountOnly': True}).get('data', [])
             if not threads:
+                # 兜底1: 获取当前账号最近的任何一个活跃线程作为上下文 caller
+                threads = self.request('thread/list', {'limit': 1, 'currentAccountOnly': True}).get('data', [])
+            if not threads:
+                # 兜底2: 若无历史会话，动态在小说工作区初始化一个本地会话
+                try:
+                    created = self.request('thread/start', {'cwd': WORKSPACE_ROOT})
+                    if created and created.get('thread'):
+                        threads = [created['thread']]
+                except Exception:
+                    pass
+            if not threads:
                 raise RuntimeError('Codex 桌面端尚未提供本地会话上下文，请先打开小说项目')
             caller = threads[0]['id']
         desktop_projects = codex_desktop.call_desktop('list_projects', {}, caller).get('projects', [])

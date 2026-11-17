@@ -19,6 +19,9 @@ import io
 import datetime
 import base64
 import uuid
+import hashlib
+import threading
+from pathlib import Path
 from functools import lru_cache
 from PIL import Image
 from storage import within, safe_component, atomic_json, atomic_write
@@ -208,6 +211,24 @@ def get_user_settings(config_dir=None):
             pass
     return defaults
 
+WRITING_SETTING_KEYS = ('default_chapter_words', 'writing_context_mode', 'writing_context_chars',
+                        'auto_read_previous', 'auto_check_ledger', 'strict_tomato_layout', 'auto_ensure_outline')
+
+
+def writing_preferences(config_dir=None):
+    settings = get_user_settings(config_dir)
+    return {key: settings[key] for key in WRITING_SETTING_KEYS}
+
+
+def chapter_word_bounds(value):
+    if not isinstance(value, str) or not re.fullmatch(r'\d{3,5}-\d{3,5}', value):
+        raise ValueError('目标字数范围无效')
+    lower, upper = map(int, value.split('-'))
+    if not 500 <= lower <= upper <= 50000:
+        raise ValueError('目标字数须按从小到大填写，范围为500至50000')
+    return lower, upper
+
+
 def save_user_settings(settings, config_dir=None):
     if not isinstance(settings, dict):
         raise ValueError("设置必须为对象")
@@ -228,6 +249,8 @@ def save_user_settings(settings, config_dir=None):
         raise ValueError("默认执行端无效")
     if "default_chapter_words" in settings and (not isinstance(settings["default_chapter_words"], str) or not re.fullmatch(r"\d{3,5}-\d{3,5}", settings["default_chapter_words"])):
         raise ValueError("目标字数范围无效")
+    if 'default_chapter_words' in settings:
+        chapter_word_bounds(settings['default_chapter_words'])
     if "reader_font_size" in settings and (isinstance(settings["reader_font_size"], bool) or not isinstance(settings["reader_font_size"], int) or not 14 <= settings["reader_font_size"] <= 32):
         raise ValueError("阅读字号必须为 14 到 32 的整数")
     for key in ("deepseek_api_key", "deepseek_base_url", "default_effort", "deepseek_default_model"):
@@ -334,6 +357,50 @@ def chapter_files(book_path):
         match = re.search(r"第(\d+)章", os.path.basename(path))
         return (int(match.group(1)) if match else 0, path)
     return sorted(files, key=order)
+
+
+_CHAPTER_ID_LOCK = threading.RLock()
+
+
+def chapter_identities(book_path):
+    """Keep server-owned chapter identities across edits and unambiguous renames."""
+    root = Path(book_path).resolve()
+    registry_path = root / '.chapter-identities.json'
+    with _CHAPTER_ID_LOCK:
+        registry = json.loads(registry_path.read_text(encoding='utf-8')) if registry_path.exists() else {}
+        previous = registry.get('records', {})
+        records = {key: {**value, 'active': False} for key, value in previous.items()}
+        result = {}
+        used = set()
+        files = chapter_files(root)
+        numbers = [re.search(r'第(\d+)章', Path(filename).name) for filename in files]
+        numbers = [int(match.group(1)) if match else None for match in numbers]
+        for filename, number in zip(files, numbers):
+            path = Path(filename)
+            relative = path.relative_to(root).as_posix()
+            revision = hashlib.sha256(path.read_text(encoding='utf-8-sig').encode()).hexdigest()
+            candidates = [key for key, record in previous.items() if key not in used
+                          and record['path'] == relative and (record.get('active') or record['revision'] == revision)]
+            if not candidates:
+                candidates = [key for key, record in previous.items() if key not in used and record.get('active')
+                              and (record['revision'] == revision or (number is not None and numbers.count(number) == 1
+                                   and record.get('number') == number))]
+            identifier = candidates[0] if len(candidates) == 1 else uuid.uuid4().hex
+            used.add(identifier)
+            records[identifier] = {'path': relative, 'revision': revision, 'number': number, 'active': True}
+            result[str(path)] = {'chapter_id': identifier, 'chapter_revision': revision}
+        updated = {'schema': 1, 'records': records}
+        if updated != registry:
+            atomic_json(registry_path, updated)
+        return result
+
+
+def chapter_identity(book_id, filename, root_dir):
+    root, _ = get_book_path(book_id, root_dir)
+    matches = [value for path, value in chapter_identities(root).items() if Path(path).name == filename]
+    if len(matches) != 1:
+        raise ValueError('章节身份无法唯一确认，请刷新章节目录')
+    return matches[0]
 
 
 def read_chapter(book_id, filename, root_dir=None):
@@ -877,9 +944,19 @@ def get_chapter_extras(book_id, fname, root_dir):
                 meta = json.load(fp)
             if meta.get("chapter_filename") and meta["chapter_filename"] != fname:
                 raise ValueError("素材所属章节与当前章节不符")
+            identity = chapter_identity(book_id, fname, root_dir)
+            current = identity['chapter_revision']
+            notes_revision = meta.get('note_source_sha256') or meta.get('source_sha256')
+            reviewed = meta.get('reviewed_revision') == current
+            notes_stale = bool(notes_revision and notes_revision != current and not reviewed)
+            images_stale = bool(meta.get('illustrations') and meta.get('source_sha256') != current and not reviewed)
             return {
+                **identity,
                 "ok": True,
                 "has_extras": True,
+                "stale": notes_stale or images_stale,
+                "notes_stale": notes_stale,
+                "illustrations_stale": images_stale,
                 "chapter_code": chap_code,
                 "chap_dir": chap_clean_name,
                 "meta": meta
@@ -890,6 +967,7 @@ def get_chapter_extras(book_id, fname, root_dir):
     return {
         "ok": True,
         "has_extras": False,
+        **chapter_identity(book_id, fname, root_dir),
         "chapter_code": chap_code,
         "chap_dir": chap_clean_name,
         "meta": None
@@ -907,6 +985,8 @@ def export_chapter_illustrations_zip(book_id, fname, root_dir):
     illu_dir = os.path.join(bpath, "02_插图", chap_clean_name)
     
     extras = get_chapter_extras(book_id, fname, root_dir)
+    if extras.get('stale'):
+        raise ValueError('正文已更新，请复核本章素材后再导出')
     meta = extras.get("meta")
     if not meta:
         raise FileNotFoundError("本章暂无可导出的素材")
@@ -1007,9 +1087,11 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
 
     # 调阅作者有话说与互动文案
     extras = get_chapter_extras(book_id, actual_fname, root_dir)
+    if extras.get('notes_stale'):
+        raise ValueError('正文已更新，请复核互动文案后再获取发布包')
     meta = extras.get("meta") or {}
     author_note = meta.get("author_note", "")
-    comments = meta.get("comments", [])
+    comments = meta.get("chapter_comments", meta.get("comments", []))
 
     # 若有互动问题，追加在作者有话说中
     if comments and not author_note.strip():
@@ -1022,6 +1104,7 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
         "book": btitle,
         "filename": actual_fname,
         "chapter_number": chapter_num,
+        **chapter_identity(book_id, actual_fname, root_dir),
         "chapter_title": chapter_title,
         "full_title": full_title,
         "content": cleaned["content"],

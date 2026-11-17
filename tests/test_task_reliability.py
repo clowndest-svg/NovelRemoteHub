@@ -169,6 +169,110 @@ class TaskReliabilityTests(unittest.TestCase):
                 for path in (root / '.story-memory/reviews').glob('*.json')))
 
 
+class WorkerRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir='.test-data')
+        self.root = Path(self.temporary.name)
+        self.addCleanup(self.temporary.cleanup)
+        for name, value in [('ACTIVE_JOB_PATH', self.root / 'active.json'),
+                            ('TASK_REPORTS_PATH', self.root / 'reports.json'), ('ACTIVE_WORKERS', {})]:
+            patcher = patch.object(bridge, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.task = {'id': 'first', 'book_id': '作品一', 'status': 'running',
+                     'extra_data': {'workflow': 'serial'}}
+
+    def test_parallel_tasks_are_persisted_before_worker_start(self):
+        def started():
+            self.assertIn('first', bridge.active_jobs())
+        with patch.object(bridge.threading, 'Thread') as thread:
+            thread.return_value.start.side_effect = started
+            self.assertTrue(bridge.start_task_worker(self.task))
+            self.assertFalse(bridge.start_task_worker(self.task))
+            self.assertEqual(thread.call_count, 1)
+        other = {**self.task, 'id': 'second', 'book_id': '作品二'}
+        bridge.remember_task(other)
+        with patch.object(bridge, 'api_post', return_value={'ok': True}):
+            bridge.report_task({'id': 'first', 'status': 'completed'})
+        self.assertEqual(bridge.active_jobs(), {'second': other})
+
+    def test_restart_recovers_original_serial_task(self):
+        bridge.remember_task(self.task)
+        with patch.object(bridge, 'api_get', return_value=self.task), \
+                patch.object(bridge, 'start_task_worker', return_value=True) as start:
+            self.assertTrue(bridge.recover_active_tasks())
+        start.assert_called_once_with(self.task)
+
+    def test_restart_waits_for_cloud_without_discarding_checkpoint(self):
+        bridge.remember_task(self.task)
+        with patch.object(bridge, 'api_get', return_value=None), patch.object(bridge, 'start_task_worker') as start:
+            self.assertFalse(bridge.recover_active_tasks())
+        start.assert_not_called()
+        self.assertIn('first', bridge.active_jobs())
+
+    def test_restart_does_not_reexecute_terminal_task(self):
+        bridge.remember_task(self.task)
+        with patch.object(bridge, 'api_get', return_value={**self.task, 'status': 'failed'}), \
+                patch.object(bridge, 'start_task_worker') as start:
+            self.assertTrue(bridge.recover_active_tasks())
+        start.assert_not_called()
+        self.assertFalse(bridge.ACTIVE_JOB_PATH.exists())
+
+    def test_cancel_ack_stops_stage_before_saving(self):
+        with patch.object(bridge, 'api_post', return_value={'ok': True, 'cancel_requested': True}):
+            with self.assertRaises(bridge.TaskCancelled):
+                bridge.report_task({'id': 'first', 'status': 'running', 'log': '生成中'})
+
+    def test_transient_location_rejection_retries_original_model_once(self):
+        session = {}
+        with patch.object(bridge.desktop_agents, 'new_conversation', side_effect=['old', 'retry']) as create, \
+                patch.object(bridge.agent_client, 'wait_for_response', side_effect=[
+                    RuntimeError('Antigravity 执行失败 User location is not supported for the API use.'), '完整正文']), \
+                patch.object(bridge.time, 'sleep'):
+            self.assertEqual(bridge.desktop_stage(self.root, '作品', '生成正文', 'antigravity', 'selected', 'high',
+                                                  lambda message: None, session), '完整正文')
+        self.assertEqual(create.call_count, 2)
+        self.assertTrue(all(call.args[2:] == ('selected', 'antigravity', 'high') for call in create.call_args_list))
+        self.assertEqual(session['id'], 'retry')
+
+    def test_persistent_rejection_is_bounded(self):
+        with patch.object(bridge.desktop_agents, 'new_conversation', return_value='id') as create, \
+                patch.object(bridge.agent_client, 'wait_for_response', side_effect=RuntimeError('User location is not supported')), \
+                patch.object(bridge.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'location'):
+                bridge.desktop_stage(self.root, '作品', '生成正文', 'antigravity', 'selected', 'high', lambda message: None)
+        self.assertEqual(create.call_count, 2)
+
+    def test_supervisor_adopts_existing_bridge(self):
+        import launch_daemon
+        with patch.object(launch_daemon, 'acquire_port', side_effect=[unittest.mock.MagicMock(), None]), \
+                patch.object(launch_daemon, 'launch_hidden') as launch, \
+                patch.object(launch_daemon.time, 'sleep', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                launch_daemon.supervise()
+        launch.assert_not_called()
+
+    def test_recovered_native_session_waits_before_resending(self):
+        events = []
+        session = {'id': 'existing', 'recovering': True, 'book_root': str(self.root.resolve())}
+        with patch.object(bridge.agent_client, 'wait_for_idle', side_effect=lambda *args: events.append('idle')), \
+                patch.object(bridge.desktop_agents, 'continue_conversation', side_effect=lambda *args: events.append('send') or 'existing'), \
+                patch.object(bridge.agent_client, 'wait_for_response', return_value='完整正文'):
+            bridge.desktop_stage(self.root, '作品', '生成正文', 'antigravity', 'selected', 'high', lambda message: None, session)
+        self.assertEqual(events, ['idle', 'send'])
+        self.assertNotIn('recovering', session)
+
+    def test_reviewer_requires_json_at_both_ends_of_context(self):
+        with patch.object(bridge.desktop_agents, 'new_conversation', return_value='reviewer') as create, \
+                patch.object(bridge.agent_client, 'wait_for_response', return_value='{"passed":true,"issues":[]}'):
+            bridge.desktop_stage(self.root, '作品', '【阶段 一致性审核】\n审核草稿', 'antigravity',
+                                 'selected', 'high', lambda message: None, {})
+        instruction = create.call_args.args[0]
+        self.assertIn('本轮执行独立审核', instruction)
+        self.assertIn('passed 布尔值和 issues 数组', instruction)
+        self.assertEqual(instruction.count('最终回复输出单个 JSON 对象'), 2)
+
+
 class AntigravityTextReplyTests(unittest.TestCase):
     def trajectory(self, text='本轮正文', status='CASCADE_RUN_STATUS_IDLE'):
         return {'status': status, 'trajectory': {'steps': [
@@ -211,6 +315,33 @@ class AntigravityTextReplyTests(unittest.TestCase):
         with patch.object(agent_client, 'rpc', return_value=result):
             with self.assertRaisesRegex(RuntimeError, 'quota exceeded'):
                 agent_client.wait_for_response('id', 'current-marker')
+
+    def test_connection_outage_is_bounded_and_reports_reconnecting(self):
+        import agent_client
+        elapsed = [0]
+        progress = []
+        def advance(seconds):
+            elapsed[0] += 31
+        with patch.object(agent_client, 'rpc', side_effect=OSError('connection lost')) as rpc, \
+                patch.object(agent_client.time, 'monotonic', side_effect=lambda: elapsed[0]), \
+                patch.object(agent_client.time, 'sleep', side_effect=advance):
+            with self.assertRaisesRegex(RuntimeError, '持续无法连接'):
+                agent_client.wait_for_response('id', 'current-marker', progress.append)
+        self.assertEqual(rpc.call_count, 3)
+        self.assertTrue(any('正在重连' in message for message in progress))
+
+    def test_temporary_disconnect_recovers_current_reply(self):
+        import agent_client
+        with patch.object(agent_client, 'rpc', side_effect=[OSError('connection lost'), self.trajectory()]), \
+                patch.object(agent_client.time, 'sleep'):
+            self.assertEqual(agent_client.wait_for_response('id', 'current-marker'), '本轮正文')
+
+    def test_previous_running_turn_finishes_before_recovery(self):
+        import agent_client
+        with patch.object(agent_client, 'rpc', side_effect=[self.trajectory(status='CASCADE_RUN_STATUS_RUNNING'), self.trajectory()]) as rpc, \
+                patch.object(agent_client.time, 'sleep'):
+            agent_client.wait_for_idle('existing')
+        self.assertEqual(rpc.call_count, 2)
 
 
 if __name__ == '__main__':

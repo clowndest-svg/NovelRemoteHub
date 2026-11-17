@@ -1484,16 +1484,32 @@
             showToast('⚠️ 未找到「存草稿」按钮，请确认页面已就绪！', 3000);
             return false;
         }
-        btn.click();
-        showToast('正在保存草稿并监视风控与引导弹窗...');
-
-        for (let i = 0; i < 25; i++) {
-            await new Promise(r => setTimeout(r, 200));
-            autoDismissTourOrGuide();
-            if (autoDismissSpellcheckModal()) break;
+        let acknowledged = false;
+        const observer = new MutationObserver(records => {
+            for (const record of records) {
+                for (const node of record.addedNodes) {
+                    if (/保存成功|草稿已保存|已保存草稿/.test(node.textContent || '')) acknowledged = true;
+                }
+            }
+        });
+        observer.observe(document.body, {childList:true, subtree:true});
+        try {
+            btn.click();
+            showToast('正在等待平台保存确认...');
+            for (let i = 0; i < 100; i++) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                autoDismissTourOrGuide();
+                autoDismissSpellcheckModal();
+                if (acknowledged) {
+                    showToast('平台已确认草稿保存成功');
+                    return true;
+                }
+            }
+            showToast('平台保存结果尚未确认，请核对草稿箱后继续', 5000);
+            return false;
+        } finally {
+            observer.disconnect();
         }
-        showToast('✅ 草稿已安全存入后台！');
-        return true;
     }
 
     // ================= 跨页面状态机：批量全自动存草稿流水线 =================

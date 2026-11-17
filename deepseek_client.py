@@ -218,10 +218,10 @@ def writing_material(book_root, config_dir=None, query="作品整体发展", mod
     return material, number, files, preferences
 
 
-def write_serial_chapters(book_root, book_id, count=1, user_prompt="", model="deepseek-flash", effort="high", config_dir=None, progress_cb=None, write_lock=None, on_chapter=None, auto_ensure_outline=None):
+def write_serial_chapters(book_root, book_id, count=1, user_prompt="", model="deepseek-flash", effort="high", config_dir=None, progress_cb=None, write_lock=None, on_chapter=None, auto_ensure_outline=None, preferences_snapshot=None):
     import novel_manager
     import story_memory
-    preferences = novel_manager.get_user_settings(config_dir)
+    preferences = dict(preferences_snapshot) if preferences_snapshot is not None else novel_manager.get_user_settings(config_dir)
     if auto_ensure_outline is not None:
         preferences["auto_ensure_outline"] = auto_ensure_outline
     def generate(prompt):

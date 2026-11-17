@@ -25,7 +25,10 @@ def response(prompt):
             outlines.append(f"### 第{c:03d}章 规划章节{c}\n- **时间与核心场景**：码头旧地\n- **核心剧情推进与主要冲突**：追查当年隐秘线索与各方势力冲突\n- **情绪爽点与反差伏笔**：主角从容破局展现惊人推演能力\n- **章末强力断章悬念钩子**：暗中窥伺之人终于现身！\n")
         return "\n".join(outlines)
     number = int(re.search(r'本轮只创作第(\d+)章', prompt).group(1))
-    return f'# 第{number:03d}章 延续\n\n' + '正文承接前情，继续追查线索。' * 80
+    target = re.search(r'目标(\d+)-(\d+)字', prompt)
+    length = int(target.group(1)) if target else 1120
+    body = ('正文承接前情，继续追查线索。' * (length // 14 + 1))[:length]
+    return f'# 第{number:03d}章 延续\n\n' + body
 
 
 def staged_generation(draft):

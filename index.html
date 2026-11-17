@@ -310,6 +310,12 @@
             flex: 1;
         }
 
+        @media (max-width: 600px) {
+            .shelf-strip { flex-wrap: wrap; }
+            .shelf-strip .active-book-wrapper { flex-basis: 100%; }
+            .shelf-actions { flex-wrap: wrap; max-width: 100%; }
+        }
+
         .btn-new-book-quick {
             background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(168, 85, 247, 0.08));
             border: 1px solid var(--purple);
@@ -648,6 +654,7 @@
             line-height: var(--reader-line-height);
             letter-spacing: 0.5px;
             white-space: pre-wrap;
+            overflow-wrap: anywhere;
             word-break: break-word;
         }
 
@@ -1479,32 +1486,125 @@
         }
 
         .input-group {
-            margin-bottom: 12px;
+            margin-bottom: 14px;
         }
 
-        .input-label {
-            font-size: 11px;
+        .input-label,
+        .modal-box label {
+            font-size: 12px;
             font-weight: 700;
-            color: var(--text-sub);
-            margin-bottom: 4px;
-            display: block;
+            color: var(--text-main);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            letter-spacing: 0.3px;
         }
 
-        .input-text {
+        /* 全局高质感表单填空框与弹窗输入控件统一规范 */
+        .input-box,
+        .input-text,
+        .modal-box input[type="text"],
+        .modal-box input[type="password"],
+        .modal-box input[type="number"],
+        .modal-box input[type="time"] {
             width: 100%;
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            color: var(--text-main);
-            font-size: 13px;
-            padding: 8px 10px;
-            outline: none;
+            background: rgba(11, 16, 27, 0.92) !important;
+            border: 1px solid rgba(226, 183, 64, 0.28) !important;
+            border-radius: 8px !important;
+            color: #f1f5f9 !important;
+            font-size: 13px !important;
+            padding: 10px 12px !important;
+            box-sizing: border-box !important;
+            outline: none !important;
+            transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.45) !important;
             user-select: text;
             -webkit-user-select: text;
         }
 
-        .input-text:focus {
-            border-color: var(--accent);
+        .input-box:hover,
+        .input-text:hover,
+        .modal-box input[type="text"]:hover,
+        .modal-box input[type="password"]:hover,
+        .modal-box input[type="number"]:hover,
+        .modal-box input[type="time"]:hover {
+            border-color: rgba(226, 183, 64, 0.55) !important;
+            background: rgba(15, 23, 42, 0.96) !important;
+        }
+
+        .input-box:focus,
+        .input-text:focus,
+        .modal-box input[type="text"]:focus,
+        .modal-box input[type="password"]:focus,
+        .modal-box input[type="number"]:focus,
+        .modal-box input[type="time"]:focus {
+            border-color: var(--accent) !important;
+            background: rgba(15, 23, 42, 1) !important;
+            box-shadow: 0 0 14px rgba(226, 183, 64, 0.38), inset 0 2px 4px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        .input-box::placeholder,
+        .input-text::placeholder,
+        .modal-box input::placeholder,
+        .modal-box textarea::placeholder {
+            color: #64748b !important;
+            opacity: 0.85;
+            font-size: 12px;
+        }
+
+        /* 模态框统一主/次按钮规范 */
+        .btn-modal-primary {
+            width: 100%;
+            height: 42px;
+            background: linear-gradient(135deg, #e2b740 0%, #c8960f 100%);
+            border: 1px solid rgba(254, 240, 138, 0.4);
+            border-radius: 8px;
+            color: #0b101b;
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(226, 183, 64, 0.35);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-modal-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(226, 183, 64, 0.5);
+            background: linear-gradient(135deg, #fcd34d 0%, #d97706 100%);
+        }
+        .btn-modal-primary:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 8px rgba(226, 183, 64, 0.3);
+        }
+
+        .btn-modal-secondary {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            color: var(--text-sub);
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn-modal-secondary:hover {
+            border-color: rgba(255, 255, 255, 0.25);
+            color: #fff;
+            background: rgba(51, 65, 85, 0.8);
+        }
+
+        #delete-book-confirm-input {
+            border-color: rgba(239, 68, 68, 0.5) !important;
+        }
+        #delete-book-confirm-input:focus {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.4), inset 0 2px 4px rgba(0, 0, 0, 0.35) !important;
         }
         .notes-editor { display:block; box-sizing:border-box; width:100%; color:var(--text-main); background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:12px; resize:vertical; font:inherit; line-height:1.7; margin:10px 0; }
         .notes-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
@@ -1766,13 +1866,53 @@
 </head>
 <body>
     <div id="access-login-modal" class="modal-overlay" style="z-index:10000" role="dialog" aria-modal="true" aria-labelledby="access-login-title">
-        <form class="modal-box" id="access-login-form" onsubmit="submitAccessLogin(event)">
-            <h2 id="access-login-title" class="modal-title">访问口令登录</h2>
-            <p style="color:var(--text-sub);line-height:1.7">输入智笔云枢访问口令，登录后加载章节、设定和模型。此设备七天内免重复登录。</p>
-            <label for="access-password">访问口令</label>
-            <input id="access-password" type="password" autocomplete="current-password" required class="input-box" style="width:100%;box-sizing:border-box;margin:8px 0" placeholder="请输入访问口令">
-            <p id="access-login-error" role="status" aria-live="polite" style="color:#fca5a5;min-height:24px;overflow-wrap:anywhere"></p>
-            <button id="access-login-submit" type="submit" class="tool-btn" style="width:100%">登录并加载</button>
+        <form class="modal-box" id="access-login-form" onsubmit="submitAccessLogin(event)" style="border:1px solid rgba(226, 183, 64, 0.45); box-shadow:0 20px 60px rgba(0,0,0,0.9), 0 0 35px rgba(226, 183, 64, 0.2); padding:26px 24px;">
+            <div style="text-align:center; margin-bottom:20px;">
+                <div style="font-size:36px; line-height:1; margin-bottom:8px;">🔐</div>
+                <h2 id="access-login-title" class="modal-title" style="font-size:18px; margin:0 0 6px 0; color:var(--accent); font-weight:800; letter-spacing:0.5px;">智笔云枢 · 调度中枢鉴权</h2>
+                <p style="color:var(--text-sub); font-size:12px; line-height:1.6; margin:0;">输入云枢账号与密码，登录后解锁作品卷宗、设定大典与创作调度中枢。支持多设备七天免密保持。</p>
+            </div>
+            <div class="input-group">
+                <label class="input-label" for="access-username"><span>👤</span><span>登录账号</span></label>
+                <input id="access-username" type="text" autocomplete="username" required class="input-box input-text" placeholder="请输入账号 (默认: admin)" value="admin">
+            </div>
+            <div class="input-group">
+                <label class="input-label" for="access-password"><span>🔑</span><span>登录密码</span></label>
+                <input id="access-password" type="password" autocomplete="current-password" required class="input-box input-text" placeholder="请输入登录密码">
+            </div>
+            <p id="access-login-error" role="status" aria-live="polite" style="color:#fca5a5; min-height:22px; font-size:12px; margin:2px 0 12px 0; text-align:center; overflow-wrap:anywhere;"></p>
+            <button id="access-login-submit" type="submit" class="btn-modal-primary">登 录 并 进 入 控 制 台</button>
+        </form>
+    </div>
+
+    <!-- 修改密码 Modal -->
+    <div id="change-password-modal" class="modal-overlay" style="z-index:10001;" onclick="closeChangePasswordModal(event)">
+        <form class="modal-box" id="change-password-form" onsubmit="submitChangePassword(event)" onclick="event.stopPropagation()" style="border:1px solid rgba(226, 183, 64, 0.4); box-shadow:0 20px 60px rgba(0,0,0,0.9), 0 0 30px rgba(226, 183, 64, 0.15); padding:24px;">
+            <div class="modal-header">
+                <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                    <span>🔐</span>
+                    <span>修改登录密码</span>
+                </div>
+                <button type="button" class="close-btn" onclick="closeChangePasswordModal()">&times;</button>
+            </div>
+            <p style="color:var(--text-sub); font-size:12px; line-height:1.6; margin-bottom:14px;">修改后请牢记新密码，下次登录及所有远程端需要使用新密码访问。</p>
+            <div class="input-group">
+                <label class="input-label" for="old-password"><span>🔑</span><span>当前原密码</span></label>
+                <input id="old-password" type="password" autocomplete="current-password" required class="input-box input-text" placeholder="请输入当前使用的原密码">
+            </div>
+            <div class="input-group">
+                <label class="input-label" for="new-password"><span>✨</span><span>设置新密码</span></label>
+                <input id="new-password" type="password" autocomplete="new-password" required class="input-box input-text" placeholder="请输入新密码 (至少 4 位)">
+            </div>
+            <div class="input-group">
+                <label class="input-label" for="confirm-password"><span>🛡️</span><span>再次确认新密码</span></label>
+                <input id="confirm-password" type="password" autocomplete="new-password" required class="input-box input-text" placeholder="请再次输入新密码核对">
+            </div>
+            <p id="change-password-error" role="status" aria-live="polite" style="color:#fca5a5; min-height:20px; font-size:12px; margin:2px 0 10px 0; overflow-wrap:anywhere;"></p>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:14px;">
+                <button type="button" class="btn-modal-secondary" onclick="closeChangePasswordModal()">取 消</button>
+                <button id="change-password-submit" type="submit" class="btn-modal-primary" style="width:auto; padding:0 24px; height:38px;">保 存 新 密 码</button>
+            </div>
         </form>
     </div>
 
@@ -1820,7 +1960,7 @@
             <span id="current-book-label" class="active-book-name">《给政哥讲量子力学，他竟肉身硬抗二向箔》</span>
             <span style="font-size:10px;">▼</span>
         </div>
-        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+        <div class="shelf-actions" style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
             <button class="btn-new-book-quick" onclick="openTasksDashboardModal()" title="查看所有小说当前并发创作进度看板" style="border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; background: rgba(56, 189, 248, 0.1);">
                 <span>📊 任务看板</span>
                 <span id="active-tasks-badge" style="display:none; background:#10b981; color:#000; font-size:10px; font-weight:bold; padding:1px 5px; border-radius:10px; margin-left:3px;">0</span>
@@ -1843,21 +1983,9 @@
     <div class="sync-share-strip" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;">
         <span id="sync-state" role="status" style="flex:1;min-width:160px;color:var(--text-dim)">正在查询同步状态…</span>
         <button id="sync-now" class="btn-new-book-quick" onclick="requestImmediateSync()">立即同步</button>
-        <button class="btn-new-book-quick" onclick="openReadingShare()">分享阅读</button>
-    </div>
-    <div id="reading-share-modal" class="modal-overlay" onclick="if(event.target===this)this.classList.remove('show')">
-        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="reading-share-title" style="width:min(92vw,520px);padding:24px;">
-            <h3 id="reading-share-title">分享全部小说</h3>
-            <p style="font-size:13px;color:var(--text-dim);line-height:1.7">持有链接的人可免密浏览全部小说的目录与正文。链接自生成起一周有效。</p>
-            <textarea id="reading-share-url" readonly aria-label="阅读链接" style="width:100%;height:110px;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;background:var(--bg-secondary);color:var(--text-main);border:1px solid var(--border);border-radius:8px;font-size:12px;"></textarea>
-            <p id="reading-share-state" role="status" style="font-size:12px;line-height:1.6"></p>
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <button id="reading-share-generate" class="btn-new-book-quick" onclick="generateReadingLink()">生成七天链接</button>
-                <button class="btn-new-book-quick" onclick="copyReadingLink()">复制链接</button>
-                <a id="reading-share-open" class="btn-new-book-quick" hidden>打开阅读页面</a>
-                <button class="btn-new-book-quick" onclick="document.getElementById('reading-share-modal').classList.remove('show')">关闭</button>
-            </div>
-        </div>
+        <button class="btn-new-book-quick" onclick="openReaderWindow()" style="background:linear-gradient(135deg, rgba(226, 183, 64, 0.22), rgba(245, 158, 11, 0.15)); border:1px solid var(--accent); color:var(--accent); font-weight:700; display:inline-flex; align-items:center; gap:5px;" title="在新标签页打开番茄小说同款沉浸式全屏阅读器（支持左右仿真翻页、平移、音量键）">
+            <span>📖</span><span>沉浸阅读</span>
+        </button>
     </div>
 
     <div class="agent-controls">
@@ -1880,6 +2008,8 @@
                 <div class="tool-group">
                     <button class="tool-btn" onclick="changeFontSize(-1)">A-</button>
                     <button class="tool-btn" onclick="changeFontSize(1)">A+</button>
+                    <button class="tool-btn" id="btn-vol-page" onclick="toggleMainVolumePage()" title="点击开启或关闭手机音量键控制翻章">🔊 音量翻页: 开</button>
+                    <button class="tool-btn" onclick="openReaderWindow()" title="打开番茄小说同款沉浸式全屏阅读器（支持左右书籍仿真翻页、平移、音量键）" style="color:var(--accent); font-weight:bold; border-color:var(--accent);">🍅 番茄仿真阅读</button>
                     <button class="tool-btn" onclick="switchTab('catalog')">📑 选章</button>
                 </div>
             </div>
@@ -1940,6 +2070,9 @@
                 <div class="catalog-action-row">
                     <button class="btn-catalog-quick highlight" onclick="jumpToLatestChapter()">
                         <span>🚀 直达最新章节</span>
+                    </button>
+                    <button class="btn-catalog-quick" onclick="openReaderWindow()" style="border-color:rgba(226, 183, 64, 0.45); color:var(--accent);" title="打开番茄同款沉浸式全屏阅读器阅读当前作品">
+                        <span>📖 沉浸阅读</span>
                     </button>
                     <button class="btn-catalog-quick" onclick="exportTomatoZip()">
                         <span>📦 导出番茄ZIP</span>
@@ -2264,6 +2397,8 @@
                         </div>
                     </div>
 
+                    <button id="confirm-extras-version" class="btn-new-book-quick" style="display:none;margin-bottom:12px" onclick="confirmExtrasVersion()">已核对素材与最新正文一致</button>
+
                     <!-- 插图张数设定 (1-4张) 与氛围提示词 -->
                     <div style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:12px;">
                         <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
@@ -2413,13 +2548,21 @@
             </div>
 
             <div class="input-group">
-                <label class="input-label">📖 小说书名</label>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <label class="input-label" style="margin:0;">📖 小说对外书名</label>
+                    <span style="font-size:11px; color:#10b981; background:rgba(16, 185, 129, 0.12); border:1px solid rgba(16, 185, 129, 0.3); padding:1px 8px; border-radius:4px;">
+                        🛡️ 修改不改变本机目录，绝对安全
+                    </span>
+                </div>
                 <input type="text" id="edit-book-title" class="input-text" placeholder="输入小说书名">
+                <div style="font-size:11px; color:var(--text-dim); margin-top:4px; line-height:1.4;">
+                    💡 <b>提示</b>：修改此项仅更新封面展示与书架对外书名。本机物理存储目录（<code id="edit-book-path-hint" style="color:var(--accent); font-weight:bold;">D:\小说\…</code>）保持永久物理绑定，调度与同步绝不丢失！
+                </div>
             </div>
 
             <div class="input-group">
                 <label class="input-label">📊 作品体量与创作模式</label>
-                <select id="edit-book-novel-type" class="input-text" style="background:var(--bg-secondary); color:var(--text); border:1px solid var(--border);">
+                <select id="edit-book-novel-type" class="select-box" style="width:100%; height:38px;">
                     <option value="million_long">👑 百万长篇巨制 (1000+章·宏大世界观与全书总账)</option>
                     <option value="mid_short">⚡ 中短篇精品 (几十万字·紧凑快节奏与单主线)</option>
                     <option value="short_story">🔥 爆款短故事 (1~5万字·极速高能反转脑洞)</option>
@@ -2575,6 +2718,60 @@
                     <span style="font-size:12px; color:var(--accent); font-weight:bold;">查看详情 ➔</span>
                 </div>
 
+                <!-- 0.5 账号安全与登录中心 -->
+                <div class="setting-card" style="margin-bottom:14px; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:10px; padding:12px 14px;">
+                    <div style="font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:6px; color:var(--text-main);">
+                        <span>👤</span>
+                        <span>当前登录账号</span>
+                    </div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                        <span style="font-size:14px; color:var(--accent); font-weight:bold;" id="settings-current-user">admin</span>
+                        <div style="display:flex; gap:8px;">
+                            <button class="tool-btn" type="button" onclick="openChangePasswordModal()" style="font-size:12px; padding:6px 12px;">🔐 修改密码</button>
+                            <button class="tool-btn" type="button" onclick="doLogout()" style="font-size:12px; padding:6px 12px; background:rgba(239, 68, 68, 0.2); border:1px solid rgba(239, 68, 68, 0.4); color:#fca5a5;">🚪 退出登录</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 0.6 管理员专用：注册新读者账号 (仅 admin 账户可见并可用，其他用户一律不许) -->
+                <div id="admin-register-card" class="setting-card" style="display:none; margin-bottom:14px; background:rgba(226, 183, 64, 0.05); border:1px solid rgba(226, 183, 64, 0.35); border-radius:10px; padding:14px 16px;">
+                    <div style="font-weight:800; margin-bottom:6px; display:flex; align-items:center; justify-content:space-between; color:var(--accent);">
+                        <span style="display:flex; align-items:center; gap:6px;"><span>👥</span><span>读者账号注册与授权</span></span>
+                        <span style="font-size:11px; background:rgba(226, 183, 64, 0.2); border:1px solid var(--accent); padding:2px 8px; border-radius:6px; color:#fef08a;">👑 仅系统管理员 admin 专属</span>
+                    </div>
+                    <p style="font-size:12px; color:var(--text-sub); line-height:1.5; margin:0 0 12px 0;">在此为其他读者或协作者注册专属账号，注册后他们可独立登录阅读器阅读并隔离保存各自的续读进度与偏好。</p>
+                    
+                    <form onsubmit="submitRegisterUser(event)" style="display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:10px; align-items:end;">
+                        <div>
+                            <label class="input-label" for="reg-username">新账号名称</label>
+                            <input id="reg-username" type="text" class="input-box input-text" placeholder="如: reader_01" required autocomplete="off">
+                        </div>
+                        <div>
+                            <label class="input-label" for="reg-password">初始密码</label>
+                            <input id="reg-password" type="password" class="input-box input-text" placeholder="至少4位字符" required autocomplete="new-password">
+                        </div>
+                        <div>
+                            <label class="input-label" for="reg-confirm-password">再次确认密码</label>
+                            <input id="reg-confirm-password" type="password" class="input-box input-text" placeholder="再次输入密码" required autocomplete="new-password">
+                        </div>
+                        <div>
+                            <button id="reg-submit-btn" type="submit" class="btn-modal-primary" style="height:38px; padding:0 18px; font-size:13px; white-space:nowrap;">➕ 立即注册账号</button>
+                        </div>
+                    </form>
+                    <p id="reg-user-msg" role="status" style="font-size:12px; min-height:18px; margin:8px 0 4px 0; overflow-wrap:anywhere;"></p>
+                    
+                    <!-- 已注册用户列表概览 -->
+                    <div style="margin-top:10px; border-top:1px solid rgba(226, 183, 64, 0.15); padding-top:10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="font-size:11px; font-weight:700; color:var(--text-dim);">已注册账号列表：</span>
+                            <button type="button" class="btn-card-action" style="font-size:10px; padding:2px 8px;" onclick="loadUsersList()">🔄 刷新列表</button>
+                        </div>
+                        <div id="users-list-container" style="display:flex; flex-wrap:wrap; gap:6px;">
+                            <span style="font-size:11px; color:var(--text-dim);">加载中…</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 1. AI 创作偏好 -->
                 <div class="setting-card">
                     <div class="setting-card-title">🤖 AI 创作执行端与模型偏好</div>
@@ -2603,7 +2800,7 @@
                     <div class="setting-item">
                         <div>
                             <div style="font-size:12px; font-weight:bold; color:var(--text-main);">单章默认目标字数</div>
-                            <div class="setting-desc">番茄小说主流黄金章节篇幅，保证剧情饱满爽点密集</div>
+                            <div class="setting-desc">作用于百万长篇作品；短故事/中短篇按各自创作SOP固定篇幅</div>
                         </div>
                         <select id="setting-default-words" class="select-box" style="width:170px;">
                             <option value="4000-5000">黄金标准 (4000-5000字)</option>
@@ -2666,7 +2863,7 @@
                         <option value="full">全文复核（完整设定与历史正文）</option>
                     </select>
                     <label for="setting-context-budget">单次输入字符预算</label>
-                    <input id="setting-context-budget" type="number" min="24000" max="800000" step="1000" value="64000" style="width:100%;box-sizing:border-box;margin:8px 0;">
+                    <input id="setting-context-budget" type="number" min="24000" max="800000" step="1000" value="64000" class="input-text" style="width:100%;box-sizing:border-box;margin:8px 0;">
                     <div class="setting-desc">字符数用于软件预检，请按所选模型容量设置并预留输出空间。模型仍可能拒绝超出其 Token 上限的请求。全文模式会增加用量与耗时，首次构建记忆需要处理已有资料。</div>
                 </div>
 
@@ -3280,6 +3477,7 @@
                         <span>📋 复制脚本全量源码</span>
                         <span style="font-size:11px; opacity:0.8;">(手动配置)</span>
                     </button>
+                    <button class="btn-new-book-quick" onclick="revokePublisherAccess()">撤销发布脚本授权</button>
                     <a href="/novel/api/fanqie_publisher.user.js" download="fanqie_publisher.user.js" class="btn" style="background:linear-gradient(135deg, #3b82f6, #1d4ed8); color:#fff; font-weight:700; padding:12px; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:8px;">
                         <span>💾 下载脚本 (.user.js)</span>
                     </a>
@@ -3422,6 +3620,7 @@
         const API = `${location.origin}/novel/api`;
         const SESSION_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
         let TOKEN = localStorage.getItem("novel_token") || "";
+        let CURRENT_USER = localStorage.getItem("novel_username") || "admin";
         let TOKEN_EXPIRES_AT = Number(localStorage.getItem("novel_token_expires_at")) || 0;
         if (TOKEN && !TOKEN_EXPIRES_AT) {
             TOKEN_EXPIRES_AT = TOKEN.startsWith('session.') ? Number(TOKEN.split('.')[1]) * 1000 : Date.now() + SESSION_CACHE_MS;
@@ -3430,16 +3629,129 @@
         function clearAccessSession() {
             TOKEN = '';
             TOKEN_EXPIRES_AT = 0;
+            CURRENT_USER = 'admin';
             localStorage.removeItem('novel_token');
+            localStorage.removeItem('novel_username');
             localStorage.removeItem('novel_token_expires_at');
-            for (const path of ['/', '/novel/']) document.cookie = `novel_token=; path=${path}; max-age=0; SameSite=Strict; Secure`;
+            for (const path of ['/', '/novel/']) document.cookie = `novel_token=; path=${path}; max-age=0; SameSite=Lax; Secure`;
+            updateUserDisplay();
         }
         function syncAccessCookie() {
             const remaining = Math.max(0, Math.floor((TOKEN_EXPIRES_AT - Date.now()) / 1000));
-            for (const path of ['/', '/novel/']) document.cookie = `novel_token=${encodeURIComponent(TOKEN)}; path=${path}; max-age=${remaining}; SameSite=Strict; Secure`;
+            for (const path of ['/', '/novel/']) document.cookie = `novel_token=${encodeURIComponent(TOKEN)}; path=${path}; max-age=${remaining}; SameSite=Lax; Secure`;
+        }
+        function updateUserDisplay() {
+            const user = localStorage.getItem('novel_username') || CURRENT_USER || 'admin';
+            const el = document.getElementById('settings-current-user');
+            if (el) el.textContent = user;
+
+            // 权限判定：仅 admin 拥有注册与管理其他用户权限，其他用户一律不许
+            const regCard = document.getElementById('admin-register-card');
+            if (regCard) {
+                if (user.toLowerCase() === 'admin') {
+                    regCard.style.display = 'block';
+                    loadUsersList();
+                } else {
+                    regCard.style.display = 'none';
+                }
+            }
+        }
+
+        async function submitRegisterUser(event) {
+            event.preventDefault();
+            const btn = document.getElementById('reg-submit-btn');
+            const msg = document.getElementById('reg-user-msg');
+            const userIn = document.getElementById('reg-username');
+            const pwdIn = document.getElementById('reg-password');
+            const confirmIn = document.getElementById('reg-confirm-password');
+
+            const username = (userIn ? userIn.value : '').trim();
+            const password = pwdIn ? pwdIn.value : '';
+            const confirmPwd = confirmIn ? confirmIn.value : '';
+
+            if (!username) {
+                msg.style.color = '#f87171';
+                msg.textContent = '请输入要注册的新账号名称';
+                return;
+            }
+            if (!password || password.length < 4) {
+                msg.style.color = '#f87171';
+                msg.textContent = '密码至少需要 4 位字符';
+                return;
+            }
+            if (password !== confirmPwd) {
+                msg.style.color = '#f87171';
+                msg.textContent = '两次输入的密码不一致，请核对';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '正在注册…';
+            msg.style.color = 'var(--text-sub)';
+            msg.textContent = '正在向云端提交注册…';
+
+            try {
+                const res = await fetchWithTimeout(`${API}/register_user`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, role: 'reader' })
+                });
+                const payload = await res.json();
+                if (!res.ok || !payload.ok) {
+                    msg.style.color = '#f87171';
+                    msg.textContent = '❌ ' + (payload.error || '注册失败');
+                    showToast('❌ ' + (payload.error || '注册失败'), 'error');
+                    return;
+                }
+                msg.style.color = '#4ade80';
+                msg.textContent = `✓ 账号「${username}」注册成功！读者可使用该账号独立登录阅读。`;
+                showToast(`✓ 账号「${username}」注册成功！`, 'success');
+                userIn.value = '';
+                pwdIn.value = '';
+                confirmIn.value = '';
+                loadUsersList();
+            } catch (err) {
+                msg.style.color = '#f87171';
+                msg.textContent = '❌ 网络请求失败：' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '➕ 立即注册账号';
+            }
+        }
+
+        async function loadUsersList() {
+            const container = document.getElementById('users-list-container');
+            if (!container) return;
+            try {
+                const res = await fetchWithTimeout(`${API}/users`, { method: 'GET' });
+                const payload = await res.json();
+                if (!res.ok || !payload.ok) {
+                    container.innerHTML = `<span style="font-size:11px; color:#f87171;">无法加载用户列表: ${payload.error || '未授权'}</span>`;
+                    return;
+                }
+                const users = payload.users || [];
+                container.innerHTML = users.map(u => {
+                    const isAdmin = u.username.toLowerCase() === 'admin' || u.role === 'admin';
+                    const badgeColor = isAdmin ? 'rgba(226, 183, 64, 0.2)' : 'rgba(56, 189, 248, 0.15)';
+                    const borderColor = isAdmin ? 'var(--accent)' : 'rgba(56, 189, 248, 0.4)';
+                    const textColor = isAdmin ? '#fef08a' : '#bae6fd';
+                    const icon = isAdmin ? '👑' : '👤';
+                    const roleLabel = isAdmin ? '超级管理员' : '读者';
+                    return `
+                        <div style="background:${badgeColor}; border:1px solid ${borderColor}; border-radius:6px; padding:3px 10px; display:inline-flex; align-items:center; gap:6px; font-size:11px; color:${textColor};">
+                            <span>${icon}</span>
+                            <b>${escapeHtml(u.username)}</b>
+                            <span style="opacity:0.75; font-size:10px;">(${roleLabel})</span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {
+                container.innerHTML = `<span style="font-size:11px; color:var(--text-dim);">暂无其他注册读者</span>`;
+            }
         }
         if (TOKEN && (!Number.isFinite(TOKEN_EXPIRES_AT) || Date.now() >= TOKEN_EXPIRES_AT)) clearAccessSession();
         syncAccessCookie();
+        setTimeout(updateUserDisplay, 100);
         let BOOKS = [];
         let CURRENT_BOOK = (function() {
             try {
@@ -3458,6 +3770,7 @@
         let CURRENT_MODEL_TIER = ""; // 从客户端模型目录初始化
         let ACTIVE_TASK_ID = null;
         let TASK_POLL_TIMER = null;
+        let TASK_POLL_GENERATION = 0;
         let SORT_DESC = true;
         let SETTING_MODE = "add";
         let CURRENT_SETTING_DOC = "";
@@ -3677,33 +3990,38 @@
             event.preventDefault();
             const button = document.getElementById('access-login-submit');
             if (button.disabled) return;
+            const userIn = document.getElementById('access-username');
+            const username = (userIn ? userIn.value : 'admin').trim() || 'admin';
             const password = document.getElementById('access-password').value;
-            if (!password) { showToast("请输入访问口令！", "warning"); return; }
+            if (!password) { showToast("请输入登录密码！", "warning"); return; }
             const message = document.getElementById('access-login-error');
             button.disabled = true;
-            button.innerText = '正在登录…';
+            button.innerText = '正在验证…';
             message.innerText = '';
-            showToast("正在校验访问口令...", "info", 2000);
+            showToast("正在验证账号与密码...", "info", 2000);
             try {
                 const response = await fetchWithTimeout(`${API}/login`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password })
+                    body: JSON.stringify({ username, password })
                 });
                 const payload = await response.json();
                 if (!response.ok || !payload.ok) {
-                    message.innerText = payload.error || '访问口令错误';
-                    showToast("❌ 访问口令错误，请核对后重试！", "error", 3500);
+                    message.innerText = payload.error || '账号或密码错误';
+                    showToast("❌ " + (payload.error || '账号或密码错误，请核对后重试！'), "error", 3500);
                     return;
                 }
                 if (!payload.token) throw Error('登录响应缺少凭据');
                 TOKEN = payload.token;
+                CURRENT_USER = payload.username || username || 'admin';
                 TOKEN_EXPIRES_AT = Date.now() + (Number(payload.expires_in) || 604800) * 1000;
                 localStorage.setItem('novel_token', TOKEN);
+                localStorage.setItem('novel_username', CURRENT_USER);
                 localStorage.setItem('novel_token_expires_at', String(TOKEN_EXPIRES_AT));
                 syncAccessCookie();
+                updateUserDisplay();
                 document.getElementById('access-login-modal').classList.remove('show');
                 document.getElementById('access-password').value = '';
-                showToast("✓ 访问口令验证通过，欢迎登录！", "success", 2500);
+                showToast(`✓ 欢迎回来，${CURRENT_USER}！登录成功`, "success", 2500);
                 const resolve = LOGIN_RESOLVE;
                 LOGIN_PROMISE = null;
                 LOGIN_RESOLVE = null;
@@ -3714,9 +4032,105 @@
                 showToast("❌ " + errText, "error", 3500);
             } finally {
                 button.disabled = false;
-                button.innerText = '登录并加载';
+                button.innerText = '登录并进入控制台';
             }
         }
+
+        async function doLogout() {
+            if (!confirm('确定要退出当前账号登录吗？')) return;
+            try {
+                await fetch(`${API}/logout`, { method: 'POST', credentials: 'same-origin' });
+            } catch (e) {}
+            clearAccessSession();
+            showToast('已成功退出当前账号', 'info', 2000);
+            closeSettingsModal();
+            requestAccessLogin();
+        }
+
+        function openChangePasswordModal() {
+            document.getElementById('old-password').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-password').value = '';
+            document.getElementById('change-password-error').textContent = '';
+            document.getElementById('change-password-modal').classList.add('show');
+            setTimeout(() => document.getElementById('old-password').focus(), 100);
+        }
+
+        function closeChangePasswordModal(e) {
+            if (e && e.target && e.target !== document.getElementById('change-password-modal')) return;
+            document.getElementById('change-password-modal').classList.remove('show');
+        }
+
+        async function submitChangePassword(event) {
+            event.preventDefault();
+            const old_password = document.getElementById('old-password').value;
+            const new_password = document.getElementById('new-password').value;
+            const confirm_password = document.getElementById('confirm-password').value;
+            const errEl = document.getElementById('change-password-error');
+            const btn = document.getElementById('change-password-submit');
+
+            if (!old_password) { errEl.textContent = '请输入原密码'; return; }
+            if (!new_password || new_password.length < 4) { errEl.textContent = '新密码长度至少需要4位字符'; return; }
+            if (new_password !== confirm_password) { errEl.textContent = '两次输入的新密码不一致'; return; }
+
+            btn.disabled = true;
+            btn.textContent = '正在保存…';
+            errEl.textContent = '';
+            try {
+                const res = await fetchWithTimeout(`${API}/change_password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Novel-Token': TOKEN },
+                    body: JSON.stringify({ old_password, new_password })
+                });
+                const payload = await res.json();
+                if (!res.ok || !payload.ok) {
+                    errEl.textContent = payload.error || payload.detail || '密码修改失败';
+                    showToast(payload.error || '修改密码失败，请核对原密码', 'error');
+                    return;
+                }
+                showToast('🎉 密码修改成功！请牢记您的新密码', 'success', 3000);
+                document.getElementById('change-password-modal').classList.remove('show');
+                clearAccessSession();
+                await requestAccessLogin();
+            } catch (err) {
+                errEl.textContent = err.message || '网络连接超时';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '保存新密码';
+            }
+        }
+
+        let MAIN_VOLUME_PAGE_ENABLED = localStorage.getItem('novel_main_vol_page') !== 'false';
+        function toggleMainVolumePage() {
+            MAIN_VOLUME_PAGE_ENABLED = !MAIN_VOLUME_PAGE_ENABLED;
+            localStorage.setItem('novel_main_vol_page', String(MAIN_VOLUME_PAGE_ENABLED));
+            const btn = document.getElementById('btn-vol-page');
+            if (btn) btn.textContent = MAIN_VOLUME_PAGE_ENABLED ? '🔊 音量翻页: 开' : '🔇 音量翻页: 关';
+            showToast(MAIN_VOLUME_PAGE_ENABLED ? '✓ 已开启手机音量键控制翻章' : '已关闭音量键控制翻章', 'info', 2000);
+        }
+
+        function openReaderWindow(directChapter = false) {
+            let url = `/novel/read`;
+            if (directChapter && CURRENT_BOOK) {
+                const chap = (CHAPTERS[CURRENT_INDEX] || {}).filename || '';
+                url += `?book=${encodeURIComponent(CURRENT_BOOK)}`;
+                if (chap) url += `&file=${encodeURIComponent(chap)}`;
+            }
+            window.open(url, '_blank');
+        }
+
+        window.addEventListener('keydown', (e) => {
+            const readerPanel = document.getElementById('panel-reader');
+            if (!readerPanel || !readerPanel.classList.contains('active')) return;
+            if (!MAIN_VOLUME_PAGE_ENABLED) return;
+            if (e.key === 'VolumeDown' || e.key === 'AudioVolumeDown') {
+                e.preventDefault();
+                nextChapter();
+            } else if (e.key === 'VolumeUp' || e.key === 'AudioVolumeUp') {
+                e.preventDefault();
+                prevChapter();
+            }
+        }, { passive: false });
 
         async function fetchAPI(url, opts = {}) {
             if (TOKEN && Date.now() >= TOKEN_EXPIRES_AT) clearAccessSession();
@@ -4062,6 +4476,8 @@
             const book = BOOKS.find(b => b.id === bookId) || { id: bookId, title: bookId, genre: '', description: '' };
             document.getElementById("edit-book-id").value = book.id;
             document.getElementById("edit-book-title").value = book.title || book.id;
+            const hintEl = document.getElementById("edit-book-path-hint");
+            if (hintEl) hintEl.textContent = `D:\\小说\\${book.id}`;
             const nType = book.novel_type || book.scale_type || "million_long";
             const selType = document.getElementById("edit-book-novel-type");
             if (selType) selType.value = nType;
@@ -4541,7 +4957,7 @@
             try {
                 const res = await fetchAPI(`${API}/test_deepseek`, {
                     method: "POST",
-                    body: JSON.stringify({ api_key: key, base_url: url })
+                    body: JSON.stringify({ api_key: key === '********' ? '' : key, use_saved_key: key === '********', base_url: url })
                 });
                 if (res && res.ok) {
                     if (statusEl) statusEl.innerHTML = `<span style="color:#10b981; font-weight:bold;">✓ ${escapeHtml(res.message)}</span>`;
@@ -4580,10 +4996,10 @@
                     document.getElementById("setting-context-mode").value = s.writing_context_mode || "layered";
                     document.getElementById("setting-context-budget").value = s.writing_context_chars || 64000;
                     if (document.getElementById("setting-check-ledger")) {
-                        document.getElementById("setting-check-ledger").checked = true;
+                        document.getElementById("setting-check-ledger").checked = s.auto_check_ledger !== false;
                     }
                     if (document.getElementById("setting-read-previous")) {
-                        document.getElementById("setting-read-previous").checked = true;
+                        document.getElementById("setting-read-previous").checked = s.auto_read_previous !== false;
                     }
                     if (document.getElementById("setting-strict-tomato")) {
                         document.getElementById("setting-strict-tomato").checked = s.strict_tomato_layout !== false;
@@ -5091,6 +5507,12 @@
             if (modal) {
                 modal.classList.remove("show");
             }
+        }
+
+        async function revokePublisherAccess() {
+            if (!confirm('撤销全部发布脚本授权？重新安装脚本后可继续使用。')) return;
+            const result = await fetchAPI(`${API}/revoke_publish_authorizations`, {method:'POST', body:'{}'});
+            showToast(result.message || result.error || '请求未确认', result.ok ? 'success' : 'error');
         }
 
         async function copyFanqieScriptSource() {
@@ -5930,6 +6352,9 @@
                     updateActiveTasksBadge(activeList);
                     updateCurrentBookTaskStatus();
                     renderDashboardModalContent();
+                } else if (GLOBAL_BOOK_TASKS.has(CURRENT_BOOK)) {
+                    const statusText = document.getElementById('pipeline-status-text');
+                    if (statusText) statusText.innerText = '正在重新连接任务进度，稍后自动重试';
                 }
             } catch (e) {}
         }
@@ -5945,7 +6370,7 @@
                 badge.style.display = "none";
             }
             const dCount = document.getElementById("dashboard-active-count");
-            if (dCount) dCount.innerText = `${count} 部作品并行创作中`;
+            if (dCount) dCount.innerText = `${count} 个任务待处理或执行中`;
         }
 
         function updateCurrentBookTaskStatus() {
@@ -5969,9 +6394,9 @@
                 }
                 if (termContainer) termContainer.style.display = "block";
                 if (statusText) {
-                    statusText.innerText = task.status === 'pending'
-                        ? '⏳ 任务排队中，等待电脑端 Worker 调度…'
-                        : `⚡ ${task.progress || '电脑端 Agent 正在全力创作…'}`;
+                    statusText.innerText = task.wait_message
+                        ? `⏳ ${task.wait_message}`
+                        : `⚡ ${task.latest_log || task.progress || '电脑端正在执行任务…'}`;
                 }
                 ACTIVE_TASK_ID = task.id;
                 fetchSingleBookTaskLogs(task.id);
@@ -6008,31 +6433,27 @@
                 return;
             }
             try {
-                await fetchAPI(`${API}/report_task`, {
+                const result = await fetchAPI(`${API}/cancel_task`, {
                     method: "POST",
                     body: JSON.stringify({
-                        id: task.id,
-                        status: "failed",
-                        log: "用户在前端手动终止并重置了任务"
+                        id: task.id
                     })
                 });
+                if (!result || !result.ok) throw new Error(result?.error || '请求未确认');
             } catch (e) {
-                console.warn("上报任务终止失败:", e);
+                showToast(`终止请求未确认，请重试。${e.message}`, 'error');
+                return;
             }
-            GLOBAL_BOOK_TASKS.delete(CURRENT_BOOK);
-            ACTIVE_TASK_ID = null;
-            const statusText = document.getElementById("pipeline-status-text");
-            if (statusText) statusText.innerText = "🛑 任务已由用户手动终止，控制台已重置。";
-            updateCurrentBookTaskStatus();
-            updateNextLabel();
-            showToast("已成功终止任务并恢复面板！");
+            await pollAllActiveTasks();
+            showToast('终止请求已确认，正在等待执行端停止');
         }
 
         async function fetchSingleBookTaskLogs(taskId) {
             try {
                 const book = CURRENT_BOOK;
                 const data = await fetchAPI(`${API}/task_status?id=${taskId}`);
-                if (book !== CURRENT_BOOK) return;
+                if (book !== CURRENT_BOOK || (data?.book_id && data.book_id !== book)
+                    || (ACTIVE_TASK_ID && ACTIVE_TASK_ID !== taskId)) return;
                 const term = document.getElementById("task-terminal");
                 if (term && data && data.progress_log) {
                     term.innerText = data.progress_log.join("\n");
@@ -6042,11 +6463,11 @@
                 if (data && data.status === "completed") {
                     if (statusText) statusText.innerText = "🎉 任务已成功完成！正文已自动保存并同步。";
                     await loadChapters();
-                    pollAllActiveTasks();
                 } else if (data && data.status === "failed") {
                     const lastLog = (data.progress_log && data.progress_log.length) ? data.progress_log[data.progress_log.length - 1] : "执行异常中断";
                     if (statusText) statusText.innerText = `❌ 任务未完成: ${lastLog}`;
-                    pollAllActiveTasks();
+                } else if (data && data.wait_message && statusText) {
+                    statusText.innerText = `⏳ ${data.wait_message}`;
                 }
             } catch (e) {}
         }
@@ -6055,13 +6476,42 @@
             const book = CURRENT_BOOK;
             if (!book) return;
             await pollAllActiveTasks();
+            if (book !== CURRENT_BOOK) return;
             const task = GLOBAL_BOOK_TASKS.get(book);
             if (task) {
                 ACTIVE_TASK_ID = task.id;
                 document.getElementById('term-container').style.display = 'block';
-                document.getElementById('pipeline-status-text').innerText = `⚡ ${task.progress || '已恢复当前作品的任务进度'}`;
+                document.getElementById('pipeline-status-text').innerText = task.wait_message
+                    ? `⏳ ${task.wait_message}` : `⚡ ${task.latest_log || task.progress || '已恢复当前作品的任务进度'}`;
                 fetchSingleBookTaskLogs(task.id);
+            } else {
+                const latest = await fetchAPI(`${API}/task_status?book=${encodeURIComponent(book)}&latest=1`);
+                if (book === CURRENT_BOOK && latest?.id && !GLOBAL_BOOK_TASKS.has(book)) {
+                    document.getElementById('term-container').style.display = 'block';
+                    fetchSingleBookTaskLogs(latest.id);
+                }
             }
+        }
+
+        function startPolling(onCompleted) {
+            const taskId = ACTIVE_TASK_ID;
+            const book = CURRENT_BOOK;
+            const generation = ++TASK_POLL_GENERATION;
+            if (TASK_POLL_TIMER) clearTimeout(TASK_POLL_TIMER);
+            const poll = async () => {
+                const task = await fetchAPI(`${API}/task_status?id=${encodeURIComponent(taskId)}`);
+                if (book !== CURRENT_BOOK || generation !== TASK_POLL_GENERATION) return;
+                await fetchSingleBookTaskLogs(taskId);
+                if (task.status === 'completed') {
+                    TASK_POLL_TIMER = null;
+                    if (onCompleted) await onCompleted();
+                } else if (task.status === 'failed') {
+                    TASK_POLL_TIMER = null;
+                } else {
+                    TASK_POLL_TIMER = setTimeout(poll, 2500);
+                }
+            };
+            poll().catch(error => console.error('任务查询失败', error));
         }
 
         function startGlobalTasksPoller() {
@@ -6109,7 +6559,7 @@
                 const wfLabel = wfNames[task.workflow] || task.action || '创作任务';
                 const statusColor = task.status === 'running' ? '#10b981' : (task.status === 'pending' ? '#f59e0b' : '#38bdf8');
                 const statusText = task.status === 'running' ? '🟢 正在执行' : (task.status === 'pending' ? '🟡 队列排队' : '🔵 已分配');
-                const progText = escapeHtml(task.progress || 'Agent 正在规划执行…');
+                const progText = escapeHtml(task.wait_message || task.progress || '正在执行…');
                 const latestLog = escapeHtml(task.latest_log || '');
 
                 return `
@@ -6958,8 +7408,10 @@
                 return;
             }
             CURRENT_EXTRAS_DATA = result.meta || {};
-            EXTRAS_CONTEXT = { book, file: filename, meta: CURRENT_EXTRAS_DATA };
+            EXTRAS_CONTEXT = { book, file: filename, meta: CURRENT_EXTRAS_DATA, chapter_revision: result.chapter_revision };
             renderChapterExtras(CURRENT_EXTRAS_DATA, result.chap_dir);
+            document.getElementById('confirm-extras-version').style.display = result.stale ? 'inline-flex' : 'none';
+            if (result.stale) document.getElementById('extras-status-badge').innerText = '正文已更新，请复核本章素材';
             const draft = NOTES_DRAFTS.get(key);
             if (draft) {
                 document.getElementById("author-note-text").value = draft.author_note;
@@ -7028,6 +7480,21 @@
             gallery.append(grid);
         }
 
+        async function confirmExtrasVersion() {
+            const context = EXTRAS_CONTEXT;
+            if (!context || !extrasMatch(context.book, context.file)) return;
+            rememberNotesDraft();
+            if (NOTES_DRAFTS.has(extrasKey(context.book, context.file))) return showToast('请先保存正在编辑的文案');
+            if (!confirm('已核对本章文案和插画与最新正文一致？确认后将记录本次复核。')) return;
+            const result = await fetchAPI(`${API}/confirm_chapter_extras`, {method:'POST', body:JSON.stringify({
+                book:context.book, file:context.file, revision:context.meta.revision,
+                chapter_revision:context.chapter_revision
+            })});
+            if (!result.ok) return showToast(result.error || '复核未确认', 'error');
+            if (extrasMatch(context.book, context.file)) await loadChapterExtras(context.file);
+            showToast('本章素材版本已复核');
+        }
+
         async function saveChapterNotes() {
             if (!EXTRAS_CONTEXT || !extrasMatch(EXTRAS_CONTEXT.book, EXTRAS_CONTEXT.file)) return showToast("请等待章节素材加载完成");
             const context = EXTRAS_CONTEXT;
@@ -7036,6 +7503,7 @@
             const draft = NOTES_DRAFTS.get(key);
             const payload = {
                 book: context.book, file: context.file,
+                chapter_revision: context.chapter_revision,
                 revision: draft ? draft.revision : (context.meta.revision || ""),
                 author_note: document.getElementById("author-note-text").value.trim(),
                 chapter_comments: document.getElementById("chapter-comments-text").value.split("\n").map(line => line.trim()).filter(Boolean)

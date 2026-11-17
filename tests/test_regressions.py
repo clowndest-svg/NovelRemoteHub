@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import secrets
 import tempfile
 import threading
 import unittest
@@ -35,6 +36,7 @@ class RegressionTests(unittest.TestCase):
         cls.root = Path(cls.temporary.name).resolve()
         hub.BOOKS_DIR = str(cls.root / 'books')
         hub.DATA_DIR = str(cls.root)
+        hub.USERS_FILE = str(cls.root / 'auth_users.json')
         hub.HAS_REDIS = False
         hub.HubHandler.log_message = lambda *args: None
         cls.server = hub.BoundedHTTPServer(('127.0.0.1', 0), hub.HubHandler)
@@ -50,6 +52,7 @@ class RegressionTests(unittest.TestCase):
 
     def setUp(self):
         hub.TASKS.clear()
+        atomic_json(hub.USERS_FILE, {'users': {'admin': {'password_hash': hub.hash_password(hub.PASSWORD), 'role': 'admin'}}})
         hub.MEMORY_CACHE.clear()
         atomic_json(self.root / 'agents.json', {'updated_at': __import__('time').time(), 'engines': [
             {'id': 'antigravity', 'available': True, 'name': 'Antigravity', 'project_id': 'ag-project',
@@ -197,8 +200,135 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(result['queue_position'], 1)
         self.assertEqual(result['waiting_for'][0]['progress'], '续写进度 2/10')
 
+    def test_anonymous_script_download_requires_authorization(self):
+        self.assertEqual(self.request('/fanqie_publisher.user.js', auth=False)[0], 403)
+
+    def test_publish_authorization_is_scoped_and_cannot_manage_tasks(self):
+        token = hub.issue_publish_token(self.book)
+        def get(endpoint):
+            request = urllib.request.Request(self.url + endpoint, headers={'X-Novel-Token': token})
+            try:
+                response = urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                return response.status, json.loads(response.read())
+        status, data = get('/api/fanqie_publish_package?' + self.query)
+        self.assertEqual(status, 200)
+        self.assertEqual(get('/api/fanqie_publish_list?book=other')[0], 403)
+        self.assertEqual(get('/api/active_tasks')[0], 401)
+        self.assertFalse(hub.valid_access_token(token))
+        self.assertTrue(self.request('/api/revoke_publish_authorizations', {})[1]['ok'])
+        self.assertEqual(get('/api/fanqie_publish_list?book=' + urllib.parse.quote(self.book))[0], 403)
+
+    def test_settings_mask_secret_and_preserve_it_when_mask_saved(self):
+        self.request('/api/app_settings', {'deepseek_api_key': 'sk-isolated-test'})
+        settings = self.request('/api/app_settings')[1]['settings']
+        self.assertEqual(settings['deepseek_api_key'], '********')
+        self.request('/api/app_settings', settings)
+        self.assertEqual(manager.get_user_settings(hub.DATA_DIR)['deepseek_api_key'], 'sk-isolated-test')
+
+    def test_logout_revokes_only_current_session(self):
+        first, second = hub.issue_session()['token'], hub.issue_session()['token']
+        request = urllib.request.Request(self.url + '/api/logout', data=b'{}', headers={'X-Novel-Token': first})
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request) as response:
+            self.assertEqual(response.status, 200)
+        self.assertFalse(hub.valid_access_token(first))
+        self.assertTrue(hub.valid_access_token(second))
+
+    def test_password_change_revokes_previous_sessions(self):
+        token = hub.issue_session()['token']
+        self.assertEqual(self.request('/api/change_password', {'old_password': hub.PASSWORD, 'new_password': 'new-isolated-password'})[0], 200)
+        self.assertFalse(hub.valid_access_token(token))
+        self.assertTrue(hub.valid_access_token(hub.AUTH_TOKEN))
+
+    def test_task_snapshots_writing_preferences_without_api_secret(self):
+        self.request('/api/app_settings', {'default_chapter_words': '1000-1500', 'deepseek_api_key': 'sk-test'})
+        task = self.dispatch(action='creative_instruction')[1]['task']
+        self.request('/api/app_settings', {'default_chapter_words': '2000-3000'})
+        self.assertEqual(task['preferences']['default_chapter_words'], '1000-1500')
+        self.assertNotIn('deepseek_api_key', task['preferences'])
+
+    def test_notes_require_current_chapter_revision_and_allow_explicit_review(self):
+        self.notes()
+        extras = self.extras()
+        atomic_write(self.path / '01_正文/第一卷' / self.file, self.text + '\n作者新增内容')
+        payload = {'book': self.book, 'file': self.file, 'revision': extras['meta']['revision'],
+                   'chapter_revision': extras['chapter_revision'], 'author_note': '新文案'}
+        self.assertEqual(self.request('/api/save_chapter_notes', payload)[0], 409)
+        changed = self.extras()
+        self.assertTrue(changed['notes_stale'])
+        self.assertEqual(self.request('/api/fanqie_publish_package?' + self.query)[0], 400)
+        self.assertEqual(self.request('/api/confirm_chapter_extras', {'book': self.book, 'file': self.file,
+            'revision': changed['meta']['revision'], 'chapter_revision': changed['chapter_revision']})[0], 200)
+        self.assertFalse(self.extras()['stale'])
+        self.assertEqual(self.request('/api/fanqie_publish_package?' + self.query)[0], 200)
+
+    def test_anonymous_publish_payload_requires_authorization(self):
+        self.assertEqual(self.request('/api/fanqie_publish_package?' + self.query, auth=False)[0], 403)
+
+    def test_reader_cannot_write_or_read_system_settings(self):
+        self.request('/api/register_user', {'username': 'reader_test', 'password': 'reader-password'})
+        token = self.request('/api/login', {'username': 'reader_test', 'password': 'reader-password'}, auth=False)[1]['token']
+        for endpoint, payload in [('/api/dispatch_task', {}), ('/api/app_settings', None)]:
+            request = urllib.request.Request(self.url + endpoint,
+                data=json.dumps(payload).encode() if payload is not None else None, headers={'X-Novel-Token': token})
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request)
+            self.assertEqual(caught.exception.code, 403)
+            caught.exception.close()
+
     def test_catalog_requires_auth(self):
         self.assertEqual(self.request('/api/engines', auth=False)[0], 401)
+
+    def test_offline_pending_task_reports_actual_blocker(self):
+        _, result = self.dispatch(action='creative_instruction')
+        with patch.dict(hub.LOCAL_STATUS, {'last_seen': 1}, clear=True):
+            task = self.request('/api/task_status?id=' + result['task_id'])[1]
+            active = self.request('/api/active_tasks')[1]['by_book'][self.book]
+        self.assertFalse(task['bridge_online'])
+        self.assertIn('桥接器离线', task['wait_message'])
+        self.assertEqual(active['wait_message'], task['wait_message'])
+
+    def test_other_book_does_not_block_available_parallel_slot(self):
+        _, first = self.dispatch(action='creative_instruction')
+        _, second = self.dispatch(action='creative_instruction')
+        hub.TASKS[first['task_id']]['status'] = 'running'
+        hub.TASKS[second['task_id']]['book_id'] = '其他作品'
+        result = self.request('/api/task_status?id=' + second['task_id'])[1]
+        self.assertEqual(result['queue_position'], 0)
+        self.assertEqual(result['waiting_for'], [])
+
+    def test_pending_cancel_is_terminal_and_never_claimed(self):
+        _, result = self.dispatch(action='creative_instruction')
+        cancelled = self.request('/api/cancel_task', {'id': result['task_id']})
+        self.assertEqual(cancelled[0], 200)
+        self.assertEqual(cancelled[1]['task']['status'], 'failed')
+        self.assertIsNone(self.request('/api/pending_task')[1]['task'])
+
+    def test_running_cancel_waits_for_worker_and_holds_book_slot(self):
+        _, first = self.dispatch(action='creative_instruction')
+        _, second = self.dispatch(action='creative_instruction')
+        self.request('/api/pending_task')
+        self.request('/api/task_progress', {'id': first['task_id'], 'status': 'running'})
+        cancelled = self.request('/api/cancel_task', {'id': first['task_id']})[1]['task']
+        self.assertEqual(cancelled['status'], 'running')
+        self.assertTrue(cancelled['cancel_requested'])
+        self.assertIsNone(self.request('/api/pending_task')[1]['task'])
+        ack = self.request('/api/task_progress', {'id': first['task_id'], 'status': 'running'})[1]
+        self.assertTrue(ack['cancel_requested'])
+        self.request('/api/task_progress', {'id': first['task_id'], 'status': 'completed'})
+        self.assertEqual(hub.TASKS[first['task_id']]['status'], 'failed')
+        self.assertEqual(self.request('/api/pending_task')[1]['task']['id'], second['task_id'])
+
+    def test_refresh_can_restore_latest_failure(self):
+        _, result = self.dispatch(action='creative_instruction')
+        self.request('/api/task_progress', {'id': result['task_id'], 'status': 'failed', 'log': '上游拒绝请求'})
+        endpoint = '/api/task_status?' + urllib.parse.urlencode({'book': self.book})
+        self.assertIsNone(self.request(endpoint)[1]['task'])
+        latest = self.request(endpoint + '&latest=1')[1]
+        self.assertEqual(latest['id'], result['task_id'])
+        self.assertIn('上游拒绝请求', latest['progress_log'][-1])
 
     def test_codex_dispatch_preserves_model_effort_and_permissions(self):
         status, result = self.dispatch(engine_mode='codex', model_tier='gpt-test', reasoning_effort='high')
@@ -859,6 +989,130 @@ class RegressionTests(unittest.TestCase):
             ok, message = local_bridge.execute_agentapi('核对设定')
         self.assertTrue(ok)
         self.assertIn('已核对设定', message)
+
+    def test_account_password_login_and_logout(self):
+        # 1. 使用用户名和密码登录
+        status, data = self.request('/api/login', {'username': 'admin', 'password': hub.PASSWORD}, auth=False)
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get('ok'))
+        self.assertEqual(data.get('username'), 'admin')
+        token = data.get('token')
+        self.assertTrue(hub.valid_access_token(token))
+
+        # 2. 身份状态探测
+        req = urllib.request.Request(self.url + '/api/auth_status', headers={'X-Novel-Token': token})
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req) as resp:
+            self.assertEqual(resp.status, 200)
+            res_json = json.loads(resp.read().decode())
+            self.assertTrue(res_json.get('authenticated'))
+            self.assertEqual(res_json.get('username'), 'admin')
+
+        # 3. 登出接口
+        status_out, data_out = self.request('/api/logout', {}, auth=False)
+        self.assertEqual(status_out, 200)
+        self.assertTrue(data_out.get('ok'))
+
+    def test_change_password_and_relogin(self):
+        # 1. 登录
+        _, login_data = self.request('/api/login', {'username': 'admin', 'password': hub.PASSWORD}, auth=False)
+        token = login_data['token']
+
+        # 2. 尝试使用错误原密码修改密码
+        req_bad = urllib.request.Request(
+            self.url + '/api/change_password',
+            data=json.dumps({'old_password': 'wrong_password', 'new_password': 'newpassword888'}).encode(),
+            headers={'Content-Type': 'application/json', 'X-Novel-Token': token}
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req_bad)
+        self.assertEqual(ctx.exception.code, 400)
+        ctx.exception.close()
+
+        # 3. 使用正确原密码修改为新密码
+        req_good = urllib.request.Request(
+            self.url + '/api/change_password',
+            data=json.dumps({'old_password': hub.PASSWORD, 'new_password': 'newpassword888'}).encode(),
+            headers={'Content-Type': 'application/json', 'X-Novel-Token': token}
+        )
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req_good) as resp:
+            self.assertEqual(resp.status, 200)
+            res_json = json.loads(resp.read().decode())
+            self.assertTrue(res_json.get('ok'))
+
+        # 4. 使用新密码重新登录成功
+        status_new, data_new = self.request('/api/login', {'username': 'admin', 'password': 'newpassword888'}, auth=False)
+        self.assertEqual(status_new, 200)
+        self.assertTrue(data_new.get('ok'))
+
+        # 5. 恢复密码为初始密码以保持环境洁净
+        req_restore = urllib.request.Request(
+            self.url + '/api/change_password',
+            data=json.dumps({'old_password': 'newpassword888', 'new_password': hub.PASSWORD}).encode(),
+            headers={'Content-Type': 'application/json', 'X-Novel-Token': data_new['token']}
+        )
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req_restore) as resp:
+            self.assertEqual(resp.status, 200)
+
+    def test_authenticated_user_can_read_without_reading_token(self):
+        # 验证已登录的用户（携带 Cookie 或 Token）无需分享 token 即可直接调阅书库与正文
+        session = hub.issue_session('admin')
+        req = urllib.request.Request(self.url + '/api/read/books', headers={'Cookie': 'novel_token=' + session['token']})
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req) as resp:
+            self.assertEqual(resp.status, 200)
+            books_data = json.loads(resp.read().decode())
+            self.assertIn('books', books_data)
+
+    def test_admin_register_user_and_permissions(self):
+        test_reader_name = f"reader_{secrets.token_hex(4)}"
+        # 1. 未登录调用注册接口应返回 401
+        status, _ = self.request('/api/register_user', {'username': test_reader_name, 'password': 'password123'}, auth=False)
+        self.assertEqual(status, 401)
+
+        # 2. admin 登录并注册新读者账号
+        admin_session = hub.issue_session('admin')
+        admin_headers = {'X-Novel-Token': admin_session['token'], 'Content-Type': 'application/json'}
+        reg_req = urllib.request.Request(self.url + '/api/register_user',
+                                         data=json.dumps({'username': test_reader_name, 'password': 'password123'}).encode(),
+                                         headers=admin_headers)
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(reg_req) as resp:
+            self.assertEqual(resp.status, 200)
+            res_data = json.loads(resp.read().decode())
+            self.assertTrue(res_data.get('ok'))
+
+        # 3. 新读者账号可以正常登录
+        status, reader_login = self.request('/api/login', {'username': test_reader_name, 'password': 'password123'}, auth=False)
+        self.assertEqual(status, 200)
+        self.assertTrue(reader_login.get('ok'))
+        self.assertEqual(reader_login.get('username'), test_reader_name)
+        reader_token = reader_login.get('token')
+
+        # 4. 非 admin 用户尝试注册新账号应被 403 拒绝
+        reader_headers = {'X-Novel-Token': reader_token, 'Content-Type': 'application/json'}
+        bad_reg = urllib.request.Request(self.url + '/api/register_user',
+                                         data=json.dumps({'username': f"hacker_{secrets.token_hex(4)}", 'password': 'password123'}).encode(),
+                                         headers=reader_headers)
+        try:
+            urllib.request.build_opener(urllib.request.ProxyHandler({})).open(bad_reg)
+            self.fail('非 admin 用户应该被拒绝注册')
+        except urllib.error.HTTPError as err:
+            self.assertEqual(err.code, 403)
+
+        # 5. 非 admin 用户尝试获取所有用户列表应被 403 拒绝
+        bad_users = urllib.request.Request(self.url + '/api/users', headers=reader_headers)
+        try:
+            urllib.request.build_opener(urllib.request.ProxyHandler({})).open(bad_users)
+            self.fail('非 admin 用户应该被拒绝查看用户列表')
+        except urllib.error.HTTPError as err:
+            self.assertEqual(err.code, 403)
+
+        # 6. admin 用户可以获取用户列表，并包含新注册的用户
+        admin_users_req = urllib.request.Request(self.url + '/api/users', headers=admin_headers)
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(admin_users_req) as resp:
+            self.assertEqual(resp.status, 200)
+            user_list = json.loads(resp.read().decode()).get('users', [])
+            usernames = [u['username'] for u in user_list]
+            self.assertIn('admin', usernames)
+            self.assertIn(test_reader_name, usernames)
 
 
 class DesktopAgentTests(unittest.TestCase):

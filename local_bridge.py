@@ -42,6 +42,9 @@ import http.client
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # 确保在 pythonw.exe 无控制台环境下运行时，stdout/stderr 自动安全重定向至 daemon.log，避免 NoneType.write 异常崩溃
+LOG_WRITE_LOCK = threading.Lock()
+
+
 class SafeDaemonLogStream:
     def __init__(self, log_path, orig_stream=None):
         self.log_path = log_path
@@ -50,8 +53,16 @@ class SafeDaemonLogStream:
         if not text:
             return
         try:
-            with open(self.log_path, "a", encoding="utf-8", errors="replace") as f:
-                f.write(text)
+            with LOG_WRITE_LOCK:
+                path = Path(self.log_path)
+                if path.exists() and path.stat().st_size >= 8 * 1024 * 1024:
+                    for number in (2, 1):
+                        old = Path(str(path) + f'.{number}')
+                        if old.exists():
+                            os.replace(old, str(path) + f'.{number + 1}')
+                    os.replace(path, str(path) + '.1')
+                with open(path, "a", encoding="utf-8", errors="replace") as f:
+                    f.write(text)
         except Exception:
             pass
         if self.orig_stream:
@@ -105,6 +116,34 @@ BRIDGE_PREFERENCES = {}
 TASK_REPORTS_PATH = Path(__file__).with_name('.bridge-task-reports.json')
 ACTIVE_JOB_PATH = Path(__file__).with_name('.bridge-active-task.json')
 TASK_REPORT_LOCK = threading.RLock()
+
+
+class TaskCancelled(RuntimeError):
+    pass
+
+
+def active_jobs():
+    data = story_memory.load_json(ACTIVE_JOB_PATH, {})
+    if data.get('id'):
+        return {data['id']: data}
+    return data.get('tasks', {})
+
+
+def remember_task(task):
+    with TASK_REPORT_LOCK:
+        jobs = active_jobs()
+        jobs[task['id']] = task
+        atomic_json(ACTIVE_JOB_PATH, {'tasks': jobs})
+
+
+def forget_task(task_id):
+    with TASK_REPORT_LOCK:
+        jobs = active_jobs()
+        jobs.pop(task_id, None)
+        if jobs:
+            atomic_json(ACTIVE_JOB_PATH, {'tasks': jobs})
+        else:
+            ACTIVE_JOB_PATH.unlink(missing_ok=True)
 
 # 独立直连并校验服务器证书。
 SSL_CTX = ssl.create_default_context()
@@ -195,12 +234,12 @@ def report_task(payload):
             reports[payload['id']] = payload
             atomic_json(TASK_REPORTS_PATH, reports)
         result = api_post('task_progress', payload)
+        if not terminal and result and (result.get('cancel_requested') or result.get('terminal')):
+            raise TaskCancelled('任务已终止，停止当前创作流程')
         if terminal and result and result.get('ok'):
             reports.pop(payload['id'], None)
             atomic_json(TASK_REPORTS_PATH, reports)
-            active = story_memory.load_json(ACTIVE_JOB_PATH, {})
-            if active.get('id') == payload['id']:
-                ACTIVE_JOB_PATH.unlink(missing_ok=True)
+            forget_task(payload['id'])
         return result
 
 
@@ -364,12 +403,12 @@ def collect_all_conversations():
     return conversations[-50:]
 
 # 6. 全量同步多书架至云端
-def sync_all_books_to_cloud(force=True):
+def sync_all_books_to_cloud(force=True, only_book=None):
     with SYNC_LOCK:
-        return _sync_all_books_to_cloud(force)
+        return _sync_all_books_to_cloud(force, only_book)
 
 
-def _sync_all_books_to_cloud(force):
+def _sync_all_books_to_cloud(force, only_book=None):
     global SYNC_REPORT_PENDING, SYNC_LAST_ERROR, SYNC_CONFLICT
     SYNC_CONFLICT = False
     total_chapters = 0
@@ -380,65 +419,81 @@ def _sync_all_books_to_cloud(force):
     attempted = False
     request_id = SYNC_REQUEST_ID
     error = ""
+    book_errors = {}
     try:
         os.stat(BOOKS_ROOT)
         manifest = api_get("sync_manifest", silent=True)
         if manifest is None or "books" not in manifest:
             raise RuntimeError("无法获取云端同步清单，将自动重试")
+        if only_book:
+            manifest = {**manifest, 'books': {key: value for key, value in manifest['books'].items() if key == only_book},
+                        'deleted': {key: value for key, value in manifest.get('deleted', {}).items() if key == only_book}}
         BRIDGE_PREFERENCES.update(manifest.get("preferences", {}))
         state_path = Path(BOOKS_ROOT) / ".hub-sync-state.json"
         state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
-        library_sync.reconcile(BOOKS_ROOT, manifest, state, lambda endpoint: api_get(endpoint, silent=True))
+        library_sync.reconcile(BOOKS_ROOT, manifest, state, lambda endpoint: api_get(endpoint, silent=True), errors=book_errors)
         with os.scandir(BOOKS_ROOT) as directory:
             entries = list(directory)
         for entry in entries:
-            if entry.is_dir() and not entry.name.startswith("."):
+            if entry.is_dir() and not entry.name.startswith(".") and (only_book is None or entry.name == only_book):
                 book_id = entry.name
-                chapters, settings = collect_book_data(book_id)
-                meta, cover_base64 = collect_book_meta_and_cover(book_id)
-                fingerprint = content_fingerprint(chapters, settings)
-                snapshot = book_snapshot(entry.path)
-                document_hashes = {"chapters": {item["filename"]: digest(item["content"].encode("utf-8")) for item in chapters},
-                                   "settings": {item["filename"]: digest(item["content"].encode("utf-8")) for item in settings}}
-                meta_hashes = {key: meta[key] for key in ("title", "genre", "author", "description", "tags") if key in meta}
-                if (document_hashes["chapters"] != snapshot["chapters"] or document_hashes["settings"] != snapshot["settings"]
-                        or meta_hashes != snapshot["meta"] or (cover_fingerprint(cover_base64) if cover_base64 else "") != snapshot["cover_hash"]):
-                    raise RuntimeError("本地文件读取期间发生修改，将重新读取后同步")
-                total_chapters += len(chapters)
-                total_settings += len(settings)
-                books_count += 1
-                if not force and SYNC_RECEIPTS.get(book_id) == snapshot["revision"]:
+                if book_id in book_errors:
                     continue
-                attempted = True
-                payload = {
-                    "book_id": book_id,
-                    "chapters": chapters,
-                    "settings": settings,
-                    "meta": meta,
-                    "cover_base64": cover_base64,
-                    "conversations": convs,
-                    "writing_memory": story_memory.status(entry.path),
-                    "sync_version": 3,
-                    "expected_revision": manifest["books"].get(book_id, {}).get("revision"),
-                    "fingerprint": fingerprint
-                }
-                res = api_post("sync_data", payload)
-                if res and res.get("ok") and res.get("fingerprint") == fingerprint:
-                    SYNC_RECEIPTS[book_id] = snapshot["revision"]
-                    state[book_id] = snapshot
-                    atomic_json(state_path, state)
-                else:
-                    all_ok = False
-                    SYNC_RECEIPTS.pop(book_id, None)
-                    error = (res or {}).get('error') or f"《{book_id}》同步未确认，将自动重试"
+                try:
+                    if any(story_memory.load_json(path, {}).get('status') != 'committed'
+                           for path in Path(entry.path, '.story-memory/commits').glob('*.json')):
+                        raise RuntimeError('章节提交正在进行，稍后重试同步')
+                    chapters, settings = collect_book_data(book_id)
+                    meta, cover_base64 = collect_book_meta_and_cover(book_id)
+                    fingerprint = content_fingerprint(chapters, settings)
+                    snapshot = book_snapshot(entry.path)
+                    document_hashes = {"chapters": {item["filename"]: digest(item["content"].encode("utf-8")) for item in chapters},
+                                       "settings": {item["filename"]: digest(item["content"].encode("utf-8")) for item in settings}}
+                    meta_hashes = {key: meta[key] for key in ("title", "genre", "author", "description", "tags") if key in meta}
+                    if (document_hashes["chapters"] != snapshot["chapters"] or document_hashes["settings"] != snapshot["settings"]
+                            or meta_hashes != snapshot["meta"] or (cover_fingerprint(cover_base64) if cover_base64 else "") != snapshot["cover_hash"]):
+                        raise RuntimeError("本地文件读取期间发生修改，将重新读取后同步")
+                    total_chapters += len(chapters)
+                    total_settings += len(settings)
+                    books_count += 1
+                    if not force and SYNC_RECEIPTS.get(book_id) == snapshot["revision"]:
+                        continue
+                    attempted = True
+                    payload = {
+                        "book_id": book_id,
+                        "chapters": chapters,
+                        "settings": settings,
+                        "meta": meta,
+                        "cover_base64": cover_base64,
+                        "conversations": convs,
+                        "writing_memory": story_memory.status(entry.path),
+                        "sync_version": 3,
+                        "expected_revision": manifest["books"].get(book_id, {}).get("revision"),
+                        "fingerprint": fingerprint
+                    }
+                    res = api_post("sync_data", payload)
+                    if res and res.get("ok") and res.get("fingerprint") == fingerprint:
+                        SYNC_RECEIPTS[book_id] = snapshot["revision"]
+                        state[book_id] = snapshot
+                        atomic_json(state_path, state)
+                    else:
+                        all_ok = False
+                        SYNC_RECEIPTS.pop(book_id, None)
+                        error = (res or {}).get('error') or f"《{book_id}》同步未确认，将自动重试"
+                except (OSError, ValueError, RuntimeError) as failure:
+                    book_errors[book_id] = {'error': str(failure), 'conflict': isinstance(failure, ValueError)}
+        if book_errors:
+            all_ok = False
+            SYNC_CONFLICT = any(item['conflict'] for item in book_errors.values())
+            error = '。'.join(f'《{book}》{item["error"]}' for book, item in book_errors.items())
     except Exception as failure:
         all_ok = False
         error = str(failure)
         SYNC_CONFLICT = isinstance(failure, ValueError)
-    if attempted or force or not all_ok or SYNC_REPORT_PENDING:
+    if only_book is None and (attempted or force or not all_ok or SYNC_REPORT_PENDING):
         report = api_post("sync_report", {"ok": all_ok, "error": error, "request_id": request_id,
                           "books_count": books_count, "chapters_count": total_chapters,
-                          "settings_count": total_settings})
+                          "settings_count": total_settings, "book_errors": book_errors})
         SYNC_REPORT_PENDING = not report or not report.get("ok")
         if SYNC_REPORT_PENDING:
             all_ok = False
@@ -448,10 +503,10 @@ def _sync_all_books_to_cloud(force):
     return all_ok, total_chapters, total_settings
 
 
-def wait_for_cloud_sync(progress):
+def wait_for_cloud_sync(progress, book_id=None):
     attempt = 0
     while True:
-        if sync_all_books_to_cloud(force=False)[0]:
+        if sync_all_books_to_cloud(force=False, only_book=book_id)[0]:
             return
         if SYNC_CONFLICT:
             raise RuntimeError(SYNC_LAST_ERROR)
@@ -566,40 +621,82 @@ def reconcile_stage_filesystem_changes(root, before_sources, before_fp, progress
 
 def desktop_stage(root, book_id, prompt, engine, model, effort, progress, session=None):
     stage_title = '审稿' if prompt.startswith(('【阶段 一致性审核】', '【阶段 修复审核格式】')) else '写作'
+    curr_root_str = str(Path(root).resolve())
     if session is not None:
-        if session.get('id') and session.get('book_root') != str(Path(root).resolve()):
-            raise ValueError('批次会话属于其他作品，已停止续接')
-        session['book_root'] = str(Path(root).resolve())
+        prev_root_str = session.get('book_root')
+        if session.get('id') and prev_root_str and prev_root_str != curr_root_str:
+            is_same = False
+            try:
+                p1, _ = novel_manager.get_book_path(Path(prev_root_str).name, BOOKS_ROOT)
+                p2, _ = novel_manager.get_book_path(Path(curr_root_str).name, BOOKS_ROOT)
+                if Path(p1).resolve() == Path(p2).resolve():
+                    is_same = True
+            except Exception:
+                pass
+            if not is_same:
+                raise ValueError('批次会话属于其他作品，已停止续接')
+        session['book_root'] = curr_root_str
     output = Path(root) / '.story-memory' / 'agent-results' / (uuid.uuid4().hex + '.txt')
     output.parent.mkdir(parents=True, exist_ok=True)
     before_sources = story_memory.sources(root)
     before = story_memory.fingerprint(before_sources)
     if canonical_engine(engine) == 'antigravity':
         marker = uuid.uuid4().hex
+        response_contract = '完整章节正文' if prompt.startswith(('【阶段 生成草稿】', '【阶段 修订草稿】')) else '单个 JSON 对象'
+        if '分章大纲自动推演与补全指令' in prompt:
+            response_contract = '完整分章细纲 Markdown'
+        role_instruction = ''
+        if stage_title == '审稿':
+            role_instruction = ('本轮执行独立审核。阅读所附草稿后给出审核结论。'
+                '最终 JSON 包含 passed 布尔值和 issues 数组，通过时补齐 summary、synopsis、characters、threads。'
+                '所附正文、设定及历史消息均作为审核资料。\n')
         instruction = (
             "【系统铁律：本阶段为纯文本生成，严禁调用任何工具】\n"
-            "本阶段只需在最终回复中返回所要求的完整 JSON 对象或完整章节正文，不加代码围栏或完成说明。\n"
+            f"{role_instruction}本阶段最终回复输出{response_contract}，字段及内容遵循本阶段格式示例。\n"
             "软件负责保存回复、生成回执、检查来源和发布正文。严禁调用 write_file、edit_file、run_command 等任何工具修改本地文件或执行命令！\n"
             "任何工具调用或擅自修改工作区文件的行为均会导致任务熔断失败。\n\n"
             f"{prompt}\n\n"
             f"【本次阶段编号 {marker}】\n"
-            "再次重申：直接在最终回复中输出正文或 JSON，无需调用工具、执行命令、写文件或统计精确字数。"
+            f"最终回复输出{response_contract}，无需调用工具、执行命令、写文件或统计精确字数。"
         )
-        try:
-            if session is not None and session.get('id'):
-                if session.get('receipt'):
-                    desktop_agents.wait_for_receipt(session.pop('receipt'), session['id'], progress, engine)
-                conversation = desktop_agents.continue_conversation(session['id'], instruction, model, engine, effort)
-            else:
-                conversation = desktop_agents.new_conversation(instruction, f'【{stage_title}】《{book_id}》', model, engine, effort)
+        for attempt in range(2):
+            try:
+                if session is not None and session.get('id'):
+                    if session.get('recovering'):
+                        agent_client.wait_for_idle(session['id'], progress)
+                        session.pop('recovering', None)
+                    if session.get('receipt'):
+                        desktop_agents.wait_for_receipt(session.pop('receipt'), session['id'], progress, engine)
+                    conversation = desktop_agents.continue_conversation(session['id'], instruction, model, engine, effort)
+                else:
+                    conversation = desktop_agents.new_conversation(instruction, f'【{stage_title}】《{book_id}》', model, engine, effort)
+                    if session is not None:
+                        session['id'] = conversation
+                        session['book_root'] = curr_root_str
+                progress(f'已在小说工作区连接 antigravity 会话 {conversation}，等待本阶段完整回复')
+                result = agent_client.wait_for_response(conversation, marker, progress)
+                break
+            except Exception as error:
                 if session is not None:
-                    session['id'] = conversation
-            progress(f'已在小说工作区连接 antigravity 会话 {conversation}，等待本阶段完整回复')
-            result = agent_client.wait_for_response(conversation, marker, progress)
-        except Exception:
-            if session is not None and isinstance(session, dict):
-                session.clear()
-            raise
+                    session.clear()
+                    session['book_root'] = curr_root_str
+                # A confirmed upstream rejection produced no usable reply. Retry once with the same model.
+                message = str(error).lower()
+                retryable = isinstance(error, (RuntimeError, OSError, TimeoutError)) and not isinstance(error, TaskCancelled) and any(
+                    text in message for text in (
+                        'user location is not supported', '503 service unavailable', '502 bad gateway',
+                        '504 gateway timeout', '500 internal server error', 'connection refused', 'connection reset',
+                        'socket', 'proxy', 'network', 'timeout', 'timed out', 'failed to connect',
+                        'resource has been exhausted', 'quota', 'rate limit', 'econnreset', 'econnrefused',
+                        'winerror', '无法连接', '代理', '网络', '上游接口', '安全策略'
+                    )
+                )
+                if attempt or not retryable:
+                    raise
+                reconcile_stage_filesystem_changes(root, before_sources, before, progress)
+                progress(f'模型接口暂时拒绝请求，3秒后使用原模型重试本阶段（1/1）。{str(error)[:300]}')
+                time.sleep(3)
+        progress('本阶段完整回复已接收，正在核对成果')
         atomic_write(output, result)
         reconcile_stage_filesystem_changes(root, before_sources, before, progress)
         return result
@@ -623,14 +720,32 @@ def desktop_stage(root, book_id, prompt, engine, model, effort, progress, sessio
     return output.read_text(encoding='utf-8-sig')
 
 
-def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress, sessions=None, task_id=None, auto_ensure_outline=None):
+def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, progress, sessions=None, task_id=None, auto_ensure_outline=None, preferences_snapshot=None):
     count = novel_manager.validate_chapter_count(count)
     completed = 0
     root, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
+    book_meta = novel_manager.read_book_meta(root, book_id)
+    n_type = book_meta.get('novel_type') or book_meta.get('scale_type') or 'million_long'
+    task_prefs = dict(preferences_snapshot if preferences_snapshot is not None else BRIDGE_PREFERENCES)
+    if not task_prefs.get('default_chapter_words'):
+        if n_type == 'short_story':
+            task_prefs['default_chapter_words'] = '2000-3000'
+        elif n_type == 'mid_short':
+            task_prefs['default_chapter_words'] = '2500-3500'
+        else:
+            task_prefs['default_chapter_words'] = BRIDGE_PREFERENCES.get('default_chapter_words') or '4000-5000'
+    story_memory.recover_commits(root)
     checkpoint = Path(root) / '.story-memory/tasks' / (safe_component(task_id) + '.json') if task_id else None
     state = story_memory.load_json(checkpoint, {}) if checkpoint else {}
+    state.setdefault('preferences', task_prefs)
+    if 'default_chapter_words' not in state['preferences'] or not state['preferences']['default_chapter_words']:
+        state['preferences']['default_chapter_words'] = task_prefs['default_chapter_words']
     batch_id = state.get('batch_id') or uuid.uuid4().hex
     sessions = sessions if sessions is not None else state.get('sessions', {'writer': {}, 'reviewer': {}})
+    if state.get('sessions'):
+        for session in sessions.values():
+            if session.get('id'):
+                session['recovering'] = True
     state.update(batch_id=batch_id, sessions=sessions, count=count)
     if checkpoint:
         atomic_json(checkpoint, state)
@@ -663,11 +778,11 @@ def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, 
         completed += 1
         if checkpoint:
             atomic_json(checkpoint, state)
-        wait_for_cloud_sync(progress)
+        wait_for_cloud_sync(progress, book_id)
     try:
         if recovered:
             progress(f'正在恢复原任务，已保存 {recovered}/{count} 章，核对同步后继续剩余章节')
-            wait_for_cloud_sync(progress)
+            wait_for_cloud_sync(progress, book_id)
         remaining = count - recovered
         if remaining < 0:
             raise ValueError('任务已保存章数超过请求数量，请核对任务记录')
@@ -676,8 +791,8 @@ def execute_serial_chapters(book_id, count, user_prompt, engine, model, effort, 
                 message = re.sub(r'续写进度 (\d+)/\d+', lambda m: f'续写进度 {recovered + int(m.group(1))}/{count}', message)
             progress(message)
         if remaining:
-            prefs = dict(BRIDGE_PREFERENCES)
-            prefs['writing_context_chars'] = max(prefs.get('writing_context_chars', 0), 192000)
+            prefs = dict(state['preferences'])
+            prefs.setdefault('writing_context_chars', 64000)
             if auto_ensure_outline is not None:
                 prefs['auto_ensure_outline'] = auto_ensure_outline
             elif 'auto_ensure_outline' not in prefs:
@@ -701,13 +816,22 @@ def sync_agent_catalog():
 ACTIVE_WORKERS = {}
 WORKERS_LOCK = threading.Lock()
 MAX_CONCURRENT_BOOKS = 4
+SCHEDULER_AT = 0
+BRIDGE_PHASE = 'initial_sync'
 
 def heartbeat_loop():
     global SYNC_REQUEST_ID
     while True:
         with WORKERS_LOCK:
             tids = [info["task_id"] for info in ACTIVE_WORKERS.values()]
-        payload = {"ids": tids}
+        payload = {"ids": tids, "capacity": MAX_CONCURRENT_BOOKS}
+        health = {'pid': os.getpid(), 'scheduler_at': SCHEDULER_AT, 'phase': BRIDGE_PHASE,
+                  'active_count': len(tids), 'heartbeat_at': time.time()}
+        payload['health'] = health
+        try:
+            atomic_json(Path(__file__).with_name('.bridge-health.json'), health)
+        except OSError as error:
+            print(f'[Health] 运行状态写入失败 {error}')
         if tids:
             payload["id"] = tids[0]
         elif ACTIVE_TASK:
@@ -736,12 +860,18 @@ def process_single_task(task):
         model_tier = extra_data.get("model_tier")
         reasoning_effort = extra_data.get("reasoning_effort")
 
+        if action == "create_new_novel":
+            book_title = safe_component(book_id)
+            book_root = os.path.join(BOOKS_ROOT, book_title)
+        else:
+            book_root, _ = novel_manager.get_book_path(book_id, BOOKS_ROOT)
+
         print(f"\n[Task] 捕获指令! ID={tid}, Action={action}, 作品={book_id}, 模型={model_tier}")
 
         report_task({'id': tid, 'status': 'running', 'log': '电脑已领取任务，正在核对云端资料'})
 
         # 等待对账确认，短暂断网期间保留当前任务。
-        wait_for_cloud_sync(lambda msg: report_task({'id': tid, 'status': 'running', 'log': msg}))
+        wait_for_cloud_sync(lambda msg: report_task({'id': tid, 'status': 'running', 'log': msg}), book_id)
 
         # 进度更新回调闭包
         def report_progress(msg):
@@ -848,7 +978,6 @@ def process_single_task(task):
 
         # C. 设定集演进 (新增、润色扩展、一致性排查)
         elif action == "evolve_settings":
-            book_root = os.path.join(BOOKS_ROOT, book_id)
             target_doc = extra_data.get("target_doc", "")
             if target_doc:
                 safe_component(target_doc)
@@ -933,7 +1062,7 @@ def process_single_task(task):
 
             report_progress(f"正在调阅《{book_id}》【{chapter_filename}】，准备进行定点重塑修复...")
 
-            bpath = os.path.join(BOOKS_ROOT, book_id)
+            bpath = book_root
             all_c_files = novel_manager.chapter_files(bpath)
             
             target_file_path = None
@@ -1014,7 +1143,6 @@ def process_single_task(task):
 
         # F. 正文创作与章节续写精修 / 大纲总谱推演
         else:
-            book_root = os.path.join(BOOKS_ROOT, book_id)
             c_files = novel_manager.chapter_files(book_root)
             next_chapter_num = max((int(m.group(1)) for f in c_files if (m := re.search(r"第(\d+)章", os.path.basename(f)))), default=0) + 1
             pad_num = f"{next_chapter_num:03d}"
@@ -1047,11 +1175,23 @@ def process_single_task(task):
                 user_prompt += f"\n本次只精修现有章节 {prev_chapter_file}，原稿已备份到 {backup}。"
 
             if is_write_chapter:
+                b_meta = novel_manager.read_book_meta(book_root, book_id)
+                n_type = extra_data.get("novel_type") or extra_data.get("scale_type") or b_meta.get("novel_type", "million_long")
+                if n_type == "short_story":
+                    words_range = extra_data.get("default_chapter_words") or "2000-3000"
+                elif n_type == "mid_short":
+                    words_range = extra_data.get("default_chapter_words") or "2500-3500"
+                else:
+                    words_range = (extra_data.get("default_chapter_words")
+                                   or (task.get("preferences") or {}).get("default_chapter_words")
+                                   or "4000-5000")
+                task_preferences = dict(task.get("preferences") or {})
+                task_preferences["default_chapter_words"] = words_range
                 if engine == "deepseek":
                     ok, output, last_file = deepseek_client.write_serial_chapters(
                         book_root=book_root, book_id=book_id, count=extra_data.get("chapter_count", 1),
                         user_prompt=user_prompt, model=model_tier, effort=reasoning_effort, progress_cb=report_progress,
-                        auto_ensure_outline=extra_data.get("auto_ensure_outline", False)
+                        auto_ensure_outline=extra_data.get("auto_ensure_outline", False), preferences_snapshot=task_preferences
                     )
                     if ok:
                         sync_all_books_to_cloud()
@@ -1059,7 +1199,7 @@ def process_single_task(task):
                     return
                 ok, output = execute_serial_chapters(book_id, extra_data.get("chapter_count", 1), user_prompt,
                     engine, model_tier, reasoning_effort, report_progress, task_id=tid,
-                    auto_ensure_outline=extra_data.get("auto_ensure_outline", False))
+                    auto_ensure_outline=extra_data.get("auto_ensure_outline", False), preferences_snapshot=task_preferences)
                 report_task({"id": tid, "status": "completed" if ok else "failed", "log": output})
                 return
             else:
@@ -1101,7 +1241,7 @@ def process_single_task(task):
 
         report_progress(f"正在连接 {engine}（模型 {model_tier}，思考等级 {reasoning_effort}），准备在小说工作区执行…")
         if action in ("creative_instruction", "repair_chapter", "evolve_settings"):
-            root = Path(BOOKS_ROOT, book_id).resolve()
+            root = Path(book_root).resolve()
             def stage_generate(request):
                 return desktop_stage(root, book_id, request, engine, model_tier, reasoning_effort, report_progress)
             material = story_memory.instruction_material(root, prompt, BRIDGE_PREFERENCES, stage_generate, report_progress)
@@ -1111,7 +1251,7 @@ def process_single_task(task):
             ok, output = False, "新书任务未保存有效设定文档，请检查执行结果后重试"
         
         if ok:
-            wait_for_cloud_sync(report_progress)
+            wait_for_cloud_sync(report_progress, book_id)
             report_task({
                 "id": tid, 
                 "status": "completed", 
@@ -1139,9 +1279,56 @@ def process_single_task(task):
 
 
 # 8. 多书并行任务调度主循环
-def run_bridge_loop():
+def start_task_worker(task):
     global ACTIVE_TASK
+    book = safe_component(task.get('book_id', DEFAULT_BOOK))
+    with WORKERS_LOCK:
+        if book in ACTIVE_WORKERS or len(ACTIVE_WORKERS) >= MAX_CONCURRENT_BOOKS:
+            return False
+        remember_task(task)
+        thread = threading.Thread(target=process_single_task, args=(task,), daemon=True, name=f'Worker-{book}')
+        ACTIVE_WORKERS[book] = {'thread': thread, 'task_id': task['id'], 'task': task, 'started_at': time.time()}
+        ACTIVE_TASK = task['id']
+        try:
+            thread.start()
+        except Exception:
+            ACTIVE_WORKERS.pop(book, None)
+            raise
+        return True
+
+
+def recover_active_tasks():
+    with TASK_REPORT_LOCK:
+        saved = list(active_jobs().values())
+    for task in saved:
+        with WORKERS_LOCK:
+            if task.get('book_id') in ACTIVE_WORKERS:
+                continue
+        current = api_get('task_status?id=' + urllib.parse.quote(task['id']))
+        if current is None:
+            return False
+        if current.get('status') not in ('pending', 'assigned', 'running'):
+            forget_task(task['id'])
+            continue
+        # Serial writing has chapter/review checkpoints and supports restart recovery.
+        if current.get('extra_data', {}).get('workflow') == 'serial':
+            if not start_task_worker(current):
+                return False
+        else:
+            report_task({'id': task['id'], 'status': 'failed',
+                         'log': '本地执行端重启中断了任务，请核对桌面端已有成果后重试'})
+    return True
+
+
+def run_bridge_loop():
+    global ACTIVE_TASK, SCHEDULER_AT, BRIDGE_PHASE
     ensure_single_instance()
+    for book in Path(BOOKS_ROOT).iterdir():
+        if book.is_dir() and not book.name.startswith('.'):
+            try:
+                story_memory.recover_commits(book)
+            except (OSError, ValueError, RuntimeError, KeyError) as error:
+                print(f'[Recovery] 《{book.name}》等待核对 {error}')
     threading.Thread(target=heartbeat_loop, daemon=True).start()
     threading.Thread(target=sync_agent_catalog, daemon=True).start()
     prevent_sleep()
@@ -1155,10 +1342,15 @@ def run_bridge_loop():
     print("🤖 执行端: Antigravity / ChatGPT（Codex），支持多部小说同时并发创作")
     print(f"📚 多书架工作区: {BOOKS_ROOT}")
     print("="*50 + "\n")
+    BRIDGE_PHASE = 'ready'
 
     while True:
+        SCHEDULER_AT = time.time()
         try:
             if not flush_task_reports():
+                time.sleep(5)
+                continue
+            if not recover_active_tasks():
                 time.sleep(5)
                 continue
             # 1. 清理已退出的 Worker 线程
@@ -1175,15 +1367,7 @@ def run_bridge_loop():
                     api_post("sync_agents", desktop_agents.catalog())
                 task = data.get("task") if data else None
                 if task:
-                    task_book = safe_component(task.get("book_id", DEFAULT_BOOK))
-                    with WORKERS_LOCK:
-                        already_running = task_book in ACTIVE_WORKERS
-                    if not already_running:
-                        th = threading.Thread(target=process_single_task, args=(task,), daemon=True, name=f"Worker-{task_book}")
-                        with WORKERS_LOCK:
-                            ACTIVE_WORKERS[task_book] = {"thread": th, "task_id": task["id"], "task": task, "started_at": time.time()}
-                            ACTIVE_TASK = task["id"]
-                        th.start()
+                    start_task_worker(task)
         except Exception as e:
             print(f"[Loop Exception] {e}")
         time.sleep(2)
