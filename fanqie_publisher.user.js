@@ -1049,7 +1049,12 @@
                             reject(new Error('JSON 解析失败: ' + res.responseText));
                         }
                     } else {
-                        reject(new Error(`HTTP ${res.status}: ${res.statusText}`));
+                        let detail = res.statusText;
+                        try {
+                            const body = JSON.parse(res.responseText);
+                            if (body && body.error) detail = body.error;
+                        } catch (e) { /* 非 JSON 响应保留 statusText */ }
+                        reject(new Error(`HTTP ${res.status}: ${detail}`));
                     }
                 },
                 onerror: (err) => reject(new Error('网络请求错误，请检查中枢地址')),
@@ -1286,12 +1291,15 @@
                 showToast(`正在从智笔云枢获取《${currentBook}》章节发布数据...`);
                 const pkg = await apiGet(`fanqie_publish_package?book=${encodeURIComponent(currentBook)}&file=${encodeURIComponent(selectedVal)}`);
                 if (pkg && pkg.ok) {
+                    if (pkg.notes_stale || pkg.illustrations_stale) {
+                        showToast(`⚠️ 本章互动文案/插图待复核（正文已更新），本次仅录入正文、扣下待复核素材；可在控制台复核后补填。`, 6000);
+                    }
                     await executeFillChapter(pkg);
                     return;
                 }
             } catch (e) {
                 console.error(e);
-                showToast('从 API 获取失败，正在尝试剪贴板数据...');
+                showToast(`从 API 获取失败（${e.message}），正在尝试剪贴板数据...`);
             }
         }
 
@@ -1683,14 +1691,20 @@
 
             const fileParam = targetChap ? targetChap.filename : `第${String(state.currentNum).padStart(3, '0')}章.md`;
 
+            let lastErr = null;
             try {
                 pkg = await apiGet(`fanqie_publish_package?book=${encodeURIComponent(state.bookName)}&file=${encodeURIComponent(fileParam)}`);
             } catch (e) {
+                lastErr = e;
                 console.warn('[NRH Publisher] 无法通过接口获取，尝试备用查询', e);
             }
 
             if (!pkg || !pkg.ok) {
-                throw new Error(`获取第 ${state.currentNum} 章数据失败，请确认中枢服务正常并已写入本章。`);
+                const reason = (pkg && pkg.error) || (lastErr && lastErr.message) || '请确认中枢服务正常并已写入本章。';
+                throw new Error(`获取第 ${state.currentNum} 章数据失败：${reason}`);
+            }
+            if (pkg.notes_stale || pkg.illustrations_stale) {
+                showToast(`⚠️ 第 ${state.currentNum} 章互动文案/插图待复核（正文已更新），本次仅录入正文、扣下待复核素材；可在控制台复核后补填。`, 6000);
             }
 
             // 注入数据并进行自愈校验（最多 3 次尝试，坚决杜绝 0 字草稿）

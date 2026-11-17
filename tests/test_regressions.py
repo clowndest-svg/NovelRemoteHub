@@ -258,7 +258,12 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(self.request('/api/save_chapter_notes', payload)[0], 409)
         changed = self.extras()
         self.assertTrue(changed['notes_stale'])
-        self.assertEqual(self.request('/api/fanqie_publish_package?' + self.query)[0], 400)
+        stale_status, stale_pkg = self.request('/api/fanqie_publish_package?' + self.query)
+        self.assertEqual(stale_status, 200)
+        self.assertTrue(stale_pkg['notes_stale'])
+        self.assertEqual(stale_pkg['author_note'], '')
+        self.assertEqual(stale_pkg['comments'], [])
+        self.assertTrue(stale_pkg['content'])
         self.assertEqual(self.request('/api/confirm_chapter_extras', {'book': self.book, 'file': self.file,
             'revision': changed['meta']['revision'], 'chapter_revision': changed['chapter_revision']})[0], 200)
         self.assertFalse(self.extras()['stale'])

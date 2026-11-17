@@ -188,5 +188,29 @@ class TestFanqiePublisher(unittest.TestCase):
         self.assertIn("严禁跨书串写安全拦截", js_text)
         self.assertIn("批量流水线紧急熔断", js_text)
 
+    def test_publish_payload_withholds_stale_extras_but_serves_body(self):
+        # 正文更新后互动文案未复核：发布包仍 ok 且含正文，但扣下待复核文案并返回标记（不阻断批量发布）
+        meta_path = self.book_dir / "02_插图" / "第001章" / "meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["note_source_sha256"] = "outdated-body-fingerprint"
+        meta.pop("reviewed_revision", None)
+        atomic_write(meta_path, json.dumps(meta, ensure_ascii=False))
+        payload = novel_manager.get_fanqie_publish_payload("测试作品", "第001章_宏观破壁.md", str(self.test_dir))
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["notes_stale"])
+        self.assertEqual(payload["author_note"], "")
+        self.assertEqual(payload["comments"], [])
+        self.assertIn("狄拉克海", payload["content"])
+
+    def test_batch_stale_extras_non_blocking_and_real_error_surfaced(self):
+        js = Path("fanqie_publisher.user.js").read_text(encoding="utf-8")
+        # 批量与单章都对 notes_stale 做非阻断提醒（不再误报中枢异常）
+        self.assertIn("pkg.notes_stale || pkg.illustrations_stale", js)
+        self.assertIn("本次仅录入正文、扣下待复核素材", js)
+        # apiGet 透出服务端真实错误文本
+        self.assertIn("if (body && body.error) detail = body.error;", js)
+        # 批量取包失败时报真实原因而非笼统中枢异常
+        self.assertIn("获取第 ${state.currentNum} 章数据失败：${reason}", js)
+
 if __name__ == "__main__":
     unittest.main()

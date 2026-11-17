@@ -1087,11 +1087,14 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
 
     # 调阅作者有话说与互动文案
     extras = get_chapter_extras(book_id, actual_fname, root_dir)
-    if extras.get('notes_stale'):
-        raise ValueError('正文已更新，请复核互动文案后再获取发布包')
     meta = extras.get("meta") or {}
     author_note = meta.get("author_note", "")
     comments = meta.get("chapter_comments", meta.get("comments", []))
+    if extras.get("notes_stale"):
+        # 正文已更新而互动文案未复核：扣下待复核素材、仅发布正文，避免把过期文案写进平台草稿；
+        # 不阻断正文发布，复核（confirm_chapter_extras）后恢复完整素材。
+        author_note = ""
+        comments = []
 
     # 若有互动问题，追加在作者有话说中
     if comments and not author_note.strip():
@@ -1110,6 +1113,8 @@ def get_fanqie_publish_payload(book_id, fname, root_dir):
         "content": cleaned["content"],
         "author_note": author_note,
         "comments": comments,
+        "notes_stale": bool(extras.get("notes_stale")),
+        "illustrations_stale": bool(extras.get("illustrations_stale")),
         "char_count": cleaned["char_count"],
         "line_count": cleaned["line_count"],
         "replaced_count": cleaned.get("replaced_count", 0)
